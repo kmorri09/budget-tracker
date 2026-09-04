@@ -8,9 +8,7 @@ The app is configured as a single Railway web service backed by Railway PostgreS
 2. Deploy this repository as a web service.
 3. Set `DATABASE_URL` from the PostgreSQL service reference.
 4. Set `NODE_ENV=production`.
-5. Run the one-time migration command from the service shell:
-
-   `npm run db:migrate`
+5. Migrations run automatically as a Railway pre-deploy command (`npm run db:migrate`) before each deployment. The command is idempotent, so a redeploy safely brings a new database schema up to date.
 
 6. Provision only the owner account (this does not create financial data), replacing the values:
 
@@ -37,6 +35,6 @@ The repository pins the build to Node.js 20+ because Next.js 16 does not support
 - `PLAID_CLIENT_ID` and `PLAID_SECRET` — only when live account sync is enabled
 - `SESSION_SECRET` — reserved for a future signed-session upgrade; database sessions are currently random, httpOnly cookies
 
-After migration, open the app and choose **Create the initial user**. This option is only offered while the users table is empty, and the submitted email must match `INITIAL_USER_EMAIL`. Once the account is created, the option disappears permanently unless the database is intentionally reset.
+After the first successful deployment, open the app and choose **Create the initial user**. This option is only offered while the users table is empty, and the submitted email must match `INITIAL_USER_EMAIL`. Once the account is created, the option disappears permanently unless the database is intentionally reset.
 
 Railway's scheduled jobs can be added later as a second service using `npm run jobs:check` once alert dispatch and provider sync are enabled. No financial action is scheduled automatically by the current release.
