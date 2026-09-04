@@ -49,7 +49,7 @@ export async function GET() {
 
   return NextResponse.json({
     user: { id: user.id, displayName: user.displayName, email: user.email },
-    accounts: ledgerByAccount.map((account) => ({ id: account.id, name: account.name, institution: account.institution, type: account.type, syncEnabled: account.syncEnabled, ledgerBalance: centsToAmount(account.ledgerBalanceCents) })),
+    accounts: ledgerByAccount.map((account) => ({ id: account.id, name: account.name, institution: account.institution, type: account.type, syncEnabled: account.syncEnabled, openingBalance: centsToAmount(account.openingBalanceCents), ledgerBalance: centsToAmount(account.ledgerBalanceCents) })),
     ledgerBalance: centsToAmount(ledgerBalanceCents),
     providerBalance: null,
     remainingToBudget: centsToAmount(remainingToBudgetCents),

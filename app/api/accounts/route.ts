@@ -30,9 +30,13 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const body = await request.json().catch(() => null) as { id?: string; syncEnabled?: boolean; provider?: string | null; providerAccountId?: string | null } | null;
+  const body = await request.json().catch(() => null) as { id?: string; syncEnabled?: boolean; provider?: string | null; providerAccountId?: string | null; openingBalance?: number | string } | null;
   if (!body?.id) return NextResponse.json({ error: "Account id is required" }, { status: 400 });
-  await getDatabase().update(accounts).set({ syncEnabled: body.syncEnabled, provider: body.provider, providerAccountId: body.providerAccountId }).where(and(eq(accounts.id, body.id), eq(accounts.userId, user.id)));
+  const openingBalance = body.openingBalance === undefined ? undefined : Number(body.openingBalance);
+  if (openingBalance !== undefined && !Number.isFinite(openingBalance)) return NextResponse.json({ error: "Opening balance must be a number" }, { status: 400 });
+  const changes = { syncEnabled: body.syncEnabled, provider: body.provider, providerAccountId: body.providerAccountId, ...(openingBalance === undefined ? {} : { openingBalanceCents: Math.round(openingBalance * 100) }) };
+  await getDatabase().update(accounts).set(changes).where(and(eq(accounts.id, body.id), eq(accounts.userId, user.id)));
+  if (openingBalance !== undefined) await getDatabase().insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "account_opening_balance", entityId: body.id, afterJson: JSON.stringify({ openingBalance }) });
   return NextResponse.json({ ok: true });
 }
 
