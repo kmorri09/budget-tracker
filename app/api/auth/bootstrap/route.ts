@@ -19,8 +19,14 @@ function allowedEmails() {
 
 export async function GET() {
   if (!process.env.DATABASE_URL) return NextResponse.json({ available: false });
-  const rows = await getDatabase().select({ total: count() }).from(users);
-  return NextResponse.json({ available: Number(rows[0]?.total ?? 0) === 0 && allowedEmails().length > 0 });
+  try {
+    const rows = await getDatabase().select({ total: count() }).from(users);
+    // Account creation is shown whenever the database has no users. The POST
+    // handler still enforces INITIAL_USER_EMAIL as the security boundary.
+    return NextResponse.json({ available: Number(rows[0]?.total ?? 0) === 0 });
+  } catch {
+    return NextResponse.json({ available: false, error: "The database is not ready yet. Redeploy after configuring DATABASE_URL." }, { status: 503 });
+  }
 }
 
 export async function POST(request: Request) {
