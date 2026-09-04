@@ -22,6 +22,14 @@ Demo financial data is opt-in only: set `SEED_DEMO=1` when running the seed comm
 
 The service health endpoint is `/api/health`. The Railway public domain can then be opened on a phone and installed as a PWA.
 
+## Importing the Notion cutover snapshot
+
+After deploying and signing in, open **Import from Notion** in the left navigation (or `/import`). Choose the private Notion ZIP export and set the cutover date to `2026-08-01`. Click **Preview import** first; the report is read-only. Review the warnings, then choose **Import this report to Railway** to write the approved snapshot to Railway Postgres.
+
+The importer reads the full (`_all.csv`) source views, keeps non-Steph accounts and categories with an allocation in the six-month window ending at cutover, and imports transactions, income, allocations, and upcoming payments on or after the cutover date. Budget Summary and Debt Tracking are derived views and are recomputed by the app. Notion does not provide a reliable opening ledger balance in this export, so review each imported account's opening balance after the import.
+
+The ZIP is uploaded over the app's HTTPS connection, held only for the request, and is not stored in the repository. The import is owner-authenticated and writes an audit event. Repeating the same import is idempotent for rows with the same source data.
+
 ## Public URL port
 
 Generate the domain for the **web service**, not the PostgreSQL service. Use the target port shown by Railway—normally `8080` (the value in the screenshot). Railway injects `PORT` into the service, and `next start` listens on that value. If the service Variables tab shows a different `PORT`, use that exact number instead.
