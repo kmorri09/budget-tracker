@@ -135,7 +135,7 @@ export default function Home() {
         <div className="brand"><span className="brand-mark">$</span><span>Budget</span><small>private workspace</small></div>
         <div className="account-switcher"><span className="avatar">{displayName[0]}</span><span><strong>{displayName}&apos;s budget</strong><small>Rolling plan</small></span><span className="chevron">⌄</span></div>
         <nav className="side-nav" aria-label="Primary navigation">
-          {navItems.map((item) => <button key={item.key} className={activeNav === item.key ? "nav-item active" : "nav-item"} onClick={() => setActiveNav(item.key)}><span>{item.icon}</span>{item.label}{item.key === "review" && <em>3</em>}</button>)}
+          {navItems.map((item) => <button key={item.key} className={activeNav === item.key ? "nav-item active" : "nav-item"} onClick={() => setActiveNav(item.key)}><span>{item.icon}</span>{item.label}{item.key === "review" && dashboard?.reviews.length ? <em>{dashboard.reviews.length}</em> : null}</button>)}
         </nav>
         <div className="sidebar-bottom"><a className="muted-link" href="/import">↥ Import from Notion</a><button className="muted-link">⚙ Settings</button><p>Last synced<br /><strong>Today at 9:42 AM</strong></p></div>
       </aside>
@@ -171,7 +171,7 @@ export default function Home() {
       </section>
 
       <nav className="mobile-nav" aria-label="Mobile navigation">
-        {navItems.map((item) => <button key={item.key} className={activeNav === item.key ? "mobile-nav-item active" : "mobile-nav-item"} onClick={() => setActiveNav(item.key)}><span>{item.icon}</span>{item.label}{item.key === "review" && <em>3</em>}</button>)}
+        {navItems.map((item) => <button key={item.key} className={activeNav === item.key ? "mobile-nav-item active" : "mobile-nav-item"} onClick={() => setActiveNav(item.key)}><span>{item.icon}</span>{item.label}{item.key === "review" && dashboard?.reviews.length ? <em>{dashboard.reviews.length}</em> : null}</button>)}
         <button className="mobile-add" onClick={() => setShowActions(true)} aria-label="Add"><span>＋</span></button>
       </nav>
 
