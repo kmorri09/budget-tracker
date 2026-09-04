@@ -22,6 +22,8 @@ export const accounts = pgTable("accounts", {
   institution: text("institution").notNull(),
   type: text("type").notNull(),
   openingBalanceCents: bigint("opening_balance_cents", { mode: "number" }).default(0).notNull(),
+  providerBalanceCents: bigint("provider_balance_cents", { mode: "number" }),
+  providerBalanceAt: timestamp("provider_balance_at", { withTimezone: true }),
   provider: text("provider"),
   providerAccountId: text("provider_account_id"),
   syncEnabled: boolean("sync_enabled").default(false).notNull(),

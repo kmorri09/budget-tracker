@@ -26,9 +26,11 @@ The service health endpoint is `/api/health`. The Railway public domain can then
 
 After deploying and signing in, open **Import from Notion** in the left navigation (or `/import`). Choose the private Notion ZIP export and set the cutover date to `2026-08-01`. Click **Preview import** first; the report is read-only. Review the warnings, then choose **Import this report to Railway** to write the approved snapshot to Railway Postgres.
 
-The importer reads the full (`_all.csv`) source views, keeps non-Steph accounts and categories with an allocation in the six-month window ending at cutover, and imports transactions, income, allocations, and upcoming payments on or after the cutover date. Budget Summary and Debt Tracking are derived views and are recomputed by the app. Notion does not provide a reliable opening ledger balance in this export, so review each imported account's opening balance after the import.
+The importer reads the full (`_all.csv`) source views, keeps non-Steph accounts and categories with an allocation in the six-month window ending at cutover, and imports transactions, income, allocations, and upcoming payments on or after the cutover date. Budget Summary and Debt Tracking are derived views and are recomputed by the app. Notion does not provide a reliable opening ledger balance in this export, so use Force reconcile with each account's current provider balance after the import.
 
 The ZIP is uploaded over the app's HTTPS connection, held only for the request, and is not stored in the repository. The import is owner-authenticated and writes an audit event. Repeating the same import is idempotent for rows with the same source data.
+
+If the imported ledger does not match today’s real balances, use **More → Force reconcile** on each account. Enter the current provider balance; the app previews the gap and, after confirmation, records a standalone reconciliation adjustment. This does not rewrite historical transactions or classify the difference as income, spending, transfers, or card payments.
 
 ## Public URL port
 

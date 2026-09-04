@@ -25,6 +25,7 @@ export async function GET() {
   const signedCashFor = (transaction: typeof transactionRows[number]) => {
     if (transaction.kind === "income" || transaction.kind === "refund") return transaction.amountCents;
     if (transaction.kind === "transfer_in") return transaction.amountCents;
+    if (transaction.kind === "adjustment") return transaction.amountCents;
     return -transaction.amountCents;
   };
   const ledgerByAccount = accountRows.map((account) => ({
@@ -32,6 +33,9 @@ export async function GET() {
     ledgerBalanceCents: account.openingBalanceCents + transactionRows.filter((transaction) => transaction.accountId === account.id).reduce((sum, transaction) => sum + signedCashFor(transaction), 0),
   }));
   const ledgerBalanceCents = ledgerByAccount.filter((account) => account.type !== "credit_card").reduce((sum, account) => sum + account.ledgerBalanceCents, 0);
+  const cashAccounts = ledgerByAccount.filter((account) => account.type !== "credit_card");
+  const providerCashRows = cashAccounts.filter((account) => account.providerBalanceCents !== null);
+  const providerBalanceCents = providerCashRows.length === cashAccounts.length && cashAccounts.length > 0 ? providerCashRows.reduce((sum, account) => sum + (account.providerBalanceCents ?? 0), 0) : null;
   const budgetableIncomeCents = transactionRows.filter((transaction) => transaction.kind === "income").reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const allocatedCents = allocationRows.reduce((sum, allocation) => sum + allocation.amountCents, 0);
   const remainingToBudgetCents = budgetableIncomeCents - allocatedCents;
@@ -49,9 +53,9 @@ export async function GET() {
 
   return NextResponse.json({
     user: { id: user.id, displayName: user.displayName, email: user.email },
-    accounts: ledgerByAccount.map((account) => ({ id: account.id, name: account.name, institution: account.institution, type: account.type, syncEnabled: account.syncEnabled, openingBalance: centsToAmount(account.openingBalanceCents), ledgerBalance: centsToAmount(account.ledgerBalanceCents) })),
+    accounts: ledgerByAccount.map((account) => ({ id: account.id, name: account.name, institution: account.institution, type: account.type, syncEnabled: account.syncEnabled, openingBalance: centsToAmount(account.openingBalanceCents), providerBalance: account.providerBalanceCents === null ? null : centsToAmount(account.providerBalanceCents), providerBalanceAt: account.providerBalanceAt, ledgerBalance: centsToAmount(account.ledgerBalanceCents) })),
     ledgerBalance: centsToAmount(ledgerBalanceCents),
-    providerBalance: null,
+    providerBalance: providerBalanceCents === null ? null : centsToAmount(providerBalanceCents),
     remainingToBudget: centsToAmount(remainingToBudgetCents),
     allocationPercent,
     trailing30: { income: centsToAmount(trailingIncomeCents), spending: centsToAmount(trailingSpendCents), startDate: isoDate(cutoff), endDate: isoDate(new Date()) },

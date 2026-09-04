@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS "accounts" (
   "institution" text NOT NULL,
   "type" text NOT NULL,
   "opening_balance_cents" bigint DEFAULT 0 NOT NULL,
+  "provider_balance_cents" bigint,
+  "provider_balance_at" timestamptz,
   "provider" text,
   "provider_account_id" text,
   "sync_enabled" boolean DEFAULT false NOT NULL,
@@ -108,4 +110,8 @@ CREATE TABLE IF NOT EXISTS "audit_events" (
   "created_at" timestamptz DEFAULT now() NOT NULL
 );
 CREATE INDEX IF NOT EXISTS "audit_events_user_created_idx" ON "audit_events" ("user_id", "created_at");
+
+-- Reconciliation fields are additive so existing Railway databases can migrate safely.
+ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "provider_balance_cents" bigint;
+ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "provider_balance_at" timestamptz;
 
