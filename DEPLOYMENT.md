@@ -10,6 +10,8 @@ The app is configured as a single Railway web service backed by Railway PostgreS
 4. Set `NODE_ENV=production`.
 5. Migrations run automatically as a Railway pre-deploy command (`npm run db:migrate`) before each deployment. The command is idempotent, so a redeploy safely brings a new database schema up to date.
 
+   If the Deployment details page does not show a pre-deploy step, set it manually in the web service at **Settings → Deploy → Pre-deploy Command** to `npm run db:migrate`. Some newer Railway services do not apply legacy `railway.json` config-as-code settings automatically.
+
 6. Provision only the owner account (this does not create financial data), replacing the values:
 
    `npm run db:seed -- owner@example.com "a-long-unique-password"`

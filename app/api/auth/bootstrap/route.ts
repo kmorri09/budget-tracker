@@ -25,7 +25,7 @@ export async function GET() {
     // handler still enforces INITIAL_USER_EMAIL as the security boundary.
     return NextResponse.json({ available: Number(rows[0]?.total ?? 0) === 0 });
   } catch {
-    return NextResponse.json({ available: false, error: "The database is not ready yet. Redeploy after configuring DATABASE_URL." }, { status: 503 });
+    return NextResponse.json({ available: false, error: "The database connection or schema is not ready. Check the latest Railway pre-deploy logs and confirm DATABASE_URL points to Postgres." }, { status: 503 });
   }
 }
 
