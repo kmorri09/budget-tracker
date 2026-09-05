@@ -10,7 +10,7 @@ const entrySchema = z.object({
   kind: z.enum(["transaction", "income", "allocation", "transfer", "payment"]),
   amount: z.coerce.number().positive().finite(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  accountId: z.string().min(1),
+  accountId: z.string().min(1).optional(),
   categoryId: z.string().optional().nullable(),
   fromCategoryId: z.string().optional().nullable(),
   toCategoryId: z.string().optional().nullable(),
@@ -27,8 +27,6 @@ export async function POST(request: Request) {
   const input = parsed.data;
   const amountCents = cents(input.amount);
   const db = getDatabase();
-  const account = (await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.userId, user.id), or(eq(accounts.id, input.accountId), eq(accounts.name, input.accountId)))).limit(1))[0];
-  if (!account) return NextResponse.json({ error: "Account not found" }, { status: 400 });
 
   if (input.kind === "allocation") {
     if (!input.categoryId) return NextResponse.json({ error: "Category is required" }, { status: 400 });
@@ -57,6 +55,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ id: fromId, ok: true });
   }
 
+  if (!input.accountId) return NextResponse.json({ error: "Account is required" }, { status: 400 });
+  const account = (await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.userId, user.id), or(eq(accounts.id, input.accountId), eq(accounts.name, input.accountId)))).limit(1))[0];
+  if (!account) return NextResponse.json({ error: "Account not found" }, { status: 400 });
   const transactionKind = input.kind === "income" ? "income" : input.kind === "payment" ? "card_payment" : "expense";
   if (transactionKind === "expense" && !input.categoryId) return NextResponse.json({ error: "Category is required" }, { status: 400 });
   let resolvedCategoryId: string | null = null;

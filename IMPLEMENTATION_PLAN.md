@@ -1,6 +1,6 @@
 # Budget Tracker Implementation Plan
 
-Status: first release implementation complete; Railway provisioning and live provider credentials remain deployment steps.
+Status: private manual-budgeting release with a navigation/table UX pass; advanced payment, automation, and connection workflows remain in development (see Current release boundary).
 
 This document intentionally contains no personal financial records, provider names, private URLs, account identifiers, or production balances. The private requirements source remains local and is excluded from version control.
 
@@ -66,7 +66,9 @@ Dashboard priority: quick actions, ledger balance, remaining-to-budget, urgent f
 
 Use a calm, Notion-inspired visual language: white canvas, strong typography, generous spacing, subtle borders, restrained green accents, simple cards, and dense but orderly data views. No dark mode is planned initially.
 
-Mobile is feature-complete. Use bottom navigation for Dashboard, Budget, Transactions, Review, and More; keep a persistent central Add control. Forms open as compact sheets, default dates to today, support searchable type-ahead fields, and preserve safe recent choices. Tables collapse into scannable cards without horizontal scrolling.
+Navigation now names the core destinations directly: Home, Transactions, Categories, Allocations, and Review. Accounts & settings is a separate, explicit destination, not a More tab. On phones, all five destinations remain in the bottom bar; Accounts and the Add menu are available in the page header. Forms use today's local date, searchable account/category suggestions, and real configured options. Tables collapse into scannable cards with a Details toggle for secondary fields, without horizontal scrolling.
+
+Transactions and Allocations default to the last 30 days, with All dates and Custom dates controls. Their data is no longer limited to the dashboard's eight recent transactions. Tables support text search, multi-select facets, signed amount ranges, sorting on every column (including mobile), filtered totals, and 25-row pagination. Categories show current rolling balances with overspent/empty/target status filters; selecting a category opens its full transaction history. Filters survive navigation between destinations within the current session. Review retains single-item and Resolve all controls and now handles failures visibly. Account creation, reconciliation, private Notion import, and sign-out are reachable from Accounts & settings.
 
 ## Delivery phases
 
@@ -105,4 +107,8 @@ Complete provider credentials and institution approval, connect only user-select
 
 ## Current release boundary
 
-The current release provides a responsive, mock-data-friendly dashboard, Railway/Postgres schema and migrations, manual account/category configuration, owner-scoped APIs, closed email/password sessions, allow-listed first-user bootstrap, and trailing-30-day activity analytics. Live provider OAuth/sync and scheduled notifications require production credentials and remain opt-in deployment work.
+The current release provides a responsive private dashboard, searchable transaction/category/allocation views, Railway/Postgres schema and migrations, manual account/category configuration, owner-scoped APIs, closed email/password sessions, allow-listed first-user bootstrap, and trailing-30-day activity analytics. Production UI loading failures never fall back to demo balances. Manual allocations and category transfers do not require an unrelated account selection.
+
+Partial card-payment application, auto-allocation, obligation editing, passkeys, live bank connection setup, and scheduled notifications still need implementation/verification beyond this UI pass. The current card-payment form only records a single-account outflow; it does not yet match expenses or update a receiving card. These are requirements, not completed capabilities.
+
+UI verification uses only fictitious API responses: `tests/workspace-smoke.cjs` checks desktop and phone navigation, filters, pagination, category drill-down, quick entry, and reconciliation access against a local server. `node --test tests/table-query.test.mjs` checks filtering, sorting, and display signs (Node 22.18+ for native TypeScript support). No production financial records are test fixtures.

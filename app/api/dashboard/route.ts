@@ -1,4 +1,4 @@
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
@@ -44,10 +44,10 @@ export async function GET() {
     const allocated = allocationRows.filter((allocation) => allocation.categoryId === category.id).reduce((sum, allocation) => sum + allocation.amountCents, 0);
     const spending = transactionRows.filter((transaction) => transaction.categoryId === category.id && transaction.kind === "expense").reduce((sum, transaction) => sum + transaction.amountCents, 0);
     const refunds = transactionRows.filter((transaction) => transaction.categoryId === category.id && transaction.kind === "refund").reduce((sum, transaction) => sum + transaction.amountCents, 0);
-    return { id: category.id, name: category.name, icon: category.icon ?? "$", target: centsToAmount(category.targetCents), available: centsToAmount(allocated - spending + refunds) };
+    return { id: category.id, name: category.name, icon: category.icon ?? "$", target: centsToAmount(category.targetCents), allocated: centsToAmount(allocated), spent: centsToAmount(spending - refunds), available: centsToAmount(allocated - spending + refunds) };
   });
   const cutoff = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
-  const trailingRows = transactionRows.filter((transaction) => transaction.effectiveDate >= isoDate(cutoff));
+  const trailingRows = transactionRows.filter((transaction) => transaction.effectiveDate >= isoDate(cutoff) && transaction.effectiveDate <= isoDate(new Date()));
   const trailingIncomeCents = trailingRows.filter((transaction) => transaction.kind === "income").reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const trailingSpendCents = trailingRows.filter((transaction) => transaction.kind === "expense").reduce((sum, transaction) => sum + transaction.amountCents, 0);
 
@@ -60,9 +60,10 @@ export async function GET() {
     allocationPercent,
     trailing30: { income: centsToAmount(trailingIncomeCents), spending: centsToAmount(trailingSpendCents), startDate: isoDate(cutoff), endDate: isoDate(new Date()) },
     categories: categoryBalances,
+    allocations: allocationRows.map((row) => ({ id: row.id, date: row.effectiveDate, amount: centsToAmount(row.amountCents), note: row.note ?? "", category: categoryById.get(row.categoryId)?.name ?? "Uncategorized" })),
     obligations: obligationRows.map((obligation) => ({ id: obligation.id, name: obligation.name, dueDate: obligation.dueDate, amount: centsToAmount(obligation.amountCents), category: categoryById.get(obligation.categoryId)?.name ?? "Uncategorized", account: accountById.get(obligation.accountId)?.name ?? "Account" })),
     reviews: reviewRows.map((review) => ({ id: review.id, kind: review.kind, title: review.title, details: review.details })),
-    activity: transactionRows.slice(0, 8).map((transaction) => ({ id: transaction.id, description: transaction.description, amount: centsToAmount(transaction.amountCents), kind: transaction.kind, status: transaction.status, pending: transaction.pending, date: transaction.effectiveDate, category: transaction.categoryId ? categoryById.get(transaction.categoryId)?.name : null, account: accountById.get(transaction.accountId)?.name ?? "Account" })),
+    activity: transactionRows.map((transaction) => ({ id: transaction.id, description: transaction.description, amount: centsToAmount(transaction.amountCents), source: transaction.source, kind: transaction.kind, status: transaction.status, pending: transaction.pending, date: transaction.effectiveDate, category: transaction.categoryId ? categoryById.get(transaction.categoryId)?.name : null, account: accountById.get(transaction.accountId)?.name ?? "Account" })),
   });
 }
 

@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Budget — Prototype",
-  description: "A phone-first rolling budget dashboard prototype.",
+  title: "Budget — Private workspace",
+  description: "Your private, phone-first rolling budget workspace.",
   manifest: "/manifest.webmanifest",
 };
 
