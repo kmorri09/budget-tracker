@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import DataTable from "./components/data-table";
 import EntryForm, { actionLabels } from "./components/entry-form";
+import CategoryEditDialog from "./components/category-edit-dialog";
+import CategoryReconcileDialog from "./components/category-reconcile-dialog";
 import { type ActionType, type DashboardData, kindLabel, money, signedAmount } from "../lib/workspace-types";
 import "./workspace.css";
 
@@ -33,6 +35,8 @@ export default function Home() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [drilldown, setDrilldown] = useState<{ category?: string; key: number }>({ key: 0 });
+  const [editingCategory, setEditingCategory] = useState<DashboardData["categories"][number] | null>(null);
+  const [reconcilingCategories, setReconcilingCategories] = useState(false);
 
   const refresh = useCallback(async () => {
     setError("");
@@ -95,10 +99,11 @@ export default function Home() {
             facets={[{ key: "category", label: "Category" }, { key: "account", label: "Account" }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "source", label: "Source" }]} />
         </section>
         <section hidden={destination !== "categories"} aria-label="Categories">
-          <div className="view-heading"><p>Available to assign: <strong>{money(dashboard.remainingToBudget)}</strong></p><div className="section-actions"><button className="secondary-button" onClick={() => openAction("category")}>＋ Category</button><button className="primary-button" onClick={() => openAction("allocation")}>Allocate money</button></div></div>
-          <p className="field-help">Choose a category name to see its transactions across all dates. Funding and spending totals below are lifetime amounts; Available is the current rolling balance.</p>
-          <DataTable title="Categories" amountKey="available" amountLabel="Available" onRow={row => viewCategory(String(row.name))} rows={dashboard.categories.map(category => ({ id: category.id, name: category.name, available: category.available, allocated: category.allocated, spent: category.spent, target: category.target, status: category.available < 0 ? "Overspent" : category.available === 0 ? "Empty" : category.target > category.available ? "Below target" : category.target > 0 ? "Funded" : "Available" }))}
-            columns={[{ key: "name", label: "Category" }, { key: "available", label: "Available", money: true }, { key: "status", label: "Status" }, { key: "target", label: "Target", money: true, detail: true }, { key: "allocated", label: "Net funding", money: true, detail: true }, { key: "spent", label: "Net spending", money: true, detail: true }]} facets={[{ key: "status", label: "Status" }]} />
+          <div className="view-heading"><p>Available to assign: <strong>{money(dashboard.remainingToBudget)}</strong></p><div className="section-actions"><button className="secondary-button" onClick={() => setReconcilingCategories(true)}>Reconcile balances</button><button className="secondary-button" onClick={() => openAction("category")}>＋ Category</button><button className="primary-button" onClick={() => openAction("allocation")}>Allocate money</button></div></div>
+          <p className="field-help">Use Edit to change a category&apos;s details, or View transactions to inspect its full history. Funding and spending totals below are lifetime amounts; Available is the current rolling balance.</p>
+          <DataTable title="Categories" amountKey="available" amountLabel="Available" rows={dashboard.categories.map(category => ({ id: category.id, name: category.name, available: category.available, allocated: category.allocated, spent: category.spent, target: category.target, status: category.available < 0 ? "Overspent" : category.available === 0 ? "Empty" : category.target > category.available ? "Below target" : category.target > 0 ? "Funded" : "Available" }))}
+            columns={[{ key: "name", label: "Category" }, { key: "available", label: "Available", money: true }, { key: "status", label: "Status" }, { key: "target", label: "Target", money: true, detail: true }, { key: "allocated", label: "Net funding", money: true, detail: true }, { key: "spent", label: "Net spending", money: true, detail: true }]} facets={[{ key: "status", label: "Status" }]}
+            rowActions={[{ label: "Edit", onClick: row => { const category = dashboard.categories.find(item => item.id === row.id); if (category) setEditingCategory(category); } }, { label: "View transactions", onClick: row => viewCategory(String(row.name)) }]} />
         </section>
         <section hidden={destination !== "allocations"} aria-label="Allocations">
           <div className="view-heading"><p>Available to assign: <strong>{money(dashboard.remainingToBudget)}</strong></p><div className="section-actions"><button className="secondary-button" onClick={() => openAction("transfer")}>Move funds</button><button className="primary-button" onClick={() => openAction("allocation")}>＋ Allocate money</button></div></div>
@@ -111,6 +116,8 @@ export default function Home() {
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">{navigation.map(item => <button key={item.key} className={"mobile-nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true">{item.icon}</span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</button>)}</nav>
     {dashboard && action && <EntryForm action={action} dashboard={dashboard} onClose={() => setAction(null)} onSaved={saved} />}
+    {editingCategory && <CategoryEditDialog category={editingCategory} onClose={() => setEditingCategory(null)} onSaved={() => { setEditingCategory(null); setToast("Category details updated"); void refresh(); }} />}
+    {dashboard && reconcilingCategories && <CategoryReconcileDialog categories={dashboard.categories} onClose={() => setReconcilingCategories(false)} onSaved={(count) => { setReconcilingCategories(false); setToast(count ? `${count} category ${count === 1 ? "balance" : "balances"} reconciled` : "Category balances already matched"); void refresh(); }} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </main>;
 }

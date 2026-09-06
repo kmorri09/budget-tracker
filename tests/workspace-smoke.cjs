@@ -59,8 +59,22 @@ async function run() {
       }
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No horizontal overflow at '+width);
       await page.screenshot({ path: '.next/ui-smoke/transactions-'+width+'.png', fullPage: true });
+      const dialog = page.getByRole('dialog');
       await nav.getByRole('button', { name: 'Categories', exact: true }).click();
-      await page.getByRole('region', { name: 'Categories table', exact: true }).getByRole('button', { name: 'Food', exact: true }).click();
+      const categoryTable = page.getByRole('region', { name: 'Categories table', exact: true });
+      await categoryTable.getByRole('button', { name: 'Edit Food', exact: true }).click();
+      await dialog.getByLabel('Category name', { exact: true }).fill('Food and groceries');
+      await dialog.getByLabel('Target amount', { exact: true }).fill('175');
+      await dialog.getByRole('button', { name: 'Save changes', exact: true }).click();
+      await dialog.waitFor({ state: 'detached' });
+      assert.equal(saved.path, '/api/categories'); assert.equal(saved.body.id, 'c'); assert.equal(saved.body.name, 'Food and groceries');
+      await page.getByRole('button', { name: 'Reconcile balances', exact: true }).click();
+      await dialog.getByLabel('Desired balance for Food', { exact: true }).fill('75.94');
+      await dialog.getByText('$95.94 adjustment', { exact: false }).waitFor();
+      await dialog.getByRole('button', { name: 'Apply entered balances', exact: true }).click();
+      await dialog.waitFor({ state: 'detached' });
+      assert.equal(saved.path, '/api/categories/reconcile'); assert.deepEqual(saved.body.balances, [{ id: 'c', available: 75.94 }]);
+      await categoryTable.getByRole('button', { name: 'View transactions Food', exact: true }).click();
       await table.getByText('30 of 60 transactions', { exact: false }).waitFor();
       await nav.getByRole('button', { name: 'Allocations', exact: true }).click();
       const allocations = page.getByRole('region', { name: 'Allocations table', exact: true });
@@ -68,7 +82,6 @@ async function run() {
       await allocations.getByRole('button', { name: 'All dates', exact: true }).click();
       await allocations.getByText('2 of 2 allocations', { exact: false }).waitFor();
       await page.getByRole('button', { name: '＋ Allocate money', exact: true }).click();
-      const dialog = page.getByRole('dialog');
       await dialog.getByLabel('Amount', { exact: true }).fill('15');
       await dialog.getByLabel('Note', { exact: true }).fill('Sample funding');
       await dialog.getByLabel('Category', { exact: true }).fill('Food');

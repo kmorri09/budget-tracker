@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
 import { accounts, allocations, categories, obligations, reviewItems, transactions } from "../../../lib/schema";
+import { calculateCategoryBalance } from "../../../lib/category-balance";
 
 const centsToAmount = (cents: number) => Math.round(cents) / 100;
 const isoDate = (value: Date) => value.toISOString().slice(0, 10);
@@ -43,10 +44,8 @@ export async function GET() {
   const remainingToBudgetCents = budgetableIncomeCents - allocatedCents;
   const allocationPercent = budgetableIncomeCents > 0 ? Math.max(0, Math.min(100, Math.round((allocatedCents / budgetableIncomeCents) * 100))) : 0;
   const categoryBalances = activeCategoryRows.map((category) => {
-    const allocated = allocationRows.filter((allocation) => allocation.categoryId === category.id).reduce((sum, allocation) => sum + allocation.amountCents, 0);
-    const spending = transactionRows.filter((transaction) => transaction.categoryId === category.id && transaction.kind === "expense").reduce((sum, transaction) => sum + transaction.amountCents, 0);
-    const refunds = transactionRows.filter((transaction) => transaction.categoryId === category.id && transaction.kind === "refund").reduce((sum, transaction) => sum + transaction.amountCents, 0);
-    return { id: category.id, name: category.name, icon: category.icon ?? "", target: centsToAmount(category.targetCents), allocated: centsToAmount(allocated), spent: centsToAmount(spending - refunds), available: centsToAmount(allocated - spending + refunds) };
+    const balance = calculateCategoryBalance(category.id, allocationRows, transactionRows);
+    return { id: category.id, name: category.name, icon: category.icon ?? "", target: centsToAmount(category.targetCents), allocated: centsToAmount(balance.allocatedCents), spent: centsToAmount(balance.spendingCents - balance.refundCents), available: centsToAmount(balance.availableCents) };
   });
   const cutoff = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
   const trailingRows = transactionRows.filter((transaction) => transaction.effectiveDate >= isoDate(cutoff) && transaction.effectiveDate <= isoDate(new Date()));
