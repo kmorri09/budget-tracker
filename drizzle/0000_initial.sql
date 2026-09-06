@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS "categories" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
   "name" text NOT NULL,
-  "icon" text DEFAULT '$',
+    "icon" text DEFAULT '',
   "target_cents" bigint DEFAULT 0 NOT NULL,
   "active" boolean DEFAULT true NOT NULL,
   "created_at" timestamptz DEFAULT now() NOT NULL
@@ -115,4 +115,5 @@ CREATE INDEX IF NOT EXISTS "audit_events_user_created_idx" ON "audit_events" ("u
 ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "provider_balance_cents" bigint;
 ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "provider_balance_at" timestamptz;
 ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "active" boolean DEFAULT true NOT NULL;
+ALTER TABLE "categories" ALTER COLUMN "icon" SET DEFAULT '';
 

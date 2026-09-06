@@ -35,7 +35,7 @@ export const categories = pgTable("categories", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  icon: text("icon").default("$"),
+  icon: text("icon").default(""),
   targetCents: bigint("target_cents", { mode: "number" }).default(0).notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

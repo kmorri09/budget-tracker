@@ -6,7 +6,7 @@ import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
 import { auditEvents, categories } from "../../../lib/schema";
 
-const schema = z.object({ name: z.string().trim().min(1).max(80), icon: z.string().max(4).default("$"), target: z.coerce.number().finite().nonnegative().default(0) });
+const schema = z.object({ name: z.string().trim().min(1).max(80), icon: z.string().max(4).default(""), target: z.coerce.number().finite().nonnegative().default(0) });
 
 export async function GET() {
   const user = await getCurrentUser();

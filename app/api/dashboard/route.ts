@@ -45,7 +45,7 @@ export async function GET() {
     const allocated = allocationRows.filter((allocation) => allocation.categoryId === category.id).reduce((sum, allocation) => sum + allocation.amountCents, 0);
     const spending = transactionRows.filter((transaction) => transaction.categoryId === category.id && transaction.kind === "expense").reduce((sum, transaction) => sum + transaction.amountCents, 0);
     const refunds = transactionRows.filter((transaction) => transaction.categoryId === category.id && transaction.kind === "refund").reduce((sum, transaction) => sum + transaction.amountCents, 0);
-    return { id: category.id, name: category.name, icon: category.icon ?? "$", target: centsToAmount(category.targetCents), allocated: centsToAmount(allocated), spent: centsToAmount(spending - refunds), available: centsToAmount(allocated - spending + refunds) };
+    return { id: category.id, name: category.name, icon: category.icon ?? "", target: centsToAmount(category.targetCents), allocated: centsToAmount(allocated), spent: centsToAmount(spending - refunds), available: centsToAmount(allocated - spending + refunds) };
   });
   const cutoff = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
   const trailingRows = transactionRows.filter((transaction) => transaction.effectiveDate >= isoDate(cutoff) && transaction.effectiveDate <= isoDate(new Date()));

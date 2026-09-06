@@ -136,7 +136,7 @@ async function applyPlan(userId: string, plan: Plan) {
     for (const category of plan.categoriesPlan) {
       if (categoryIds.has(clean(category.name))) continue;
       const id = stableId("notion-category", userId, category.name);
-      await tx.insert(categories).values({ id, userId, name: category.name, icon: "$", targetCents: 0, active: true }).onConflictDoNothing();
+      await tx.insert(categories).values({ id, userId, name: category.name, icon: "", targetCents: 0, active: true }).onConflictDoNothing();
       categoryIds.set(clean(category.name), id); result.categories += 1;
     }
     const fallbackAccountId = accountIds.get(clean(plan.accountsPlan[0]?.name ?? "")) ?? [...accountIds.values()][0];
