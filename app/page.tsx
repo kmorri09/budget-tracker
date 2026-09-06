@@ -106,7 +106,7 @@ export default function Home() {
             columns={[{ key: "name", label: "Note" }, { key: "date", label: "Date" }, { key: "category", label: "Category" }, { key: "amount", label: "Amount", money: true }, { key: "direction", label: "Direction", detail: true }]} facets={[{ key: "category", label: "Category" }, { key: "direction", label: "Direction" }]} />
         </section>
         <section hidden={destination !== "review"} aria-label="Review"><ReviewInbox dashboard={dashboard} onChanged={() => { setToast("Review updated"); void refresh(); }} /></section>
-        <section hidden={destination !== "accounts"} aria-label="Accounts and settings"><Accounts dashboard={dashboard} onAction={openAction} onChanged={() => { setToast("Account reconciled"); void refresh(); }} /></section>
+  <section hidden={destination !== "accounts"} aria-label="Accounts and settings"><Accounts dashboard={dashboard} onAction={openAction} onChanged={(message) => { setToast(message ?? "Account updated"); void refresh(); }} /></section>
       </>}
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">{navigation.map(item => <button key={item.key} className={"mobile-nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true">{item.icon}</span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</button>)}</nav>
@@ -142,26 +142,57 @@ function ReviewInbox({ dashboard, onChanged }: { dashboard: DashboardData; onCha
   return <div className="panel"><div className="view-heading"><label className="table-search"><span className="sr-only">Search reviews</span><input type="search" placeholder="Search reviews…" value={search} onChange={event => setSearch(event.target.value)} /></label>{dashboard.reviews.length > 0 && <button className="secondary-button" disabled={busy} onClick={() => void resolve()}>Resolve all ({dashboard.reviews.length})</button>}</div><p className="field-help">Resolve marks a review as handled. It does not change an amount, category, or payment. Resolve all applies to the entire inbox, including hidden search results.</p>{error && <p className="form-error" role="alert">{error}</p>}{visible.map(item => <div className="review-item" key={item.id}><div><strong>{item.title}</strong><p>{item.details}</p></div><button className="secondary-button" disabled={busy} onClick={() => void resolve(item.id)}>Resolve</button></div>)}{!visible.length && <p className="empty-state">{dashboard.reviews.length ? "No matching reviews." : "Nothing needs review right now."}</p>}</div>;
 }
 
-function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData; onAction: (action: ActionType) => void; onChanged: () => void }) {
-  const [reconciling, setReconciling] = useState<string | null>(null), [balance, setBalance] = useState("");
+function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData; onAction: (action: ActionType) => void; onChanged: (message?: string) => void }) {
+  const [reconciling, setReconciling] = useState<string | null>(null), [editing, setEditing] = useState<string | null>(null), [balance, setBalance] = useState("");
   const [search, setSearch] = useState(""), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const visible = dashboard.accounts.filter(account => (account.name + " " + account.institution + " " + account.type).toLowerCase().includes(search.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name));
+  async function removeAccount(account: DashboardData["accounts"][number]) {
+    if (!window.confirm("Remove " + account.name + "? It will be archived from this workspace so its transaction history and audit trail remain intact.")) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/accounts", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Could not remove account.");
+      onChanged("Account removed from this workspace");
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); }
+  }
   return <>
     <div className="view-heading"><label className="table-search"><span className="sr-only">Search accounts</span><input type="search" placeholder="Find an account or bank…" value={search} onChange={event => setSearch(event.target.value)} /></label><button className="primary-button" onClick={() => onAction("account")}>＋ Add account</button></div>
+    <p className="field-help account-management-note">Edit account details without changing its ledger. Removing an account archives it rather than deleting its history.</p>
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="account-grid">{visible.map(account => {
       const target = account.type === "credit_card" ? -Math.abs(Number(balance)) : Number(balance);
       const delta = balance.trim() && Number.isFinite(target) ? target - account.ledgerBalance : null;
-      return <article className="panel account-card" key={account.id}><h2>{account.name}</h2><p className="field-help">{account.institution} · {kindLabel(account.type)} · {account.syncEnabled ? "Sync enabled" : "Manual"}</p><dl><div><dt>Ledger balance</dt><dd>{money(account.ledgerBalance)}</dd></div><div><dt>Last provider balance</dt><dd>{account.providerBalance === null ? "Not recorded" : money(account.providerBalance)}</dd></div></dl>{account.providerBalanceAt && <p className="field-help">Recorded {new Date(account.providerBalanceAt).toLocaleDateString()}</p>}
-        {reconciling === account.id ? <form className="inline-form" onSubmit={async event => {
+      return <article className="panel account-card" key={account.id}>
+        {editing === account.id ? <form className="account-edit-form" onSubmit={async event => {
           event.preventDefault(); setBusy(true); setError("");
+          const values = Object.fromEntries(new FormData(event.currentTarget));
           try {
-            const response = await fetch("/api/accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, providerBalance: balance }) });
+            const response = await fetch("/api/accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, name: values.name, institution: values.institution, type: values.type, syncEnabled: values.syncEnabled === "on" }) });
             const result = await response.json().catch(() => null);
-            if (!response.ok) throw new Error(result?.error ?? "Could not reconcile account.");
-            setReconciling(null); onChanged();
+            if (!response.ok) throw new Error(result?.error ?? "Could not update account.");
+            setEditing(null); onChanged("Account details updated");
           } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); }
-        }}><label>{account.type === "credit_card" ? "Amount owed today (positive)" : "Provider balance today"}<input type="number" step="0.01" required value={balance} onChange={event => setBalance(event.target.value)} autoFocus disabled={busy} /></label>{delta !== null && <p className="field-help">Creates a <strong>{money(delta)}</strong> ledger adjustment. No expense or payment is created.</p>}<div className="section-actions"><button className="primary-button" disabled={busy}>Force reconcile</button><button className="secondary-button" disabled={busy} type="button" onClick={() => setReconciling(null)}>Cancel</button></div></form> : <button className="secondary-button" disabled={busy} onClick={() => { setReconciling(account.id); setBalance(""); }}>Reconcile balance</button>}
+        }}>
+          <div className="account-edit-heading"><h2>Edit account</h2><button className="text-link" type="button" disabled={busy} onClick={() => setEditing(null)}>Cancel</button></div>
+          <label>Account name<input name="name" defaultValue={account.name} required maxLength={80} autoFocus /></label>
+          <label>Bank or provider<input name="institution" defaultValue={account.institution} required maxLength={80} /></label>
+          <label>Account type<select name="type" defaultValue={account.type}><option value="checking">Checking</option><option value="savings">Savings</option><option value="credit_card">Credit card</option></select></label>
+          <label className="toggle-field"><input name="syncEnabled" type="checkbox" defaultChecked={account.syncEnabled} /> Enable automatic sync for this account</label>
+          <div className="section-actions"><button className="primary-button" disabled={busy}>Save changes</button><button className="secondary-button" type="button" disabled={busy} onClick={() => void removeAccount(account)}>Remove account</button></div>
+        </form> : <>
+          <div className="account-card-heading"><div><h2>{account.name}</h2><p className="field-help">{account.institution} · {kindLabel(account.type)} · {account.syncEnabled ? "Sync enabled" : "Manual"}</p></div><button className="icon-button account-menu-button" type="button" aria-label={"Edit " + account.name} onClick={() => { setEditing(account.id); setReconciling(null); }}>✎</button></div>
+          <dl><div><dt>Ledger balance</dt><dd>{money(account.ledgerBalance)}</dd></div><div><dt>Last provider balance</dt><dd>{account.providerBalance === null ? "Not recorded" : money(account.providerBalance)}</dd></div></dl>{account.providerBalanceAt && <p className="field-help">Recorded {new Date(account.providerBalanceAt).toLocaleDateString()}</p>}
+          {reconciling === account.id ? <form className="inline-form" onSubmit={async event => {
+            event.preventDefault(); setBusy(true); setError("");
+            try {
+              const response = await fetch("/api/accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, providerBalance: balance }) });
+              const result = await response.json().catch(() => null);
+              if (!response.ok) throw new Error(result?.error ?? "Could not reconcile account.");
+              setReconciling(null); onChanged("Account reconciled");
+            } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); }
+          }}><label>{account.type === "credit_card" ? "Amount owed today (positive)" : "Provider balance today"}<input type="number" step="0.01" required value={balance} onChange={event => setBalance(event.target.value)} autoFocus disabled={busy} /></label>{delta !== null && <p className="field-help">Creates a <strong>{money(delta)}</strong> ledger adjustment. No expense or payment is created.</p>}<div className="section-actions"><button className="primary-button" disabled={busy}>Force reconcile</button><button className="secondary-button" disabled={busy} type="button" onClick={() => setReconciling(null)}>Cancel</button></div></form> : <div className="account-card-actions"><button className="secondary-button" disabled={busy} onClick={() => { setReconciling(account.id); setBalance(""); }}>Reconcile balance</button><button className="text-link" disabled={busy} onClick={() => { setEditing(account.id); setReconciling(null); }}>Edit details</button></div>}
+        </>}
       </article>;
     })}</div>
     {!visible.length && <p className="empty-state">{dashboard.accounts.length ? "No matching accounts." : "Add your checking, savings, or credit card accounts to get started."}</p>}

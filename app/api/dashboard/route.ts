@@ -21,6 +21,7 @@ export async function GET() {
   ]);
 
   const accountById = new Map(accountRows.map((account) => [account.id, account]));
+  const activeAccountRows = accountRows.filter((account) => account.active);
   const categoryById = new Map(categoryRows.map((category) => [category.id, category]));
   const signedCashFor = (transaction: typeof transactionRows[number]) => {
     if (transaction.kind === "income" || transaction.kind === "refund") return transaction.amountCents;
@@ -28,7 +29,7 @@ export async function GET() {
     if (transaction.kind === "adjustment") return transaction.amountCents;
     return -transaction.amountCents;
   };
-  const ledgerByAccount = accountRows.map((account) => ({
+  const ledgerByAccount = activeAccountRows.map((account) => ({
     ...account,
     ledgerBalanceCents: account.openingBalanceCents + transactionRows.filter((transaction) => transaction.accountId === account.id).reduce((sum, transaction) => sum + signedCashFor(transaction), 0),
   }));
@@ -53,7 +54,7 @@ export async function GET() {
 
   return NextResponse.json({
     user: { id: user.id, displayName: user.displayName, email: user.email },
-    accounts: ledgerByAccount.map((account) => ({ id: account.id, name: account.name, institution: account.institution, type: account.type, syncEnabled: account.syncEnabled, openingBalance: centsToAmount(account.openingBalanceCents), providerBalance: account.providerBalanceCents === null ? null : centsToAmount(account.providerBalanceCents), providerBalanceAt: account.providerBalanceAt, ledgerBalance: centsToAmount(account.ledgerBalanceCents) })),
+    accounts: ledgerByAccount.map((account) => ({ id: account.id, name: account.name, institution: account.institution, type: account.type, syncEnabled: account.syncEnabled, active: account.active, openingBalance: centsToAmount(account.openingBalanceCents), providerBalance: account.providerBalanceCents === null ? null : centsToAmount(account.providerBalanceCents), providerBalanceAt: account.providerBalanceAt, ledgerBalance: centsToAmount(account.ledgerBalanceCents) })),
     ledgerBalance: centsToAmount(ledgerBalanceCents),
     providerBalance: providerBalanceCents === null ? null : centsToAmount(providerBalanceCents),
     remainingToBudget: centsToAmount(remainingToBudgetCents),

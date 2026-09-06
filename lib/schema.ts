@@ -27,6 +27,7 @@ export const accounts = pgTable("accounts", {
   provider: text("provider"),
   providerAccountId: text("provider_account_id"),
   syncEnabled: boolean("sync_enabled").default(false).notNull(),
+  active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({ userIndex: index("accounts_user_idx").on(table.userId) }));
 

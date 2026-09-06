@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid account" }, { status: 400 });
   const input = parsed.data;
   const id = randomUUID();
-  await getDatabase().insert(accounts).values({ id, userId: user.id, name: input.name, institution: input.institution, type: input.type, openingBalanceCents: Math.round(input.openingBalance * 100), syncEnabled: input.syncEnabled });
+  await getDatabase().insert(accounts).values({ id, userId: user.id, name: input.name, institution: input.institution, type: input.type, openingBalanceCents: Math.round(input.openingBalance * 100), syncEnabled: input.syncEnabled, active: true });
   await getDatabase().insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "create", entityType: "account", entityId: id, afterJson: JSON.stringify(input) });
   return NextResponse.json({ id, ok: true });
 }
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const body = await request.json().catch(() => null) as { id?: string; syncEnabled?: boolean; provider?: string | null; providerAccountId?: string | null; openingBalance?: number | string; providerBalance?: number | string } | null;
+  const body = await request.json().catch(() => null) as { id?: string; name?: string; institution?: string; type?: string; active?: boolean; syncEnabled?: boolean; provider?: string | null; providerAccountId?: string | null; openingBalance?: number | string; providerBalance?: number | string } | null;
   if (!body?.id) return NextResponse.json({ error: "Account id is required" }, { status: 400 });
   const openingBalance = body.openingBalance === undefined ? undefined : Number(body.openingBalance);
   if (openingBalance !== undefined && !Number.isFinite(openingBalance)) return NextResponse.json({ error: "Opening balance must be a number" }, { status: 400 });
@@ -39,6 +39,9 @@ export async function PATCH(request: Request) {
   const db = getDatabase();
   const account = (await db.select().from(accounts).where(and(eq(accounts.id, body.id), eq(accounts.userId, user.id))).limit(1))[0];
   if (!account) return NextResponse.json({ error: "Account not found" }, { status: 404 });
+  if (body.name !== undefined && (!body.name.trim() || body.name.trim().length > 80)) return NextResponse.json({ error: "Account name must be 1–80 characters" }, { status: 400 });
+  if (body.institution !== undefined && (!body.institution.trim() || body.institution.trim().length > 80)) return NextResponse.json({ error: "Bank or provider must be 1–80 characters" }, { status: 400 });
+  if (body.type !== undefined && !["checking", "savings", "credit_card"].includes(body.type)) return NextResponse.json({ error: "Invalid account type" }, { status: 400 });
   let reconciliationDelta: number | undefined;
   let normalizedProviderBalance: number | undefined;
   if (providerBalance !== undefined) {
@@ -52,14 +55,29 @@ export async function PATCH(request: Request) {
     const currentLedger = account.openingBalanceCents + signedCash;
     reconciliationDelta = normalizedProviderBalance - currentLedger;
   }
-  const changes = { syncEnabled: body.syncEnabled, provider: body.provider, providerAccountId: body.providerAccountId, ...(openingBalance === undefined ? {} : { openingBalanceCents: Math.round(openingBalance * 100) }), ...(providerBalance === undefined ? {} : { providerBalanceCents: normalizedProviderBalance, providerBalanceAt: new Date() }) };
+  const changes = { ...(body.name === undefined ? {} : { name: body.name.trim() }), ...(body.institution === undefined ? {} : { institution: body.institution.trim() }), ...(body.type === undefined ? {} : { type: body.type }), ...(body.active === undefined ? {} : { active: body.active }), ...(body.syncEnabled === undefined ? {} : { syncEnabled: body.syncEnabled }), ...(body.provider === undefined ? {} : { provider: body.provider }), ...(body.providerAccountId === undefined ? {} : { providerAccountId: body.providerAccountId }), ...(openingBalance === undefined ? {} : { openingBalanceCents: Math.round(openingBalance * 100) }), ...(providerBalance === undefined ? {} : { providerBalanceCents: normalizedProviderBalance, providerBalanceAt: new Date() }) };
   await db.update(accounts).set(changes).where(and(eq(accounts.id, body.id), eq(accounts.userId, user.id)));
   if (providerBalance !== undefined && reconciliationDelta !== undefined && Math.abs(reconciliationDelta) >= 1) {
     const adjustmentId = randomUUID();
     await db.insert(transactions).values({ id: adjustmentId, userId: user.id, accountId: account.id, categoryId: null, kind: "adjustment", amountCents: reconciliationDelta, effectiveDate: new Date().toISOString().slice(0, 10), description: "Force reconciliation adjustment", status: "posted", source: "reconciliation", pending: false });
     await db.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "reconcile", entityType: "account", entityId: body.id, afterJson: JSON.stringify({ providerBalance, delta: reconciliationDelta / 100, adjustmentId }) });
   }
-  if (openingBalance !== undefined) await getDatabase().insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "account_opening_balance", entityId: body.id, afterJson: JSON.stringify({ openingBalance }) });
+  if (openingBalance !== undefined || body.name !== undefined || body.institution !== undefined || body.type !== undefined || body.syncEnabled !== undefined) await getDatabase().insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "account", entityId: body.id, afterJson: JSON.stringify({ name: body.name, institution: body.institution, type: body.type, syncEnabled: body.syncEnabled, openingBalance }) });
   return NextResponse.json({ ok: true, delta: reconciliationDelta === undefined ? null : reconciliationDelta / 100 });
+}
+
+export async function DELETE(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const body = await request.json().catch(() => null) as { id?: string } | null;
+  if (!body?.id) return NextResponse.json({ error: "Account id is required" }, { status: 400 });
+  const db = getDatabase();
+  const account = (await db.select().from(accounts).where(and(eq(accounts.id, body.id), eq(accounts.userId, user.id))).limit(1))[0];
+  if (!account) return NextResponse.json({ error: "Account not found" }, { status: 404 });
+  if (!account.active) return NextResponse.json({ ok: true });
+  // Preserve ledger history and audit references. Removing an active account means archiving it from the workspace.
+  await db.update(accounts).set({ active: false }).where(and(eq(accounts.id, body.id), eq(accounts.userId, user.id)));
+  await db.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "archive", entityType: "account", entityId: body.id, beforeJson: JSON.stringify({ name: account.name, institution: account.institution, type: account.type }), afterJson: JSON.stringify({ active: false }) });
+  return NextResponse.json({ ok: true, archived: true });
 }
 

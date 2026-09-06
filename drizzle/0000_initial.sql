@@ -114,4 +114,5 @@ CREATE INDEX IF NOT EXISTS "audit_events_user_created_idx" ON "audit_events" ("u
 -- Reconciliation fields are additive so existing Railway databases can migrate safely.
 ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "provider_balance_cents" bigint;
 ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "provider_balance_at" timestamptz;
+ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "active" boolean DEFAULT true NOT NULL;
 

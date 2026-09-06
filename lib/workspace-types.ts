@@ -1,4 +1,4 @@
-export type Account = { id: string; name: string; institution: string; type: string; syncEnabled: boolean; openingBalance: number; providerBalance: number | null; providerBalanceAt: string | null; ledgerBalance: number };
+export type Account = { id: string; name: string; institution: string; type: string; syncEnabled: boolean; active?: boolean; openingBalance: number; providerBalance: number | null; providerBalanceAt: string | null; ledgerBalance: number };
 export type Category = { id: string; name: string; icon: string; available: number; target: number; allocated: number; spent: number };
 export type Entry = { id: string; description: string; amount: number; kind: string; source: string; status: string; pending: boolean; date: string; category: string | null; account: string };
 export type Allocation = { id: string; date: string; amount: number; note: string; category: string };
