@@ -5,7 +5,8 @@ import { money, today } from "../../lib/workspace-types";
 import { queryRows, type TableQuery, type TableRow } from "../../lib/table-query";
 
 export type Column = { key: string; label: string; money?: boolean; detail?: boolean };
-type Props = { title: string; rows: TableRow[]; columns: Column[]; facets: { key: string; label: string }[]; dated?: boolean; amountKey: string; amountLabel: string; onRow?: (row: TableRow) => void; initialCategory?: string };
+type RowAction = { label: string; onClick: (row: TableRow) => void };
+type Props = { title: string; rows: TableRow[]; columns: Column[]; facets: { key: string; label: string }[]; dated?: boolean; amountKey: string; amountLabel: string; onRow?: (row: TableRow) => void; rowActions?: RowAction[]; initialCategory?: string };
 
 export function SearchFilter({ label, options, value, onChange }: { label: string; options: string[]; value: string[]; onChange: (value: string[]) => void }) {
   const [search, setSearch] = useState("");
@@ -25,7 +26,7 @@ function defaultQuery(dated: boolean, category?: string): TableQuery {
   return { search: "", facets: category ? { category: [category] } : {}, from: dated && !category ? from : "", to: dated && !category ? today() : "", min: "", max: "", sort: dated ? "date" : "name", direction: dated ? "desc" : "asc" };
 }
 
-export default function DataTable({ title, rows, columns, facets, dated = false, amountKey, amountLabel, onRow, initialCategory }: Props) {
+export default function DataTable({ title, rows, columns, facets, dated = false, amountKey, amountLabel, onRow, rowActions = [], initialCategory }: Props) {
   const [query, setQuery] = useState<TableQuery>(() => defaultQuery(dated, initialCategory));
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -56,10 +57,10 @@ export default function DataTable({ title, rows, columns, facets, dated = false,
     <div className="active-filters">{Object.entries(query.facets).flatMap(([key, values]) => values.map(value => <button key={key+value} onClick={() => update({ facets: { ...query.facets, [key]: values.filter(v => v !== value) } })} aria-label={"Remove filter " + value}>{value} ×</button>))}</div>
     <div className="table-summary" aria-live="polite"><span>{filtered.length} of {rows.length} {title.toLowerCase()} · {amountLabel}: <strong>{money(summaryAmount)}</strong></span><button className="text-link" onClick={() => { setRange("all"); update({ ...defaultQuery(false), sort: dated ? "date" : "name", direction: dated ? "desc" : "asc" }); }}>Reset filters</button></div>
     {invalidRange && <p role="alert" className="form-error">The start or minimum must be no greater than the end or maximum.</p>}
-    <table className="workspace-table"><caption className="sr-only">{title} — {filtered.length} matching rows</caption><thead><tr>{columns.map(c => <th key={c.key} aria-sort={query.sort === c.key ? query.direction === "asc" ? "ascending" : "descending" : "none"}><button onClick={() => sort(c.key)}>{c.label} {query.sort === c.key ? query.direction === "asc" ? "↑" : "↓" : "↕"}</button></th>)}<th><span className="sr-only">Details</span></th></tr></thead>
+    <table className="workspace-table"><caption className="sr-only">{title} — {filtered.length} matching rows</caption><thead><tr>{columns.map(c => <th key={c.key} aria-sort={query.sort === c.key ? query.direction === "asc" ? "ascending" : "descending" : "none"}><button onClick={() => sort(c.key)}>{c.label} {query.sort === c.key ? query.direction === "asc" ? "↑" : "↓" : "↕"}</button></th>)}{rowActions.length > 0 && <th className="table-actions-heading">Actions</th>}<th><span className="sr-only">Details</span></th></tr></thead>
       <tbody>{visible.map(row => <tr key={row.id} className={expanded === row.id ? "row-expanded" : ""}>{columns.map((c, index) => <td key={c.key} data-label={c.label} className={(index === 0 ? "row-title " : "") + (c.detail ? "row-detail " : "") + (c.money ? "numeric" : "")}>
         {index === 0 && onRow ? <button className="text-link" onClick={() => onRow(row)}>{String(row[c.key])}</button> : c.money ? <span className={Number(row[c.key]) < 0 ? "negative" : ""}>{money(Number(row[c.key]))}</span> : String(row[c.key])}
-      </td>)}<td className="row-toggle"><button className="text-link" aria-expanded={expanded === row.id} onClick={() => setExpanded(expanded === row.id ? null : row.id)}>{expanded === row.id ? "Less" : "Details"}</button></td></tr>)}</tbody>
+      </td>)}{rowActions.length > 0 && <td className="row-actions" data-label="Actions">{rowActions.map(action => <button type="button" className="text-link" key={action.label} onClick={() => action.onClick(row)}>{action.label}<span className="sr-only"> {String(row[columns[0].key])}</span></button>)}</td>}<td className="row-toggle"><button className="text-link" aria-expanded={expanded === row.id} onClick={() => setExpanded(expanded === row.id ? null : row.id)}>{expanded === row.id ? "Less" : "Details"}</button></td></tr>)}</tbody>
     </table>
     {visible.length === 0 && <div className="table-empty"><h3>{rows.length ? "No matches" : "Nothing here yet"}</h3><p>{rows.length ? "Try changing your date range or clearing a filter." : "Use the add button above to create your first entry."}</p></div>}
     <div className="table-pagination"><span>Page {safePage + 1} of {pages} · 25 per page</span><div><button className="secondary-button" disabled={safePage === 0} onClick={() => setPage(safePage-1)}>Previous</button><button className="secondary-button" disabled={safePage + 1 >= pages} onClick={() => setPage(safePage+1)}>Next</button></div></div>

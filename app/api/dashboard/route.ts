@@ -13,7 +13,7 @@ export async function GET() {
   const db = getDatabase();
   const [accountRows, categoryRows, transactionRows, allocationRows, obligationRows, reviewRows] = await Promise.all([
     db.select().from(accounts).where(eq(accounts.userId, user.id)),
-    db.select().from(categories).where(and(eq(categories.userId, user.id), eq(categories.active, true))),
+    db.select().from(categories).where(eq(categories.userId, user.id)),
     db.select().from(transactions).where(eq(transactions.userId, user.id)).orderBy(desc(transactions.effectiveDate), desc(transactions.createdAt)),
     db.select().from(allocations).where(eq(allocations.userId, user.id)),
     db.select().from(obligations).where(and(eq(obligations.userId, user.id), eq(obligations.active, true))),
@@ -23,6 +23,7 @@ export async function GET() {
   const accountById = new Map(accountRows.map((account) => [account.id, account]));
   const activeAccountRows = accountRows.filter((account) => account.active);
   const categoryById = new Map(categoryRows.map((category) => [category.id, category]));
+  const activeCategoryRows = categoryRows.filter((category) => category.active);
   const signedCashFor = (transaction: typeof transactionRows[number]) => {
     if (transaction.kind === "income" || transaction.kind === "refund") return transaction.amountCents;
     if (transaction.kind === "transfer_in") return transaction.amountCents;
@@ -41,7 +42,7 @@ export async function GET() {
   const allocatedCents = allocationRows.reduce((sum, allocation) => sum + allocation.amountCents, 0);
   const remainingToBudgetCents = budgetableIncomeCents - allocatedCents;
   const allocationPercent = budgetableIncomeCents > 0 ? Math.max(0, Math.min(100, Math.round((allocatedCents / budgetableIncomeCents) * 100))) : 0;
-  const categoryBalances = categoryRows.map((category) => {
+  const categoryBalances = activeCategoryRows.map((category) => {
     const allocated = allocationRows.filter((allocation) => allocation.categoryId === category.id).reduce((sum, allocation) => sum + allocation.amountCents, 0);
     const spending = transactionRows.filter((transaction) => transaction.categoryId === category.id && transaction.kind === "expense").reduce((sum, transaction) => sum + transaction.amountCents, 0);
     const refunds = transactionRows.filter((transaction) => transaction.categoryId === category.id && transaction.kind === "refund").reduce((sum, transaction) => sum + transaction.amountCents, 0);
