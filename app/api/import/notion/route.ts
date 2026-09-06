@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getCurrentUser } from "../../../../lib/auth";
 import { getDatabase } from "../../../../lib/db";
 import { accounts, allocations, auditEvents, categories, obligations, reviewItems, transactions } from "../../../../lib/schema";
-import { displayRelation, parseDate, parseMoney, readNotionExport, stableId, type NotionExport, type NotionImportRow } from "../../../../lib/notion-import";
+import { displayRelation, isNotionCardPayment, parseDate, parseMoney, readNotionExport, stableId, type NotionExport, type NotionImportRow } from "../../../../lib/notion-import";
 
 export const runtime = "nodejs";
 
@@ -71,7 +71,7 @@ export function makePlan(data: NotionExport, cutoff: string) {
     const categoryName = displayRelation(row.Category) || null;
     if (categoryName && !categoryNames.has(clean(categoryName))) skipped.unknownCategory += 1;
     const description = row.Description || "Imported transaction";
-    const review = Boolean(row["Partial Payment Of"] || row["Partial Payment"] || (!categoryName && /payment|autopay|payoff/i.test(description)));
+    const review = isNotionCardPayment(row);
     transactionsPlan.push({ row, date, amountCents: Math.abs(parsed), accountName: accountName || firstChecking, categoryName: categoryName && categoryNames.has(clean(categoryName)) ? categoryNames.get(clean(categoryName))! : null, kind: review ? "card_payment" : "expense", review, index });
   });
 

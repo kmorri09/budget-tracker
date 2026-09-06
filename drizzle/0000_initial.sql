@@ -117,3 +117,38 @@ ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "provider_balance_at" timestampt
 ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "active" boolean DEFAULT true NOT NULL;
 ALTER TABLE "categories" ALTER COLUMN "icon" SET DEFAULT '';
 
+-- Versioned application data repairs run once even though this schema file is idempotent.
+CREATE TABLE IF NOT EXISTS "app_migrations" (
+  "id" text PRIMARY KEY NOT NULL,
+  "applied_at" timestamptz DEFAULT now() NOT NULL
+);
+
+-- The first Notion importer treated the string "0" in Partial Payment as truthy,
+-- classifying every categorized imported expense as a card payment. The source
+-- snapshot contains no actual payment relations in the affected cutover data.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM "app_migrations" WHERE "id" = 'repair_notion_payment_kinds_v1') THEN
+    UPDATE "review_items"
+      SET "status" = 'resolved', "resolved_at" = COALESCE("resolved_at", now())
+      WHERE "transaction_id" IN (
+        SELECT "id" FROM "transactions"
+        WHERE "source" = 'notion_import' AND "kind" = 'card_payment' AND "category_id" IS NOT NULL
+      );
+
+    WITH repaired AS (
+      UPDATE "transactions"
+        SET "kind" = 'expense', "updated_at" = now()
+        WHERE "source" = 'notion_import' AND "kind" = 'card_payment' AND "category_id" IS NOT NULL
+        RETURNING "user_id"
+    )
+    INSERT INTO "audit_events" ("id", "user_id", "action", "entity_type", "entity_id", "after_json")
+      SELECT 'repair-notion-payment-kinds-v1:' || "user_id", "user_id", 'repair', 'import_batch', 'repair_notion_payment_kinds_v1', '{"from":"card_payment","to":"expense","scope":"categorized notion_import transactions"}'
+      FROM repaired
+      GROUP BY "user_id"
+      ON CONFLICT ("id") DO NOTHING;
+
+    INSERT INTO "app_migrations" ("id") VALUES ('repair_notion_payment_kinds_v1');
+  END IF;
+END $$;
+

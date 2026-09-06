@@ -76,6 +76,17 @@ export function displayRelation(value: string | undefined): string {
   return value.replace(/\s*\([^)]*\/([^/]+)\)\s*$/, "").trim();
 }
 
+/**
+ * A Partial Payment value is a numeric rollup on the expense and may be "0".
+ * Only the Partial Payment Of relation identifies the payment row itself.
+ */
+export function isNotionCardPayment(row: NotionImportRow): boolean {
+  const paysAnotherTransaction = Boolean(displayRelation(row["Partial Payment Of"]));
+  const category = displayRelation(row.Category);
+  const description = row.Description ?? "";
+  return paysAnotherTransaction || (!category && /\b(payment|autopay|payoff)\b/i.test(description));
+}
+
 export function parseDate(value: string | undefined): string | null {
   if (!value) return null;
   const text = value.trim();
