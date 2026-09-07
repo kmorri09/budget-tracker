@@ -6,21 +6,27 @@ import { type ActionType, type DashboardData, today } from "../../lib/workspace-
 export const actionLabels: Record<ActionType, string> = { transaction: "Add transaction", income: "Add income", allocation: "Allocate money", transfer: "Move category funds", payment: "Record card payment", category: "Add category", account: "Add account" };
 
 // Native datalists support typing, keyboard selection, and the phone's own picker.
-function Suggestion({ label, name, options, initial = "" }: { label: string; name: string; options: string[]; initial?: string }) {
+function Suggestion({ label, name, options, initial = "", value, onChange }: { label: string; name: string; options: string[]; initial?: string; value?: string; onChange?: (value: string) => void }) {
   const id = useId();
-  return <label>{label}<input name={name} list={id} defaultValue={initial} placeholder="Type to find…" autoComplete="off" required onChange={event => event.target.setCustomValidity("")} onBlur={event => event.target.setCustomValidity(options.includes(event.target.value) ? "" : "Choose an existing option from the list.")} /><datalist id={id}>{options.map(option => <option key={option} value={option} />)}</datalist></label>;
+  return <label>{label}<input name={name} list={id} {...(value === undefined ? { defaultValue: initial } : { value, onChange: event => onChange?.(event.target.value) })} placeholder="Type to find…" autoComplete="off" required onChange={event => { event.target.setCustomValidity(""); onChange?.(event.target.value); }} onBlur={event => event.target.setCustomValidity(options.includes(event.target.value) ? "" : "Choose an existing option from the list.")} /><datalist id={id}>{options.map(option => <option key={option} value={option} />)}</datalist></label>;
 }
 
 export default function EntryForm({ action, dashboard, onClose, onSaved }: { action: ActionType; dashboard: DashboardData; onClose: () => void; onSaved: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const categoryNames = dashboard.categories.map(c => c.name);
   const accountNames = dashboard.accounts.map(a => a.name);
+  const cashAccountNames = dashboard.accounts.filter(account => account.type !== "credit_card").map(account => account.name);
+  const creditCardNames = dashboard.accounts.filter(account => account.type === "credit_card").map(account => account.name);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [manualPayment, setManualPayment] = useState(false);
+  const [toCard, setToCard] = useState(creditCardNames.length === 1 ? creditCardNames[0] : "");
   const budgetOnly = action === "allocation" || action === "transfer";
   const needsCategory = ["transaction", "allocation", "transfer"].includes(action);
-  const missing = !["account", "category"].includes(action) && ((!budgetOnly && !accountNames.length) || (needsCategory && !categoryNames.length));
+  const missing = action === "payment"
+    ? !cashAccountNames.length || !creditCardNames.length
+    : !["account", "category"].includes(action) && ((!budgetOnly && !accountNames.length) || (needsCategory && !categoryNames.length));
   useEffect(() => {
     const node = dialog.current, previousOverflow = document.body.style.overflow;
     node?.showModal(); document.body.style.overflow = "hidden";
@@ -28,11 +34,14 @@ export default function EntryForm({ action, dashboard, onClose, onSaved }: { act
   }, []);
   return <dialog ref={dialog} className="entry-dialog" aria-labelledby={titleId} onCancel={event => { if (busy) event.preventDefault(); else onClose(); }}>
     <div className="modal-top"><div><p className="eyebrow">Quick entry</p><h2 id={titleId}>{actionLabels[action]}</h2></div><button type="button" className="close-button" aria-label="Close form" disabled={busy} onClick={onClose}>×</button></div>
-    {missing ? <div><p>Create {accountNames.length || budgetOnly ? "a category" : "an account"} first, then return here.</p><button className="secondary-button" onClick={onClose}>Close</button></div> : <form onSubmit={async event => {
+    {missing ? <div><p>{action === "payment" ? "Create at least one cash account and one credit-card account first, then return here." : `Create ${accountNames.length || budgetOnly ? "a category" : "an account"} first, then return here.`}</p><button className="secondary-button" onClick={onClose}>Close</button></div> : <form onSubmit={async event => {
       event.preventDefault(); setBusy(true); setError("");
-      const values = Object.fromEntries(new FormData(event.currentTarget));
+        const values = Object.fromEntries(new FormData(event.currentTarget));
+        const applications = Object.entries(values).filter(([key, value]) => key.startsWith("application_") && String(value).trim() !== "").map(([key, value]) => ({ transactionId: key.slice("application_".length), amount: Number(value) }));
+        for (const key of Object.keys(values)) if (key.startsWith("application_")) delete values[key];
+        if (action === "payment" && manualPayment) (values as Record<string, unknown>).applications = applications;
       try {
-        const endpoint = action === "account" ? "/api/accounts" : action === "category" ? "/api/categories" : "/api/entries";
+        const endpoint = action === "account" ? "/api/accounts" : action === "category" ? "/api/categories" : action === "payment" ? "/api/card-payments" : "/api/entries";
         const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...values, kind: action }) });
         const result = await response.json().catch(() => null);
         if (!response.ok) throw new Error(result?.error ?? "Could not save. Please try again.");
@@ -49,12 +58,17 @@ export default function EntryForm({ action, dashboard, onClose, onSaved }: { act
         <label>Category name<input name="name" required maxLength={80} autoFocus /></label><div className="form-grid"><label>Icon (optional)<input name="icon" placeholder="e.g. 🏠" maxLength={4} /></label><label>Target amount<input name="target" type="number" min="0" step="0.01" defaultValue="0" /></label></div>
       </> : <>
         <label>Amount<input name="amount" type="number" min="0.01" step="0.01" placeholder="0.00" required autoFocus /></label>
-        <div className="form-grid"><label>Date<input name="date" type="date" defaultValue={today()} required /></label>{!budgetOnly && <Suggestion label={action === "income" ? "Deposit account" : action === "payment" ? "Payment account (outflow)" : "Account"} name="accountId" options={accountNames} initial={accountNames.length === 1 ? accountNames[0] : ""} />}</div>
+        <div className="form-grid"><label>Date<input name="date" type="date" defaultValue={today()} required /></label>{action === "payment" ? <Suggestion label="From account" name="fromAccountId" options={cashAccountNames} initial={cashAccountNames.length === 1 ? cashAccountNames[0] : ""} /> : !budgetOnly && <Suggestion label={action === "income" ? "Deposit account" : "Account"} name="accountId" options={accountNames} initial={accountNames.length === 1 ? accountNames[0] : ""} />}</div>
+        {action === "payment" && <Suggestion label="To credit card" name="toAccountId" options={creditCardNames} value={toCard} onChange={setToCard} />}
         <label>{budgetOnly ? "Note" : "Description"}<input name="description" required maxLength={200} placeholder={budgetOnly ? "What is this funding for?" : "What was this for?"} /></label>
         {(action === "transaction" || action === "allocation") && <Suggestion label="Category" name="categoryId" options={categoryNames} />}
         {action === "transfer" && <><Suggestion label="From category" name="fromCategoryId" options={categoryNames} /><Suggestion label="To category" name="toCategoryId" options={categoryNames} /></>}
         {budgetOnly && <p className="field-help">Changes your category funding, not your account balances. Funds roll forward indefinitely.</p>}
-        {action === "payment" && <p className="field-help">Records an outflow on the selected account. Matching a payment to individual expenses or updating the receiving card is not supported by this form yet.</p>}
+        {action === "payment" && <>
+          <fieldset className="type-options"><legend>Apply payment</legend><label><input type="radio" name="allocationMode" value="fifo" checked={!manualPayment} onChange={() => setManualPayment(false)} /> Oldest unpaid purchases first</label><label><input type="radio" name="allocationMode" value="manual" checked={manualPayment} onChange={() => setManualPayment(true)} /> Choose purchases manually</label></fieldset>
+          {manualPayment && <div className="payment-allocations"><p className="field-help">Enter the amount of this payment to apply to each purchase. Only unpaid purchases on the selected card are shown.</p>{dashboard.activity.filter(entry => entry.kind === "expense" && entry.accountId === dashboard.accounts.find(account => account.name === toCard)?.id && entry.remainingToPay > 0).map(entry => <label key={entry.id}>{entry.description}<small>{entry.date} · {entry.paymentStatus} · {entry.remainingToPay.toFixed(2)} remaining</small><input name={"application_" + entry.id} type="number" min="0.01" max={entry.remainingToPay} step="0.01" placeholder="0.00" /></label>)}{!dashboard.activity.some(entry => entry.kind === "expense" && entry.accountId === dashboard.accounts.find(account => account.name === toCard)?.id && entry.remainingToPay > 0) && <p className="empty-state">No unpaid purchases found for this card.</p>}</div>}
+          {!manualPayment && <p className="field-help">Moves money from the selected cash account to the card and automatically applies it to the oldest unpaid card purchases. Review coverage in Card payments.</p>}
+        </>}
       </>}
       </fieldset>
       {error && <p className="form-error" role="alert">{error}</p>}

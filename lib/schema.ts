@@ -58,6 +58,34 @@ export const transactions = pgTable("transactions", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({ userDateIndex: index("transactions_user_date_idx").on(table.userId, table.effectiveDate), providerIndex: uniqueIndex("transactions_provider_idx").on(table.userId, table.providerTransactionId) }));
 
+// A card payment is a two-sided cash movement: money leaves a cash account and
+// reduces the balance owed on a credit-card account. It is kept separate from
+// budget transactions so it cannot accidentally count as new spending.
+export const cardPayments = pgTable("card_payments", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  fromAccountId: text("from_account_id").notNull().references(() => accounts.id),
+  toAccountId: text("to_account_id").notNull().references(() => accounts.id),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  effectiveDate: date("effective_date").notNull(),
+  description: text("description").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({ userDateIndex: index("card_payments_user_date_idx").on(table.userId, table.effectiveDate) }));
+
+export const cardPaymentApplications = pgTable("card_payment_applications", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  paymentId: text("payment_id").notNull().references(() => cardPayments.id, { onDelete: "cascade" }),
+  transactionId: text("transaction_id").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  paymentIndex: index("card_payment_applications_payment_idx").on(table.paymentId),
+  transactionIndex: index("card_payment_applications_transaction_idx").on(table.transactionId),
+  uniqueApplication: uniqueIndex("card_payment_applications_unique_idx").on(table.paymentId, table.transactionId),
+}));
+
 export const allocations = pgTable("allocations", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

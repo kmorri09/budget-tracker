@@ -11,6 +11,7 @@ import "./workspace.css";
 const navigation = [
   { key: "home", label: "Home", icon: "⌂" },
   { key: "transactions", label: "Transactions", icon: "⇅" },
+  { key: "payments", label: "Card payments", icon: "↔" },
   { key: "categories", label: "Categories", icon: "▦" },
   { key: "allocations", label: "Allocations", icon: "⇄" },
   { key: "review", label: "Review", icon: "◎" },
@@ -20,6 +21,7 @@ const quickActions: ActionType[] = ["transaction", "income", "allocation", "tran
 const subtitles: Record<Destination, string> = {
   home: "Your rolling plan, at a glance.",
   transactions: "Every account entry, including income, expenses, payments, and reconciliation adjustments.",
+  payments: "Payments from cash accounts to credit cards, with purchase coverage.",
   categories: "Where your money is assigned. Balances roll forward without a monthly reset.",
   allocations: "Your funding history. Moving funds creates a removal and an addition; it does not move cash.",
   review: "Check imported activity and other items that need your attention.",
@@ -94,9 +96,15 @@ export default function Home() {
         <section hidden={destination !== "home"} aria-label="Home"><Overview dashboard={dashboard} navigate={navigate} onAction={openAction} viewCategory={viewCategory} /></section>
         <section hidden={destination !== "transactions"} aria-label="Transactions">
           <div className="view-heading"><p>Money in is positive; money out is negative.</p><div className="section-actions"><button className="secondary-button" onClick={() => openAction("income")}>＋ Income</button><button className="primary-button" onClick={() => openAction("transaction")}>＋ Add transaction</button></div></div>
-          <DataTable key={drilldown.key} initialCategory={drilldown.category} title="Transactions" dated amountKey="amount" amountLabel="Net amount" rows={dashboard.activity.map(entry => ({ id: entry.id, name: entry.description, date: entry.date, account: entry.account, category: entry.category ?? "Uncategorized", type: kindLabel(entry.kind), status: entry.pending ? "Pending" : kindLabel(entry.status), source: kindLabel(entry.source), amount: signedAmount(entry) }))}
-            columns={[{ key: "name", label: "Description" }, { key: "date", label: "Date" }, { key: "amount", label: "Amount", money: true }, { key: "category", label: "Category" }, { key: "account", label: "Account", detail: true }, { key: "type", label: "Type", detail: true }, { key: "status", label: "Status", detail: true }, { key: "source", label: "Source", detail: true }]}
-            facets={[{ key: "category", label: "Category" }, { key: "account", label: "Account" }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "source", label: "Source" }]} />
+          <DataTable key={drilldown.key} initialCategory={drilldown.category} title="Transactions" dated amountKey="amount" amountLabel="Net amount" rows={dashboard.activity.map(entry => ({ id: entry.id, name: entry.description, date: entry.date, account: entry.account, category: entry.category ?? "Uncategorized", type: kindLabel(entry.kind), paymentStatus: entry.paymentStatus, status: entry.pending ? "Pending" : kindLabel(entry.status), source: kindLabel(entry.source), amount: signedAmount(entry), remainingToPay: entry.remainingToPay }))}
+            columns={[{ key: "name", label: "Description" }, { key: "date", label: "Date" }, { key: "amount", label: "Amount", money: true }, { key: "category", label: "Category" }, { key: "account", label: "Account", detail: true }, { key: "type", label: "Type", detail: true }, { key: "paymentStatus", label: "Card coverage", detail: true }, { key: "status", label: "Status", detail: true }, { key: "source", label: "Source", detail: true }]}
+            facets={[{ key: "category", label: "Category" }, { key: "account", label: "Account" }, { key: "type", label: "Type" }, { key: "paymentStatus", label: "Card coverage" }, { key: "status", label: "Status" }, { key: "source", label: "Source" }]} />
+        </section>
+        <section hidden={destination !== "payments"} aria-label="Card payments">
+          <div className="view-heading"><p>Each payment moves cash to a card and is applied to its oldest unpaid purchases.</p><div className="section-actions"><button className="primary-button" onClick={() => openAction("payment")}>＋ Record card payment</button></div></div>
+          <DataTable title="Card payments" dated amountKey="amount" amountLabel="Payment amount" rows={dashboard.payments.map(payment => ({ id: payment.id, name: payment.description, date: payment.date, fromAccount: payment.fromAccount, toAccount: payment.toAccount, amount: payment.amount, applied: payment.applied, remaining: payment.remaining, status: payment.status, covered: payment.covered }))}
+            columns={[{ key: "name", label: "Description" }, { key: "date", label: "Date" }, { key: "fromAccount", label: "From account" }, { key: "toAccount", label: "To card" }, { key: "amount", label: "Amount", money: true }, { key: "applied", label: "Applied to purchases", money: true, detail: true }, { key: "remaining", label: "Unapplied", money: true, detail: true }, { key: "status", label: "Status", detail: true }, { key: "covered", label: "Covered purchases", detail: true }]}
+            facets={[{ key: "fromAccount", label: "From account" }, { key: "toAccount", label: "To card" }, { key: "status", label: "Status" }]} />
         </section>
         <section hidden={destination !== "categories"} aria-label="Categories">
           <div className="view-heading"><p>Available to assign: <strong>{money(dashboard.remainingToBudget)}</strong></p><div className="section-actions"><button className="secondary-button" onClick={() => setReconcilingCategories(true)}>Reconcile balances</button><button className="secondary-button" onClick={() => openAction("category")}>＋ Category</button><button className="primary-button" onClick={() => openAction("allocation")}>Allocate money</button></div></div>

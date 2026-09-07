@@ -61,6 +61,31 @@ CREATE TABLE IF NOT EXISTS "transactions" (
 CREATE INDEX IF NOT EXISTS "transactions_user_date_idx" ON "transactions" ("user_id", "effective_date");
 CREATE UNIQUE INDEX IF NOT EXISTS "transactions_provider_idx" ON "transactions" ("user_id", "provider_transaction_id");
 
+CREATE TABLE IF NOT EXISTS "card_payments" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "from_account_id" text NOT NULL REFERENCES "accounts"("id"),
+  "to_account_id" text NOT NULL REFERENCES "accounts"("id"),
+  "amount_cents" bigint NOT NULL,
+  "effective_date" date NOT NULL,
+  "description" text NOT NULL,
+  "created_at" timestamptz DEFAULT now() NOT NULL,
+  "updated_at" timestamptz DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "card_payments_user_date_idx" ON "card_payments" ("user_id", "effective_date");
+
+CREATE TABLE IF NOT EXISTS "card_payment_applications" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "payment_id" text NOT NULL REFERENCES "card_payments"("id") ON DELETE CASCADE,
+  "transaction_id" text NOT NULL REFERENCES "transactions"("id") ON DELETE CASCADE,
+  "amount_cents" bigint NOT NULL,
+  "created_at" timestamptz DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "card_payment_applications_payment_idx" ON "card_payment_applications" ("payment_id");
+CREATE INDEX IF NOT EXISTS "card_payment_applications_transaction_idx" ON "card_payment_applications" ("transaction_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "card_payment_applications_unique_idx" ON "card_payment_applications" ("payment_id", "transaction_id");
+
 CREATE TABLE IF NOT EXISTS "allocations" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
