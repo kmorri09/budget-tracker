@@ -104,6 +104,19 @@
 .account-card dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
 .account-card dt { color: var(--muted); }
 .account-card dd { margin: 0; font-weight: 600; }
+.bank-connections { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 4px; }
+.bank-connections-heading { align-items: flex-start; }
+.bank-connections-heading h2 { margin: 0; font-family: Fraunces, Georgia, serif; font-size: 21px; }
+.connection-note { margin: 4px 0 16px; padding: 11px 13px; border: 1px solid #d9e7dd; border-radius: 9px; background: #f4faf6; color: var(--green-dark); font-size: 12px; line-height: 1.55; }
+.connection-card { border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 12px; background: #fff; }
+.connection-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.connection-card-heading h3 { margin: 0; font-size: 16px; }
+.provider-account-list { display: grid; gap: 8px; margin-top: 15px; }
+.provider-account-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 0; border-top: 1px solid var(--line); }
+.provider-account-row strong, .provider-account-row small { display: block; }
+.provider-account-row small { color: var(--muted); font-size: 11px; margin-top: 3px; }
+.provider-map-label { display: grid; gap: 5px; min-width: min(220px, 48%); color: var(--muted); font-size: 11px; font-weight: 600; }
+.provider-map-label select { min-height: 38px; border: 1px solid #d4dfd7; border-radius: 8px; padding: 0 9px; background: #fbfcfb; color: var(--ink); font: inherit; }
 .settings-panel { margin-top: 24px; }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid var(--line); padding: 18px 0; margin-top: 12px; font-size: 13px; }
 .settings-row p { margin-bottom: 0; }
@@ -214,5 +227,7 @@
   .coverage-row span:last-child { grid-column: 2; text-align: left; }
   .settings-row { flex-wrap: wrap; }
   .workspace .review-item { align-items: flex-start; flex-wrap: wrap; }
+  .connection-card-heading, .provider-account-row { align-items: flex-start; flex-direction: column; }
+  .provider-map-label { min-width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .workspace *, .workspace *::before, .workspace *::after { animation: none !important; transition: none !important; } }

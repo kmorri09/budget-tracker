@@ -32,6 +32,68 @@ export const accounts = pgTable("accounts", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({ userIndex: index("accounts_user_idx").on(table.userId) }));
 
+// A provider connection owns the secret credentials for one institution item.
+// Tokens are encrypted before they reach this table; the browser never sees them.
+export const providerConnections = pgTable("provider_connections", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  itemId: text("item_id").notNull(),
+  institutionName: text("institution_name"),
+  accessTokenEncrypted: text("access_token_encrypted").notNull(),
+  status: text("status").default("connected").notNull(),
+  cursor: text("cursor"),
+  lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({ userIndex: index("provider_connections_user_idx").on(table.userId), itemIndex: uniqueIndex("provider_connections_item_idx").on(table.userId, table.provider, table.itemId) }));
+
+export const providerAccounts = pgTable("provider_accounts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  connectionId: text("connection_id").notNull().references(() => providerConnections.id, { onDelete: "cascade" }),
+  providerAccountId: text("provider_account_id").notNull(),
+  name: text("name").notNull(),
+  officialName: text("official_name"),
+  mask: text("mask"),
+  type: text("type").notNull(),
+  subtype: text("subtype"),
+  localAccountId: text("local_account_id").references(() => accounts.id, { onDelete: "set null" }),
+  currentBalanceCents: bigint("current_balance_cents", { mode: "number" }),
+  availableBalanceCents: bigint("available_balance_cents", { mode: "number" }),
+  balanceAt: timestamp("balance_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({ userIndex: index("provider_accounts_user_idx").on(table.userId), providerIndex: uniqueIndex("provider_accounts_provider_idx").on(table.connectionId, table.providerAccountId), localIndex: index("provider_accounts_local_idx").on(table.localAccountId) }));
+
+export const rawProviderTransactions = pgTable("raw_provider_transactions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  connectionId: text("connection_id").notNull().references(() => providerConnections.id, { onDelete: "cascade" }),
+  providerAccountId: text("provider_account_id").notNull(),
+  providerTransactionId: text("provider_transaction_id").notNull(),
+  pendingTransactionId: text("pending_transaction_id"),
+  pending: boolean("pending").default(false).notNull(),
+  rawJson: text("raw_json").notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({ userIndex: index("raw_provider_transactions_user_idx").on(table.userId), providerIndex: uniqueIndex("raw_provider_transactions_provider_idx").on(table.userId, table.providerTransactionId), pendingIndex: index("raw_provider_transactions_pending_idx").on(table.userId, table.pendingTransactionId) }));
+
+export const syncRuns = pgTable("sync_runs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  connectionId: text("connection_id").notNull().references(() => providerConnections.id, { onDelete: "cascade" }),
+  status: text("status").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  addedCount: integer("added_count").default(0).notNull(),
+  modifiedCount: integer("modified_count").default(0).notNull(),
+  removedCount: integer("removed_count").default(0).notNull(),
+  error: text("error"),
+}, (table) => ({ userIndex: index("sync_runs_user_idx").on(table.userId), connectionIndex: index("sync_runs_connection_idx").on(table.connectionId, table.startedAt) }));
+
 export const categories = pgTable("categories", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

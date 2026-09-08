@@ -7,6 +7,7 @@ import CategoryEditDialog from "./components/category-edit-dialog";
 import CategoryReconcileDialog from "./components/category-reconcile-dialog";
 import CardCoverageReconcileDialog from "./components/card-coverage-reconcile-dialog";
 import TransactionEditDialog from "./components/transaction-edit-dialog";
+import BankConnections from "./components/bank-connections";
 import { type ActionType, type DashboardData, kindLabel, money, signedAmount } from "../lib/workspace-types";
 import "./workspace.css";
 
@@ -225,6 +226,6 @@ function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData
       </article>;
     })}</div>
     {!visible.length && <p className="empty-state">{dashboard.accounts.length ? "No matching accounts." : "Add your checking, savings, or credit card accounts to get started."}</p>}
-    <section className="panel settings-panel"><h2>Workspace settings</h2><div className="settings-row"><div><strong>Import from Notion</strong><p className="field-help">Upload a private snapshot directly to this app. Preview before importing.</p></div><a className="secondary-button" href="/import">Import Notion</a></div><div className="settings-row"><div><strong>Bank connections</strong><p className="field-help">Account connection setup is not available in this UI yet. All accounts support manual entries.</p></div></div><div className="settings-row"><span>Private session</span><button className="secondary-button" onClick={async () => { try { const response = await fetch("/api/auth/logout", { method: "POST" }); if (!response.ok) throw new Error(); window.location.assign("/login"); } catch { setError("Could not sign out. Please try again."); } }}>Sign out</button></div></section>
+    <section className="panel settings-panel"><h2>Workspace settings</h2><div className="settings-row"><div><strong>Import from Notion</strong><p className="field-help">Upload a private snapshot directly to this app. Preview before importing.</p></div><a className="secondary-button" href="/import">Import Notion</a></div><BankConnections dashboard={dashboard} onChanged={(message) => onChanged(message)} /><div className="settings-row"><span>Private session</span><button className="secondary-button" onClick={async () => { try { const response = await fetch("/api/auth/logout", { method: "POST" }); if (!response.ok) throw new Error(); window.location.assign("/login"); } catch { setError("Could not sign out. Please try again."); } }}>Sign out</button></div></section>
   </>;
 }

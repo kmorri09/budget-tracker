@@ -45,6 +45,8 @@ The repository pins the build to Node.js 20+ because Next.js 16 does not support
 - `TZ=America/Chicago` (or the owner's chosen timezone)
 - `INITIAL_USER_EMAIL` — comma-separated allow-list for the one-time first-user setup (for example, `owner@example.com`)
 - `PLAID_CLIENT_ID` and `PLAID_SECRET` — only when live account sync is enabled
+- `PLAID_ENV` — `sandbox` (default), `development`, or `production`
+- `PLAID_TOKEN_ENCRYPTION_KEY` — encryption key for Plaid access tokens; keep it server-only and stable across deploys
 - `SESSION_SECRET` — reserved for a future signed-session upgrade; database sessions are currently random, httpOnly cookies
 
 After the first successful deployment, open the app and choose **Create the initial user**. This option is only offered while the users table is empty, and the submitted email must match `INITIAL_USER_EMAIL`. Once the account is created, the option disappears permanently unless the database is intentionally reset.

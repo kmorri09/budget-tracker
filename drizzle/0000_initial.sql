@@ -170,6 +170,78 @@ WHERE target."active" = true
   );
 ALTER TABLE "categories" ALTER COLUMN "icon" SET DEFAULT '';
 
+-- Provider-neutral bank connection storage. Secrets are encrypted by the app
+-- before insertion; raw provider payloads stay separate from user decisions.
+CREATE TABLE IF NOT EXISTS "provider_connections" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "provider" text NOT NULL,
+  "item_id" text NOT NULL,
+  "institution_name" text,
+  "access_token_encrypted" text NOT NULL,
+  "status" text DEFAULT 'connected' NOT NULL,
+  "cursor" text,
+  "last_sync_at" timestamptz,
+  "last_error" text,
+  "created_at" timestamptz DEFAULT now() NOT NULL,
+  "updated_at" timestamptz DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "provider_connections_user_idx" ON "provider_connections" ("user_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "provider_connections_item_idx" ON "provider_connections" ("user_id", "provider", "item_id");
+
+CREATE TABLE IF NOT EXISTS "provider_accounts" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "connection_id" text NOT NULL REFERENCES "provider_connections"("id") ON DELETE CASCADE,
+  "provider_account_id" text NOT NULL,
+  "name" text NOT NULL,
+  "official_name" text,
+  "mask" text,
+  "type" text NOT NULL,
+  "subtype" text,
+  "local_account_id" text REFERENCES "accounts"("id") ON DELETE SET NULL,
+  "current_balance_cents" bigint,
+  "available_balance_cents" bigint,
+  "balance_at" timestamptz,
+  "created_at" timestamptz DEFAULT now() NOT NULL,
+  "updated_at" timestamptz DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "provider_accounts_user_idx" ON "provider_accounts" ("user_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "provider_accounts_provider_idx" ON "provider_accounts" ("connection_id", "provider_account_id");
+CREATE INDEX IF NOT EXISTS "provider_accounts_local_idx" ON "provider_accounts" ("local_account_id");
+
+CREATE TABLE IF NOT EXISTS "raw_provider_transactions" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "connection_id" text NOT NULL REFERENCES "provider_connections"("id") ON DELETE CASCADE,
+  "provider_account_id" text NOT NULL,
+  "provider_transaction_id" text NOT NULL,
+  "pending_transaction_id" text,
+  "pending" boolean DEFAULT false NOT NULL,
+  "raw_json" text NOT NULL,
+  "last_seen_at" timestamptz DEFAULT now() NOT NULL,
+  "created_at" timestamptz DEFAULT now() NOT NULL,
+  "updated_at" timestamptz DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "raw_provider_transactions_user_idx" ON "raw_provider_transactions" ("user_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "raw_provider_transactions_provider_idx" ON "raw_provider_transactions" ("user_id", "provider_transaction_id");
+CREATE INDEX IF NOT EXISTS "raw_provider_transactions_pending_idx" ON "raw_provider_transactions" ("user_id", "pending_transaction_id");
+
+CREATE TABLE IF NOT EXISTS "sync_runs" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "connection_id" text NOT NULL REFERENCES "provider_connections"("id") ON DELETE CASCADE,
+  "status" text NOT NULL,
+  "started_at" timestamptz DEFAULT now() NOT NULL,
+  "finished_at" timestamptz,
+  "added_count" integer DEFAULT 0 NOT NULL,
+  "modified_count" integer DEFAULT 0 NOT NULL,
+  "removed_count" integer DEFAULT 0 NOT NULL,
+  "error" text
+);
+CREATE INDEX IF NOT EXISTS "sync_runs_user_idx" ON "sync_runs" ("user_id");
+CREATE INDEX IF NOT EXISTS "sync_runs_connection_idx" ON "sync_runs" ("connection_id", "started_at");
+
 -- Versioned application data repairs run once even though this schema file is idempotent.
 CREATE TABLE IF NOT EXISTS "app_migrations" (
   "id" text PRIMARY KEY NOT NULL,
