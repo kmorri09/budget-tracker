@@ -53,7 +53,7 @@ export function makePlan(data: NotionExport, cutoff: string) {
 
   const accountsPlan = [...accountNames.values()].map((name) => ({
     name,
-    institution: /checking|savings|bank|cash/i.test(name) ? "Notion import" : "Notion import · credit card",
+    institution: "Notion import",
     type: /checking/i.test(name) ? "checking" : /savings/i.test(name) ? "savings" : "credit_card",
   }));
   const categoriesPlan = [...categoryNames.values()].map((name) => ({ name }));
