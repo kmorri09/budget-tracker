@@ -78,7 +78,7 @@ export async function GET() {
     trailing30: { income: centsToAmount(trailingIncomeCents), spending: centsToAmount(trailingSpendCents), startDate: isoDate(cutoff), endDate: isoDate(new Date()) },
     categories: categoryBalances,
     allocations: allocationRows.map((row) => ({ id: row.id, date: row.effectiveDate, amount: centsToAmount(row.amountCents), note: row.note ?? "", category: categoryById.get(row.categoryId)?.name ?? "Uncategorized" })),
-    obligations: obligationRows.map((obligation) => ({ id: obligation.id, name: obligation.name, dueDate: obligation.dueDate, amount: centsToAmount(obligation.amountCents), category: categoryById.get(obligation.categoryId)?.name ?? "Uncategorized", account: accountById.get(obligation.accountId)?.name ?? "Account" })),
+    obligations: obligationRows.map((obligation) => ({ id: obligation.id, name: obligation.name, dueDate: obligation.dueDate, amount: centsToAmount(obligation.amountCents), category: categoryById.get(obligation.categoryId)?.name ?? "Uncategorized", categoryId: obligation.categoryId, account: accountById.get(obligation.accountId)?.name ?? "Account" })),
     reviews: reviewRows.map((review) => ({ id: review.id, kind: review.kind, title: review.title, details: review.details })),
     payments: [
       ...paymentRows.map((payment) => {

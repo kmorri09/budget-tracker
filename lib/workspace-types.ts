@@ -11,7 +11,7 @@ export type DashboardData = {
   activity: Entry[]; allocations: Allocation[]; payments: CardPayment[];
   trailing30: { income: number; spending: number; startDate: string; endDate: string };
   reviews: { id: string; kind: string; title: string; details: string | null }[];
-  obligations: { id: string; name: string; dueDate: string; amount: number; category: string; account: string }[];
+  obligations: { id: string; name: string; dueDate: string; amount: number; category: string; categoryId: string; account: string }[];
 };
 export type ActionType = "transaction" | "income" | "allocation" | "transfer" | "payment" | "category" | "account";
 export const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
