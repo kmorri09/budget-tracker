@@ -176,18 +176,20 @@
 @media (max-width: 1050px) {
   .workspace-table, .workspace-table tbody { display: block; }
   .workspace-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
-  .workspace-table tr { display: grid; grid-template-columns: 1fr 1fr; padding: 14px 0; border-top: 1px solid var(--line); gap: 10px 16px; }
+  .workspace-table tr { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: 12px 0; border-top: 1px solid var(--line); gap: 6px 16px; }
+  .workspace-table tr:has(.selection-column) { padding-left: 34px; }
   .workspace-table td { display: block; border: 0; padding: 0; font-size: 13px; }
-  .workspace-table td::before { content: attr(data-label); display: block; font-size: 10px; color: var(--muted); font-weight: 400; margin-bottom: 4px; }
+  .workspace-table td::before { content: attr(data-label); display: block; font-size: 10px; color: var(--muted); font-weight: 400; margin-bottom: 2px; }
   .workspace-table .row-title { grid-column: 1 / -1; font-size: 14px; }
-  .workspace-table .selection-column { grid-column: 1 / -1; }
-  .workspace-table .selection-column label { display: flex; justify-content: flex-start; }
+  .workspace-table .selection-column { position: absolute; top: 8px; left: 0; width: 24px; }
+  .workspace-table .selection-column::before { display: none; }
+  .workspace-table .selection-column label { display: grid; place-items: center; min-height: 28px; }
   .workspace-table .row-title::before { display: none; }
   .workspace-table .row-detail { display: none; }
   .workspace-table .row-expanded .row-detail { display: block; }
-  .workspace-table .row-actions { display: flex; grid-column: 1 / -1; gap: 18px; }
+  .workspace-table .row-actions { display: flex; grid-column: 1; align-items: center; gap: 18px; }
   .workspace-table .row-actions::before { display: none; }
-  .workspace-table .row-toggle { display: block; grid-column: 1 / -1; }
+  .workspace-table .row-toggle { display: block; grid-column: 2; justify-self: end; }
   .workspace-table .row-toggle button { min-height: 36px; }
 }
 @media (max-width: 700px) {
