@@ -22,4 +22,4 @@ export function today() {
 export function signedAmount(entry: Pick<Entry, "kind" | "amount">) {
   return ["income", "refund", "transfer_in", "adjustment"].includes(entry.kind) ? entry.amount : -entry.amount;
 }
-export const kindLabel = (kind: string) => ({ expense: "Expense", income: "Income", refund: "Refund", card_payment: "Card payment", transfer_in: "Transfer in", transfer_out: "Transfer out", adjustment: "Reconciliation", manual: "Manual", notion_import: "Notion import", reconciliation: "Reconciliation", posted: "Posted", pending: "Pending", credit_card: "Credit card", checking: "Checking", savings: "Savings" }[kind] ?? kind.replaceAll("_", " "));
+export const kindLabel = (kind: string) => ({ expense: "Expense", income: "Income", refund: "Refund", card_payment: "Card payment", transfer_in: "Transfer in", transfer_out: "Transfer out", adjustment: "Reconciliation", manual: "Manual", notion_import: "Notion import", plaid: "Plaid", reconciliation: "Reconciliation", posted: "Posted", pending: "Pending", credit_card: "Credit card", checking: "Checking", savings: "Savings" }[kind] ?? kind.replaceAll("_", " "));

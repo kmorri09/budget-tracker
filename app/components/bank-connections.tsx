@@ -91,7 +91,8 @@ export default function BankConnections({ dashboard, onChanged }: { dashboard: D
       const response = await fetch(`/api/connections/${connection.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sync" }) });
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error ?? "Could not sync this connection.");
-      await refresh(); onChanged(`${connection.institutionName ?? "Bank"} synced — ${result.added} new, ${result.modified} updated`);
+      const repair = result.matched || result.suppressed ? `, ${result.matched ?? 0} matched, ${result.suppressed ?? 0} pre-cutover suppressed` : "";
+      await refresh(); onChanged(`${connection.institutionName ?? "Bank"} synced — ${result.added} new, ${result.modified} updated${repair}`);
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not sync this connection."); }
     finally { setBusy(false); }
   }

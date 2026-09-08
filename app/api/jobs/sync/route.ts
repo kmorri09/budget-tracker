@@ -21,11 +21,11 @@ export async function POST(request: Request) {
   if (!process.env.DATABASE_URL) return NextResponse.json({ error: "Database is not configured" }, { status: 503 });
   const db = getDatabase();
   const connections = await db.select({ id: providerConnections.id, userId: providerConnections.userId }).from(providerConnections).where(and(eq(providerConnections.status, "connected"), inArray(providerConnections.provider, ["plaid", "mock"])));
-  const results: Array<{ connectionId: string; ok: boolean; added?: number; modified?: number; error?: string }> = [];
+  const results: Array<{ connectionId: string; ok: boolean; added?: number; modified?: number; matched?: number; suppressed?: number; error?: string }> = [];
   for (const connection of connections) {
     try {
       const result = await syncConnection(db, connection.userId, connection.id, { onlyEnabled: true });
-      results.push({ connectionId: connection.id, ok: true, added: result.added, modified: result.modified });
+      results.push({ connectionId: connection.id, ok: true, added: result.added, modified: result.modified, matched: result.matched, suppressed: result.suppressed });
     } catch (error) {
       results.push({ connectionId: connection.id, ok: false, error: error instanceof Error ? error.message : "Sync failed" });
     }

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray, lt } from "drizzle-orm";
 import type { Database } from "./db";
 import { accounts, auditEvents, providerAccounts, providerConnections, rawProviderTransactions, reviewItems, syncLocks, syncRuns, transactions } from "./schema";
-import { accountType, mockProviderAccounts, toNormalized, type PlaidAccount, type PlaidTransaction } from "./bank-sync-core";
+import { accountType, findLedgerDuplicate, mockProviderAccounts, syncCutoverDate, toNormalized, type LedgerMatchCandidate, type NormalizedTransaction, type PlaidAccount, type PlaidTransaction } from "./bank-sync-core";
 import { decryptProviderToken, encryptProviderToken, hasProviderEncryptionKey } from "./provider-crypto";
 
 const plaidEnvironment = () => {
@@ -110,7 +110,50 @@ export async function syncConnection(db: Database, userId: string, connectionId:
     const localRows = localIds.length ? await db.select({ id: accounts.id, syncEnabled: accounts.syncEnabled }).from(accounts).where(and(eq(accounts.userId, userId), inArray(accounts.id, localIds))) : [];
     const syncableIds = new Set(onlyEnabled ? localRows.filter(row => row.syncEnabled).map(row => row.id) : localRows.map(row => row.id));
     const localByProvider = new Map(providerRows.filter(row => row.localAccountId && syncableIds.has(row.localAccountId)).map(row => [row.providerAccountId, row.localAccountId!]));
-    let addedCount = 0; let modifiedCount = 0;
+    const cutoverDate = syncCutoverDate(connection.createdAt);
+    const ledgerRows = localIds.length ? await db.select().from(transactions).where(and(eq(transactions.userId, userId), inArray(transactions.accountId, localIds))) : [];
+    const matchCandidates: LedgerMatchCandidate[] = ledgerRows.map(row => ({ id: row.id, accountId: row.accountId, amountCents: row.amountCents, kind: row.kind, effectiveDate: row.effectiveDate, description: row.description, source: row.source, status: row.status, providerTransactionId: row.providerTransactionId }));
+    const reservedMatchIds = new Set<string>();
+    let addedCount = 0; let modifiedCount = 0; let matchedCount = 0; let suppressedCount = 0;
+    const findMatch = (normalized: NormalizedTransaction, localAccountId: string, excludeId?: string) => findLedgerDuplicate(normalized, localAccountId, matchCandidates.filter(candidate => !reservedMatchIds.has(candidate.id)), excludeId);
+    const linkExistingLedgerEntry = async (candidate: LedgerMatchCandidate, normalized: NormalizedTransaction, duplicate?: typeof transactions.$inferSelect) => {
+      await db.transaction(async tx => {
+        if (duplicate) {
+          await tx.update(transactions).set({ status: "removed", removedAt: now, providerTransactionId: null, pending: false, updatedAt: now }).where(and(eq(transactions.id, duplicate.id), eq(transactions.userId, userId)));
+          await tx.update(reviewItems).set({ status: "resolved", resolvedAt: now, details: "Automatically resolved after matching this Plaid import to an existing ledger entry." }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, duplicate.id), eq(reviewItems.status, "open")));
+        }
+        await tx.update(transactions).set({ providerTransactionId: normalized.providerTransactionId, updatedAt: now }).where(and(eq(transactions.id, candidate.id), eq(transactions.userId, userId)));
+        await tx.insert(auditEvents).values({ id: randomUUID(), userId, action: "deduplicate", entityType: "provider_transaction", entityId: candidate.id, beforeJson: JSON.stringify({ duplicateTransactionId: duplicate?.id ?? null, source: candidate.source }), afterJson: JSON.stringify({ providerTransactionId: normalized.providerTransactionId, connectionId, matchedBy: "account+amount+date" }) });
+      });
+      candidate.providerTransactionId = normalized.providerTransactionId;
+      reservedMatchIds.add(candidate.id);
+      matchedCount++;
+    };
+    const suppressPreCutover = async (row: typeof transactions.$inferSelect, providerTransactionId: string) => {
+      if (row.status === "removed") return;
+      await db.transaction(async tx => {
+        await tx.update(transactions).set({ status: "removed", removedAt: now, pending: false, updatedAt: now }).where(and(eq(transactions.id, row.id), eq(transactions.userId, userId)));
+        await tx.update(reviewItems).set({ status: "resolved", resolvedAt: now, details: `Automatically resolved because this provider entry predates the ${cutoverDate} sync cutover.` }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, row.id), eq(reviewItems.status, "open")));
+        await tx.insert(auditEvents).values({ id: randomUUID(), userId, action: "suppress_pre_cutover", entityType: "provider_transaction", entityId: row.id, beforeJson: JSON.stringify({ providerTransactionId, effectiveDate: row.effectiveDate }), afterJson: JSON.stringify({ status: "removed", cutoverDate, connectionId }) });
+      });
+      suppressedCount++;
+    };
+
+    // Repair the first sync as well as future syncs. Raw rows preserve the
+    // provider record even when the duplicate normalized row is suppressed.
+    const rawRows = await db.select().from(rawProviderTransactions).where(and(eq(rawProviderTransactions.userId, userId), eq(rawProviderTransactions.connectionId, connectionId)));
+    const rawByProviderId = new Map(rawRows.map(row => [row.providerTransactionId, row]));
+    for (const plaidRow of ledgerRows.filter(row => row.source === "plaid" && row.status !== "removed" && row.providerTransactionId && rawByProviderId.has(row.providerTransactionId))) {
+      const raw = rawByProviderId.get(plaidRow.providerTransactionId!);
+      const localAccountId = raw ? localByProvider.get(raw.providerAccountId) : null;
+      if (!raw || !localAccountId) continue;
+      const parsedRaw = JSON.parse(raw.rawJson) as PlaidTransaction;
+      const normalized = toNormalized(parsedRaw);
+      const candidate = findMatch(normalized, localAccountId, plaidRow.id);
+      if (candidate) await linkExistingLedgerEntry(candidate, normalized, plaidRow);
+      else if (normalized.date < cutoverDate) await suppressPreCutover(plaidRow, normalized.providerTransactionId);
+    }
+
     for (const remote of [...added, ...modified]) {
       const normalized = toNormalized(remote);
       await db.insert(rawProviderTransactions).values({ id: randomUUID(), userId, connectionId, providerAccountId: normalized.providerAccountId, providerTransactionId: normalized.providerTransactionId, pendingTransactionId: normalized.pendingTransactionId, pending: normalized.pending, rawJson: JSON.stringify(normalized.raw), lastSeenAt: now, updatedAt: now }).onConflictDoUpdate({ target: [rawProviderTransactions.userId, rawProviderTransactions.providerTransactionId], set: { providerAccountId: normalized.providerAccountId, pendingTransactionId: normalized.pendingTransactionId, pending: normalized.pending, rawJson: JSON.stringify(normalized.raw), lastSeenAt: now, updatedAt: now } });
@@ -119,9 +162,14 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       let existing = (await db.select().from(transactions).where(and(eq(transactions.userId, userId), eq(transactions.providerTransactionId, normalized.providerTransactionId))).limit(1))[0];
       if (!existing && normalized.pendingTransactionId) existing = (await db.select().from(transactions).where(and(eq(transactions.userId, userId), eq(transactions.providerTransactionId, normalized.pendingTransactionId))).limit(1))[0];
       if (existing) {
-        await db.update(transactions).set({ accountId: localAccountId, providerTransactionId: normalized.providerTransactionId, amountCents: normalized.amountCents, kind: normalized.kind, categoryId: normalized.kind === "expense" ? existing.categoryId : null, effectiveDate: normalized.date, description: normalized.description, status: normalized.pending ? "pending" : "posted", pending: normalized.pending, source: "plaid", updatedAt: now }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
+        if (existing.status === "removed" && normalized.date < cutoverDate) continue;
+        const providerManaged = existing.source === "plaid";
+        await db.update(transactions).set({ accountId: localAccountId, providerTransactionId: normalized.providerTransactionId, amountCents: normalized.amountCents, kind: normalized.kind, categoryId: normalized.kind === "expense" ? existing.categoryId : null, effectiveDate: providerManaged ? normalized.date : existing.effectiveDate, description: providerManaged ? normalized.description : existing.description, status: providerManaged ? (normalized.pending ? "pending" : "posted") : existing.status, pending: providerManaged ? normalized.pending : existing.pending, source: existing.source, updatedAt: now }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
         modifiedCount++;
       } else {
+        const candidate = findMatch(normalized, localAccountId);
+        if (candidate) { await linkExistingLedgerEntry(candidate, normalized); continue; }
+        if (normalized.date < cutoverDate) { suppressedCount++; continue; }
         const id = randomUUID();
         await db.insert(transactions).values({ id, userId, accountId: localAccountId, categoryId: null, kind: normalized.kind, amountCents: normalized.amountCents, effectiveDate: normalized.date, description: normalized.description, status: normalized.pending ? "pending" : "posted", source: "plaid", providerTransactionId: normalized.providerTransactionId, pending: normalized.pending });
         if (normalized.kind === "expense") await db.insert(reviewItems).values({ id: randomUUID(), userId, transactionId: id, kind: "bank_transaction", title: `Review imported transaction: ${normalized.description}`, details: "Assign a category or confirm this imported activity is already represented in your budget." });
@@ -130,16 +178,18 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       }
     }
     for (const removedRow of removed) {
-      const existing = (await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.userId, userId), eq(transactions.providerTransactionId, removedRow.transaction_id))).limit(1))[0];
+      const existing = (await db.select().from(transactions).where(and(eq(transactions.userId, userId), eq(transactions.providerTransactionId, removedRow.transaction_id))).limit(1))[0];
       if (existing) {
-        await db.update(transactions).set({ status: "removed", pending: false, removedAt: new Date() }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
-        await db.update(reviewItems).set({ status: "resolved", resolvedAt: new Date(), details: "Automatically resolved because the provider removed this transaction." }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, existing.id), eq(reviewItems.status, "open")));
+        if (existing.source === "plaid") {
+          await db.update(transactions).set({ status: "removed", pending: false, removedAt: new Date() }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
+          await db.update(reviewItems).set({ status: "resolved", resolvedAt: new Date(), details: "Automatically resolved because the provider removed this transaction." }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, existing.id), eq(reviewItems.status, "open")));
+        } else await db.update(transactions).set({ providerTransactionId: null, updatedAt: new Date() }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
         await db.insert(auditEvents).values({ id: randomUUID(), userId, action: "remove", entityType: "provider_transaction", entityId: existing.id, afterJson: JSON.stringify({ providerTransactionId: removedRow.transaction_id, connectionId }) });
       }
     }
     await db.update(providerConnections).set({ cursor: nextCursor, status: "connected", lastSyncAt: now, lastError: null, updatedAt: now }).where(and(eq(providerConnections.id, connectionId), eq(providerConnections.userId, userId)));
     await db.update(syncRuns).set({ status: "succeeded", finishedAt: now, addedCount, modifiedCount, removedCount: removed.length }).where(and(eq(syncRuns.id, runId), eq(syncRuns.userId, userId)));
-    return { runId, added: addedCount, modified: modifiedCount, removed: removed.length, syncedAt: now.toISOString() };
+    return { runId, added: addedCount, modified: modifiedCount, removed: removed.length, matched: matchedCount, suppressed: suppressedCount, cutoverDate, syncedAt: now.toISOString() };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Provider sync failed";
     const reauthRequired = error instanceof PlaidError && ["ITEM_LOGIN_REQUIRED", "ITEM_LOCKED", "ITEM_NOT_FOUND"].includes(error.code ?? "");
