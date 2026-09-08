@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "node scripts/start.mjs",
     "db:migrate": "node scripts/migrate.mjs",
-    "db:seed": "node scripts/seed.mjs"
+    "db:seed": "node scripts/seed.mjs",
+    "jobs:sync": "node scripts/run-bank-sync.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
