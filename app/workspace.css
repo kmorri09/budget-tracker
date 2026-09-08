@@ -40,6 +40,8 @@
 .overview-row > :first-child { min-width: 0; overflow-wrap: anywhere; }
 .overview-row > :last-child { text-align: right; flex-shrink: 0; }
 .overview-row small { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; line-height: 1.6; }
+.section-context { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+.recent-more { margin-top: 10px; }
 .attention-link { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 52px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--green-dark); text-align: left; font-size: 13px; }
 .data-panel { background: white; border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 18px; }
 .table-toolbar { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
