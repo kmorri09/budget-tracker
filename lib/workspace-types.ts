@@ -5,6 +5,8 @@ export type CardPayment = { id: string; description: string; amount: number; dat
 export type Allocation = { id: string; date: string; amount: number; note: string; category: string };
 export type DashboardData = {
   ledgerBalance: number; providerBalance: number | null; remainingToBudget: number;
+  availableBreakdown: { income: number; adjustments: number; allocations: number; available: number };
+  availableAdjustments: { id: string; date: string; amount: number; note: string }[];
   allocationPercent: number; accounts: Account[]; categories: Category[];
   activity: Entry[]; allocations: Allocation[]; payments: CardPayment[];
   trailing30: { income: number; spending: number; startDate: string; endDate: string };

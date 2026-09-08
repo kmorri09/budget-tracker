@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
-import { accounts, allocations, auditEvents, categories, transactions } from "../../../lib/schema";
+import { accounts, allocations, auditEvents, cardCoverageAdjustments, cardPaymentApplications, categories, reviewItems, transactions } from "../../../lib/schema";
 
 const entrySchema = z.object({
   kind: z.enum(["transaction", "income", "allocation", "transfer", "payment"]),
@@ -114,4 +114,25 @@ export async function PATCH(request: Request) {
     await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "transaction", entityId: input.id, beforeJson: JSON.stringify({ kind: existing.kind, amountCents: existing.amountCents, effectiveDate: existing.effectiveDate, accountId: existing.accountId, categoryId: existing.categoryId, description: existing.description, status: existing.status, pending: existing.pending }), afterJson: JSON.stringify(changes) });
   });
   return NextResponse.json({ id: input.id, ok: true });
+}
+
+const transactionDeleteSchema = z.object({ id: z.string().min(1) });
+
+export async function DELETE(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const parsed = transactionDeleteSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "Transaction id is required" }, { status: 400 });
+  const db = getDatabase();
+  const existing = (await db.select().from(transactions).where(and(eq(transactions.id, parsed.data.id), eq(transactions.userId, user.id))).limit(1))[0];
+  if (!existing || existing.status === "removed") return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
+
+  await db.transaction(async tx => {
+    await tx.delete(cardPaymentApplications).where(and(eq(cardPaymentApplications.transactionId, existing.id), eq(cardPaymentApplications.userId, user.id)));
+    await tx.delete(cardCoverageAdjustments).where(and(eq(cardCoverageAdjustments.transactionId, existing.id), eq(cardCoverageAdjustments.userId, user.id)));
+    await tx.delete(reviewItems).where(and(eq(reviewItems.transactionId, existing.id), eq(reviewItems.userId, user.id)));
+    await tx.update(transactions).set({ status: "removed", removedAt: new Date(), updatedAt: new Date() }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, user.id)));
+    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "delete", entityType: "transaction", entityId: existing.id, beforeJson: JSON.stringify(existing), afterJson: JSON.stringify({ status: "removed" }) });
+  });
+  return NextResponse.json({ id: existing.id, ok: true });
 }

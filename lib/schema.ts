@@ -180,6 +180,17 @@ export const allocations = pgTable("allocations", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({ userDateIndex: index("allocations_user_date_idx").on(table.userId, table.effectiveDate) }));
 
+// Budget adjustments correct the unassigned pool without inventing income,
+// moving category money, or changing an account ledger balance.
+export const budgetAdjustments = pgTable("budget_adjustments", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  effectiveDate: date("effective_date").notNull(),
+  note: text("note").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({ userDateIndex: index("budget_adjustments_user_date_idx").on(table.userId, table.effectiveDate) }));
+
 export const obligations = pgTable("obligations", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

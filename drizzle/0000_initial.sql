@@ -110,6 +110,16 @@ CREATE TABLE IF NOT EXISTS "allocations" (
 );
 CREATE INDEX IF NOT EXISTS "allocations_user_date_idx" ON "allocations" ("user_id", "effective_date");
 
+CREATE TABLE IF NOT EXISTS "budget_adjustments" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "amount_cents" bigint NOT NULL,
+  "effective_date" date NOT NULL,
+  "note" text NOT NULL,
+  "created_at" timestamptz DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "budget_adjustments_user_date_idx" ON "budget_adjustments" ("user_id", "effective_date");
+
 CREATE TABLE IF NOT EXISTS "obligations" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,

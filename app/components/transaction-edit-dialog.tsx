@@ -13,7 +13,7 @@ const kindOptions = [
   ["adjustment", "Reconciliation adjustment"],
 ] as const;
 
-export default function TransactionEditDialog({ transaction, dashboard, onClose, onSaved }: { transaction: DashboardData["activity"][number]; dashboard: DashboardData; onClose: () => void; onSaved: () => void }) {
+export default function TransactionEditDialog({ transaction, dashboard, onClose, onSaved }: { transaction: DashboardData["activity"][number]; dashboard: DashboardData; onClose: () => void; onSaved: (message: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [busy, setBusy] = useState(false);
@@ -24,6 +24,17 @@ export default function TransactionEditDialog({ transaction, dashboard, onClose,
     node?.showModal(); document.body.style.overflow = "hidden";
     return () => { node?.close(); document.body.style.overflow = previousOverflow; };
   }, []);
+
+  async function removeTransaction() {
+    if (!window.confirm(`Delete “${transaction.description}”? This will remove it from account and category balances. The deletion remains in the audit trail.`)) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/entries", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: transaction.id }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Could not delete transaction.");
+      onSaved("Transaction deleted");
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not delete transaction."); } finally { setBusy(false); }
+  }
 
   return <dialog ref={dialog} className="entry-dialog" aria-labelledby={titleId} onCancel={event => { if (busy) event.preventDefault(); else onClose(); }}>
     <div className="modal-top"><div><p className="eyebrow">Manual control</p><h2 id={titleId}>Edit transaction</h2></div><button type="button" className="close-button" aria-label="Close transaction editor" disabled={busy} onClick={onClose}>×</button></div>
@@ -46,7 +57,7 @@ export default function TransactionEditDialog({ transaction, dashboard, onClose,
         const response = await fetch("/api/entries", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const result = await response.json().catch(() => null);
         if (!response.ok) throw new Error(result?.error ?? "Could not update transaction.");
-        onSaved();
+        onSaved("Transaction updated");
       } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not update transaction."); } finally { setBusy(false); }
     }}>
       <fieldset disabled={busy}>
@@ -59,7 +70,7 @@ export default function TransactionEditDialog({ transaction, dashboard, onClose,
       </fieldset>
       <p className="field-help">Source: {transaction.source.replaceAll("_", " ")}. Source and payment coverage history stay auditable; changing the account changes the payment method.</p>
       {error && <p className="form-error" role="alert">{error}</p>}
-      <div className="form-footer"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
+      <div className="form-footer"><button type="button" className="danger-button" disabled={busy} onClick={() => void removeTransaction()}>Delete transaction</button><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
     </form>
   </dialog>;
 }

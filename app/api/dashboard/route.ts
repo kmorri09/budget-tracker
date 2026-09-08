@@ -2,8 +2,9 @@ import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
-import { accounts, allocations, cardCoverageAdjustments, cardPaymentApplications, cardPayments, categories, obligations, reviewItems, transactions } from "../../../lib/schema";
+import { accounts, allocations, budgetAdjustments, cardCoverageAdjustments, cardPaymentApplications, cardPayments, categories, obligations, reviewItems, transactions } from "../../../lib/schema";
 import { calculateCategoryBalance } from "../../../lib/category-balance";
+import { calculateAvailableToAssignCents } from "../../../lib/budget-balance";
 
 const centsToAmount = (cents: number) => Math.round(cents) / 100;
 const isoDate = (value: Date) => value.toISOString().slice(0, 10);
@@ -12,11 +13,12 @@ export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const db = getDatabase();
-  const [accountRows, categoryRows, transactionRows, allocationRows, obligationRows, reviewRows, paymentRows, paymentApplicationRows, coverageAdjustmentRows] = await Promise.all([
+  const [accountRows, categoryRows, transactionRows, allocationRows, budgetAdjustmentRows, obligationRows, reviewRows, paymentRows, paymentApplicationRows, coverageAdjustmentRows] = await Promise.all([
     db.select().from(accounts).where(eq(accounts.userId, user.id)),
     db.select().from(categories).where(eq(categories.userId, user.id)),
     db.select().from(transactions).where(eq(transactions.userId, user.id)).orderBy(desc(transactions.effectiveDate), desc(transactions.createdAt)),
     db.select().from(allocations).where(eq(allocations.userId, user.id)),
+    db.select().from(budgetAdjustments).where(eq(budgetAdjustments.userId, user.id)),
     db.select().from(obligations).where(and(eq(obligations.userId, user.id), eq(obligations.active, true))),
     db.select().from(reviewItems).where(and(eq(reviewItems.userId, user.id), eq(reviewItems.status, "open"))),
     db.select().from(cardPayments).where(eq(cardPayments.userId, user.id)),
@@ -52,10 +54,9 @@ export async function GET() {
   const cashAccounts = ledgerByAccount.filter((account) => account.type !== "credit_card");
   const providerCashRows = cashAccounts.filter((account) => account.providerBalanceCents !== null);
   const providerBalanceCents = providerCashRows.length === cashAccounts.length && cashAccounts.length > 0 ? providerCashRows.reduce((sum, account) => sum + (account.providerBalanceCents ?? 0), 0) : null;
-  const budgetableIncomeCents = activeTransactionRows.filter((transaction) => transaction.kind === "income").reduce((sum, transaction) => sum + transaction.amountCents, 0);
-  const allocatedCents = allocationRows.reduce((sum, allocation) => sum + allocation.amountCents, 0);
-  const remainingToBudgetCents = budgetableIncomeCents - allocatedCents;
-  const allocationPercent = budgetableIncomeCents > 0 ? Math.max(0, Math.min(100, Math.round((allocatedCents / budgetableIncomeCents) * 100))) : 0;
+  const available = calculateAvailableToAssignCents(activeTransactionRows, allocationRows, budgetAdjustmentRows);
+  const allocationBaseCents = available.incomeCents + available.adjustmentCents;
+  const allocationPercent = allocationBaseCents > 0 ? Math.max(0, Math.min(100, Math.round((available.allocatedCents / allocationBaseCents) * 100))) : 0;
   const categoryBalances = activeCategoryRows.map((category) => {
     const balance = calculateCategoryBalance(category.id, allocationRows, transactionRows);
     return { id: category.id, name: category.name, icon: category.icon ?? "", target: centsToAmount(category.targetCents), allocated: centsToAmount(balance.allocatedCents), spent: centsToAmount(balance.spendingCents - balance.refundCents), available: centsToAmount(balance.availableCents) };
@@ -70,7 +71,9 @@ export async function GET() {
     accounts: ledgerByAccount.map((account) => ({ id: account.id, name: account.name, institution: account.institution, type: account.type, syncEnabled: account.syncEnabled, isDefaultCash: account.isDefaultCash, active: account.active, openingBalance: centsToAmount(account.openingBalanceCents), providerBalance: account.providerBalanceCents === null ? null : centsToAmount(account.providerBalanceCents), providerBalanceAt: account.providerBalanceAt, ledgerBalance: centsToAmount(account.ledgerBalanceCents) })),
     ledgerBalance: centsToAmount(ledgerBalanceCents),
     providerBalance: providerBalanceCents === null ? null : centsToAmount(providerBalanceCents),
-    remainingToBudget: centsToAmount(remainingToBudgetCents),
+    remainingToBudget: centsToAmount(available.availableCents),
+    availableBreakdown: { income: centsToAmount(available.incomeCents), adjustments: centsToAmount(available.adjustmentCents), allocations: centsToAmount(available.allocatedCents), available: centsToAmount(available.availableCents) },
+    availableAdjustments: budgetAdjustmentRows.map(adjustment => ({ id: adjustment.id, date: adjustment.effectiveDate, amount: centsToAmount(adjustment.amountCents), note: adjustment.note })),
     allocationPercent,
     trailing30: { income: centsToAmount(trailingIncomeCents), spending: centsToAmount(trailingSpendCents), startDate: isoDate(cutoff), endDate: isoDate(new Date()) },
     categories: categoryBalances,
@@ -88,7 +91,7 @@ export async function GET() {
       }),
       ...activeTransactionRows.filter(transaction => transaction.kind === "card_payment").map(transaction => ({ id: `legacy-${transaction.id}`, description: transaction.description, amount: centsToAmount(transaction.amountCents), date: transaction.effectiveDate, fromAccount: accountById.get(transaction.accountId)?.name ?? "Account", toAccount: "Legacy payment", applied: 0, remaining: centsToAmount(transaction.amountCents), status: "Legacy — not linked", covered: "Imported payment; purchase coverage was not linked" })),
     ],
-    activity: transactionRows.map((transaction) => {
+    activity: activeTransactionRows.map((transaction) => {
       const account = accountById.get(transaction.accountId);
       const applied = Math.max(0, Math.min(transaction.amountCents, paymentAppliedByTransaction.get(transaction.id) ?? 0));
       const paymentStatus = transaction.kind === "expense" && account?.type === "credit_card" ? applied >= transaction.amountCents ? "Paid" : applied > 0 ? "Partially paid" : "Unpaid" : "Not applicable";
