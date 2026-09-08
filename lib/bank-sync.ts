@@ -152,6 +152,17 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       const candidate = findMatch(normalized, localAccountId, plaidRow.id);
       if (candidate) await linkExistingLedgerEntry(candidate, normalized, plaidRow);
       else if (normalized.date < cutoverDate) await suppressPreCutover(plaidRow, normalized.providerTransactionId);
+      else if ((normalized.kind === "transfer_in" || normalized.kind === "transfer_out") && plaidRow.kind !== normalized.kind) {
+        await db.transaction(async tx => {
+          await tx.update(transactions).set({ kind: normalized.kind, categoryId: null, updatedAt: now }).where(and(eq(transactions.id, plaidRow.id), eq(transactions.userId, userId)));
+          await tx.update(reviewItems).set({ kind: "provider_transfer", title: `Review imported transfer: ${normalized.description}`, details: "Confirm this transfer or card payment is not new spending, then match it to the receiving account if needed." }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, plaidRow.id), eq(reviewItems.status, "open")));
+          await tx.insert(auditEvents).values({ id: randomUUID(), userId, action: "reclassify", entityType: "provider_transaction", entityId: plaidRow.id, beforeJson: JSON.stringify({ kind: plaidRow.kind }), afterJson: JSON.stringify({ kind: normalized.kind, connectionId, matchedBy: "provider_transfer_descriptor" }) });
+        });
+        plaidRow.kind = normalized.kind;
+        const matchCandidate = matchCandidates.find(row => row.id === plaidRow.id);
+        if (matchCandidate) matchCandidate.kind = normalized.kind;
+        modifiedCount++;
+      }
     }
 
     for (const remote of [...added, ...modified]) {

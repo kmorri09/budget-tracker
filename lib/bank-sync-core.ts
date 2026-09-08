@@ -61,7 +61,7 @@ export function accountType(account: PlaidAccount) {
 export function inferTransactionKind(transaction: PlaidTransaction): NormalizedTransaction["kind"] {
   const primary = transaction.personal_finance_category?.primary?.toUpperCase() ?? "";
   const description = `${transaction.merchant_name ?? ""} ${transaction.name ?? ""}`.toLowerCase();
-  const transferLike = primary.includes("TRANSFER") || /\b(transfer|payment|paydown|autopay|credit card|card payment)\b/.test(description);
+  const transferLike = primary.includes("TRANSFER") || /\b(transfer|payment|e-?payment|paydown|autopay|credit card|card payment|credit crd|cardmember)\b/.test(description) || /\b(chase credit crd|wells fargo card|amex e-?payment)\b/.test(description);
   if (transferLike) return transaction.amount < 0 ? "transfer_in" : "transfer_out";
   return transaction.amount < 0 ? "income" : "expense";
 }

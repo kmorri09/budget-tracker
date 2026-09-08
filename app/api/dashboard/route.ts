@@ -65,6 +65,13 @@ export async function GET() {
   const trailingRows = activeTransactionRows.filter((transaction) => transaction.effectiveDate >= isoDate(cutoff) && transaction.effectiveDate <= isoDate(new Date()));
   const trailingIncomeCents = trailingRows.filter((transaction) => transaction.kind === "income").reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const trailingSpendCents = trailingRows.filter((transaction) => transaction.kind === "expense").reduce((sum, transaction) => sum + transaction.amountCents, 0);
+  const transactionById = new Map(activeTransactionRows.map(transaction => [transaction.id, transaction]));
+  const toEntry = (transaction: typeof transactionRows[number]) => {
+    const account = accountById.get(transaction.accountId);
+    const applied = Math.max(0, Math.min(transaction.amountCents, paymentAppliedByTransaction.get(transaction.id) ?? 0));
+    const paymentStatus = transaction.kind === "expense" && account?.type === "credit_card" ? applied >= transaction.amountCents ? "Paid" : applied > 0 ? "Partially paid" : "Unpaid" : "Not applicable";
+    return { id: transaction.id, description: transaction.description, amount: centsToAmount(transaction.amountCents), source: transaction.source, kind: transaction.kind, status: transaction.status, pending: transaction.pending, date: transaction.effectiveDate, category: transaction.categoryId ? categoryById.get(transaction.categoryId)?.name ?? null : null, categoryId: transaction.categoryId, account: account?.name ?? "Account", accountId: transaction.accountId, paymentStatus, remainingToPay: centsToAmount(Math.max(0, transaction.amountCents - applied)) };
+  };
 
   return NextResponse.json({
     user: { id: user.id, displayName: user.displayName, email: user.email },
@@ -79,7 +86,7 @@ export async function GET() {
     categories: categoryBalances,
     allocations: allocationRows.map((row) => ({ id: row.id, date: row.effectiveDate, amount: centsToAmount(row.amountCents), note: row.note ?? "", category: categoryById.get(row.categoryId)?.name ?? "Uncategorized" })),
     obligations: obligationRows.map((obligation) => ({ id: obligation.id, name: obligation.name, dueDate: obligation.dueDate, amount: centsToAmount(obligation.amountCents), category: categoryById.get(obligation.categoryId)?.name ?? "Uncategorized", categoryId: obligation.categoryId, account: accountById.get(obligation.accountId)?.name ?? "Account" })),
-    reviews: reviewRows.map((review) => ({ id: review.id, kind: review.kind, title: review.title, details: review.details })),
+    reviews: reviewRows.map((review) => ({ id: review.id, kind: review.kind, title: review.title, details: review.details, transaction: review.transactionId ? transactionById.get(review.transactionId) ? toEntry(transactionById.get(review.transactionId)!) : null : null })),
     payments: [
       ...paymentRows.map((payment) => {
       const applied = paymentAppliedByPayment.get(payment.id) ?? 0;
@@ -91,12 +98,7 @@ export async function GET() {
       }),
       ...activeTransactionRows.filter(transaction => transaction.kind === "card_payment").map(transaction => ({ id: `legacy-${transaction.id}`, description: transaction.description, amount: centsToAmount(transaction.amountCents), date: transaction.effectiveDate, fromAccount: accountById.get(transaction.accountId)?.name ?? "Account", toAccount: "Legacy payment", applied: 0, remaining: centsToAmount(transaction.amountCents), status: "Legacy — not linked", covered: "Imported payment; purchase coverage was not linked" })),
     ],
-    activity: activeTransactionRows.map((transaction) => {
-      const account = accountById.get(transaction.accountId);
-      const applied = Math.max(0, Math.min(transaction.amountCents, paymentAppliedByTransaction.get(transaction.id) ?? 0));
-      const paymentStatus = transaction.kind === "expense" && account?.type === "credit_card" ? applied >= transaction.amountCents ? "Paid" : applied > 0 ? "Partially paid" : "Unpaid" : "Not applicable";
-      return { id: transaction.id, description: transaction.description, amount: centsToAmount(transaction.amountCents), source: transaction.source, kind: transaction.kind, status: transaction.status, pending: transaction.pending, date: transaction.effectiveDate, category: transaction.categoryId ? categoryById.get(transaction.categoryId)?.name : null, categoryId: transaction.categoryId, account: account?.name ?? "Account", accountId: transaction.accountId, paymentStatus, remainingToPay: centsToAmount(Math.max(0, transaction.amountCents - applied)) };
-    }),
+    activity: activeTransactionRows.map(toEntry),
   });
 }
 

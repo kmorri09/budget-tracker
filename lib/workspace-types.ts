@@ -10,7 +10,7 @@ export type DashboardData = {
   allocationPercent: number; accounts: Account[]; categories: Category[];
   activity: Entry[]; allocations: Allocation[]; payments: CardPayment[];
   trailing30: { income: number; spending: number; startDate: string; endDate: string };
-  reviews: { id: string; kind: string; title: string; details: string | null }[];
+  reviews: { id: string; kind: string; title: string; details: string | null; transaction: Entry | null }[];
   obligations: { id: string; name: string; dueDate: string; amount: number; category: string; categoryId: string; account: string }[];
 };
 export type ActionType = "transaction" | "income" | "allocation" | "transfer" | "payment" | "category" | "account";

@@ -137,7 +137,7 @@ export default function Home() {
           <DataTable title="Allocations" dated amountKey="amount" amountLabel="Net funding" rows={dashboard.allocations.map(allocation => ({ id: allocation.id, name: allocation.note || "Allocation", date: allocation.date, category: allocation.category, categoryAvailable: dashboard.categories.find(category => category.name === allocation.category)?.available ?? 0, amount: allocation.amount, direction: allocation.amount < 0 ? "Removed" : "Added" }))}
             columns={[{ key: "name", label: "Note" }, { key: "date", label: "Date" }, { key: "category", label: "Category" }, { key: "categoryAvailable", label: "Current available", money: true }, { key: "amount", label: "Amount", money: true }, { key: "direction", label: "Direction", detail: true }]} facets={[{ key: "category", label: "Category" }, { key: "direction", label: "Direction" }]} />
         </section>
-        <section hidden={destination !== "review"} aria-label="Review"><ReviewInbox dashboard={dashboard} onChanged={() => { setToast("Review updated"); void refresh(); }} /></section>
+        <section hidden={destination !== "review"} aria-label="Review"><ReviewInbox dashboard={dashboard} onEdit={setEditingTransaction} onChanged={() => { setToast("Review updated"); void refresh(); }} /></section>
   <section hidden={destination !== "accounts"} aria-label="Accounts"><Accounts dashboard={dashboard} onAction={openAction} onChanged={(message) => { setToast(message ?? "Account updated"); void refresh(); }} /></section>
       </>}
     </div>
@@ -166,7 +166,7 @@ function Overview({ dashboard: data, navigate, onAction, onReconcileBudget, onFu
   </>;
 }
 
-function ReviewInbox({ dashboard, onChanged }: { dashboard: DashboardData; onChanged: () => void }) {
+function ReviewInbox({ dashboard, onEdit, onChanged }: { dashboard: DashboardData; onEdit: (transaction: DashboardData["activity"][number]) => void; onChanged: () => void }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [search, setSearch] = useState("");
   async function resolve(id?: string) {
     if (!id && !window.confirm("Resolve all " + dashboard.reviews.length + " open review items? This does not change the underlying transactions.")) return;
@@ -177,8 +177,14 @@ function ReviewInbox({ dashboard, onChanged }: { dashboard: DashboardData; onCha
       onChanged();
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); }
   }
-  const visible = dashboard.reviews.filter(item => (item.title + " " + item.details).toLowerCase().includes(search.toLowerCase()));
-  return <div className="panel"><div className="view-heading"><label className="table-search"><span className="sr-only">Search reviews</span><input type="search" placeholder="Search reviews…" value={search} onChange={event => setSearch(event.target.value)} /></label>{dashboard.reviews.length > 0 && <button className="secondary-button" disabled={busy} onClick={() => void resolve()}>Resolve all ({dashboard.reviews.length})</button>}</div><p className="field-help">Resolve marks a review as handled. It does not change an amount, category, or payment. Resolve all applies to the entire inbox, including hidden search results.</p>{error && <p className="form-error" role="alert">{error}</p>}{visible.map(item => <div className="review-item" key={item.id}><div><strong>{item.title}</strong><p>{item.details}</p></div><button className="secondary-button" disabled={busy} onClick={() => void resolve(item.id)}>Resolve</button></div>)}{!visible.length && <p className="empty-state">{dashboard.reviews.length ? "No matching reviews." : "Nothing needs review right now."}</p>}</div>;
+  const visible = dashboard.reviews.filter(item => {
+    const transaction = item.transaction;
+    return [item.title, item.details, transaction?.description, transaction?.date, transaction?.account, transaction?.category, transaction?.kind, transaction?.source, transaction?.amount].join(" ").toLowerCase().includes(search.toLowerCase());
+  });
+  return <div className="panel"><div className="view-heading"><label className="table-search"><span className="sr-only">Search reviews</span><input type="search" placeholder="Search reviews…" value={search} onChange={event => setSearch(event.target.value)} /></label>{dashboard.reviews.length > 0 && <button className="secondary-button" disabled={busy} onClick={() => void resolve()}>Mark all reviewed ({dashboard.reviews.length})</button>}</div><p className="field-help">Inspect each transaction below. Use Edit transaction to correct its category or type; Mark reviewed only removes the reminder and does not change the transaction.</p>{error && <p className="form-error" role="alert">{error}</p>}{visible.map(item => {
+    const transaction = item.transaction;
+    return <article className="review-item" key={item.id}><div className="review-item-content"><strong>{item.title}</strong><p>{item.details}</p>{transaction ? <dl className="review-facts"><div><dt>Date</dt><dd>{transaction.date}</dd></div><div><dt>Amount</dt><dd className={signedAmount(transaction) < 0 ? "negative" : ""}>{money(signedAmount(transaction))}</dd></div><div><dt>Account</dt><dd>{transaction.account}</dd></div><div><dt>Type</dt><dd>{kindLabel(transaction.kind)}</dd></div><div><dt>Category</dt><dd>{transaction.category ?? "Uncategorized"}</dd></div><div><dt>Source / status</dt><dd>{kindLabel(transaction.source)} · {transaction.pending ? "Pending" : kindLabel(transaction.status)}</dd></div></dl> : <p className="review-missing">The linked transaction is no longer in the active ledger. You can safely mark this reminder reviewed.</p>}</div><div className="review-item-actions">{transaction && <button className="primary-button" disabled={busy} onClick={() => onEdit(transaction)}>Edit transaction</button>}<button className="secondary-button" disabled={busy} onClick={() => void resolve(item.id)}>Mark reviewed</button></div></article>;
+  })}{!visible.length && <p className="empty-state">{dashboard.reviews.length ? "No matching reviews." : "Nothing needs review right now."}</p>}</div>;
 }
 
 function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData; onAction: (action: ActionType) => void; onChanged: (message?: string) => void }) {

@@ -30,6 +30,9 @@ test("transfer-like provider activity never becomes budget spending", () => {
   assert.equal(inferTransactionKind({ transaction_id: "t2", account_id: "a", amount: -25, date: "2026-09-08", name: "Transfer from savings", pending: false }), "transfer_in");
   assert.equal(inferTransactionKind({ transaction_id: "t3", account_id: "a", amount: 25, date: "2026-09-08", name: "Coffee shop", pending: false }), "expense");
   assert.equal(toNormalized({ transaction_id: "t4", account_id: "a", amount: 4.75, date: "2026-09-08", name: "Coffee shop", pending: true }).amountCents, 475);
+  assert.equal(inferTransactionKind({ transaction_id: "t5", account_id: "a", amount: 2105.41, date: "2026-09-08", name: "CHASE CREDIT CRD", pending: false }), "transfer_out");
+  assert.equal(inferTransactionKind({ transaction_id: "t6", account_id: "a", amount: 250, date: "2026-09-08", name: "WELLS FARGO CARD", pending: false }), "transfer_out");
+  assert.equal(inferTransactionKind({ transaction_id: "t7", account_id: "a", amount: 1000, date: "2026-09-08", name: "AMEX EPAYMENT", pending: false }), "transfer_out");
 });
 
 test("exact ledger matches merge despite different bank descriptions", () => {

@@ -126,9 +126,16 @@
 .settings-panel { margin-top: 24px; }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid var(--line); padding: 18px 0; margin-top: 12px; font-size: 13px; }
 .settings-row p { margin-bottom: 0; }
-.workspace .review-item { align-items: center; justify-content: space-between; }
+.workspace .review-item { align-items: flex-start; justify-content: space-between; }
+.review-item-content { flex: 1 1 620px; min-width: 0; }
 .workspace .review-item strong { font-size: 13px; }
 .workspace .review-item p { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.review-facts { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 12px 20px; margin: 14px 0 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfb; }
+.review-facts div { min-width: 0; }
+.review-facts dt { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.review-facts dd { margin: 3px 0 0; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.review-item-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.review-missing { color: var(--muted); font-style: italic; }
 .error-banner { background: #fff4ef; border: 1px solid #ebcabe; border-radius: 12px; padding: 16px; margin: 16px 0; font-size: 14px; }
 .entry-dialog { color: var(--ink); border: 1px solid var(--line); background: white; width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 40px); border-radius: 20px; padding: 24px; box-shadow: 0 16px 70px #19352630; }
 .entry-dialog::backdrop { background: #152d2255; backdrop-filter: blur(3px); }
@@ -260,6 +267,8 @@
   .coverage-row span:last-child { grid-column: 2; text-align: left; }
   .settings-row { flex-wrap: wrap; }
   .workspace .review-item { align-items: flex-start; flex-wrap: wrap; }
+  .review-facts { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+  .review-item-actions { width: 100%; }
   .connection-card-heading, .provider-account-row { align-items: flex-start; flex-direction: column; }
   .provider-map-label { min-width: 100%; }
 }
