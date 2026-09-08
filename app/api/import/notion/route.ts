@@ -139,7 +139,9 @@ async function applyPlan(userId: string, plan: Plan) {
       await tx.insert(categories).values({ id, userId, name: category.name, icon: "", targetCents: 0, active: true }).onConflictDoNothing();
       categoryIds.set(clean(category.name), id); result.categories += 1;
     }
-    const fallbackAccountId = accountIds.get(clean(plan.accountsPlan[0]?.name ?? "")) ?? [...accountIds.values()][0];
+    const defaultCashAccount = plan.accountsPlan.find(account => account.type !== "credit_card");
+    const existingDefaultCash = existingAccounts.find(account => account.isDefaultCash && account.type !== "credit_card" && account.active);
+    const fallbackAccountId = existingDefaultCash?.id ?? accountIds.get(clean(defaultCashAccount?.name ?? "")) ?? [...accountIds.values()][0];
     if (!fallbackAccountId) throw new Error("No account could be created from the export.");
 
     const transactionValues = plan.transactionsPlan.map((item) => {

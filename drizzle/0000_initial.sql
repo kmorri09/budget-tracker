@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS "accounts" (
   "provider" text,
   "provider_account_id" text,
   "sync_enabled" boolean DEFAULT false NOT NULL,
+  "is_default_cash" boolean DEFAULT false NOT NULL,
   "created_at" timestamptz DEFAULT now() NOT NULL
 );
 CREATE INDEX IF NOT EXISTS "accounts_user_idx" ON "accounts" ("user_id");
@@ -151,6 +152,22 @@ CREATE INDEX IF NOT EXISTS "audit_events_user_created_idx" ON "audit_events" ("u
 ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "provider_balance_cents" bigint;
 ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "provider_balance_at" timestamptz;
 ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "active" boolean DEFAULT true NOT NULL;
+ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "is_default_cash" boolean DEFAULT false NOT NULL;
+
+-- Give existing workspaces a predictable income destination when no default has been chosen.
+UPDATE "accounts" AS target
+SET "is_default_cash" = true
+WHERE target."active" = true
+  AND target."type" <> 'credit_card'
+  AND NOT EXISTS (
+    SELECT 1 FROM "accounts" AS chosen
+    WHERE chosen."user_id" = target."user_id" AND chosen."active" = true AND chosen."is_default_cash" = true
+  )
+  AND target."id" = (
+    SELECT candidate."id" FROM "accounts" AS candidate
+    WHERE candidate."user_id" = target."user_id" AND candidate."active" = true AND candidate."type" <> 'credit_card'
+    ORDER BY candidate."created_at", candidate."id" LIMIT 1
+  );
 ALTER TABLE "categories" ALTER COLUMN "icon" SET DEFAULT '';
 
 -- Versioned application data repairs run once even though this schema file is idempotent.

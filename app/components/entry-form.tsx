@@ -17,6 +17,7 @@ export default function EntryForm({ action, dashboard, initialPaymentTransaction
   const categoryNames = dashboard.categories.map(c => c.name);
   const accountNames = dashboard.accounts.map(a => a.name);
   const cashAccountNames = dashboard.accounts.filter(account => account.type !== "credit_card").map(account => account.name);
+  const defaultCashAccount = dashboard.accounts.find(account => account.type !== "credit_card" && account.isDefaultCash)?.name ?? cashAccountNames[0] ?? "";
   const creditCardNames = dashboard.accounts.filter(account => account.type === "credit_card").map(account => account.name);
   const initialPaymentEntries = dashboard.activity.filter(entry => initialPaymentTransactionIds.includes(entry.id) && entry.remainingToPay > 0);
   const initialPaymentCard = initialPaymentEntries[0]?.account ?? (creditCardNames.length === 1 ? creditCardNames[0] : "");
@@ -30,9 +31,10 @@ export default function EntryForm({ action, dashboard, initialPaymentTransaction
   const [paymentAmount, setPaymentAmount] = useState(initialPaymentAmount > 0 ? initialPaymentAmount.toFixed(2) : "");
   const budgetOnly = action === "allocation" || action === "transfer";
   const needsCategory = ["transaction", "allocation", "transfer"].includes(action);
+  const entryAccountNames = action === "income" ? cashAccountNames : accountNames;
   const missing = action === "payment"
     ? !cashAccountNames.length || !creditCardNames.length
-    : !["account", "category"].includes(action) && ((!budgetOnly && !accountNames.length) || (needsCategory && !categoryNames.length));
+    : !["account", "category"].includes(action) && ((!budgetOnly && !entryAccountNames.length) || (needsCategory && !categoryNames.length));
   useEffect(() => {
     const node = dialog.current, previousOverflow = document.body.style.overflow;
     node?.showModal(); document.body.style.overflow = "hidden";
@@ -70,7 +72,7 @@ export default function EntryForm({ action, dashboard, initialPaymentTransaction
         <label>Category name<input name="name" required maxLength={80} autoFocus /></label><div className="form-grid"><label>Icon (optional)<input name="icon" placeholder="e.g. 🏠" maxLength={4} /></label><label>Target amount<input name="target" type="number" min="0" step="0.01" defaultValue="0" /></label></div>
       </> : <>
         <label>Amount<input name="amount" type="number" min="0.01" step="0.01" placeholder="0.00" required autoFocus {...(action === "payment" ? { value: paymentAmount, onChange: (event: ChangeEvent<HTMLInputElement>) => setPaymentAmount(event.target.value) } : {})} /></label>
-        <div className="form-grid"><label>Date<input name="date" type="date" defaultValue={today()} required /></label>{action === "payment" ? <Suggestion label="From account" name="fromAccountId" options={cashAccountNames} initial={cashAccountNames.length === 1 ? cashAccountNames[0] : ""} /> : !budgetOnly && <Suggestion label={action === "income" ? "Deposit account" : "Account"} name="accountId" options={accountNames} initial={accountNames.length === 1 ? accountNames[0] : ""} />}</div>
+        <div className="form-grid"><label>Date<input name="date" type="date" defaultValue={today()} required /></label>{action === "payment" ? <Suggestion label="From account" name="fromAccountId" options={cashAccountNames} initial={cashAccountNames.length === 1 ? cashAccountNames[0] : ""} /> : !budgetOnly && <Suggestion label={action === "income" ? "Deposit account" : "Account"} name="accountId" options={entryAccountNames} initial={action === "income" ? defaultCashAccount : entryAccountNames.length === 1 ? entryAccountNames[0] : ""} />}</div>
         {action === "payment" && <Suggestion label="To credit card" name="toAccountId" options={creditCardNames} value={toCard} onChange={value => { setToCard(value); if (value !== toCard) { setApplicationAmounts({}); setPaymentAmount(""); } }} />}
         <label>{budgetOnly ? "Note" : "Description"}<input name="description" required maxLength={200} defaultValue={action === "payment" && initialPaymentEntries.length ? `Payment for ${initialPaymentEntries.length} selected ${initialPaymentEntries.length === 1 ? "purchase" : "purchases"}` : ""} placeholder={budgetOnly ? "What is this funding for?" : "What was this for?"} /></label>
         {(action === "transaction" || action === "allocation") && <Suggestion label="Category" name="categoryId" options={categoryNames} />}

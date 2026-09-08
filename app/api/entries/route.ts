@@ -68,9 +68,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ id: fromId, ok: true });
   }
 
-  if (!input.accountId) return NextResponse.json({ error: "Account is required" }, { status: 400 });
-  const account = (await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.userId, user.id), or(eq(accounts.id, input.accountId), eq(accounts.name, input.accountId)))).limit(1))[0];
+  let resolvedAccountId = input.accountId;
+  if (input.kind === "income" && !resolvedAccountId) {
+    const cashAccounts = (await db.select().from(accounts).where(eq(accounts.userId, user.id))).filter(account => account.active && account.type !== "credit_card");
+    resolvedAccountId = cashAccounts.find(account => account.isDefaultCash)?.id ?? cashAccounts[0]?.id;
+  }
+  if (!resolvedAccountId) return NextResponse.json({ error: input.kind === "income" ? "Create a cash account before recording income" : "Account is required" }, { status: 400 });
+  const account = (await db.select().from(accounts).where(and(eq(accounts.userId, user.id), or(eq(accounts.id, resolvedAccountId), eq(accounts.name, resolvedAccountId)))).limit(1))[0];
   if (!account) return NextResponse.json({ error: "Account not found" }, { status: 400 });
+  if (input.kind === "income" && account.type === "credit_card") return NextResponse.json({ error: "Income must use a cash account. Record a credit-card refund as a refund instead." }, { status: 400 });
   const transactionKind = input.kind === "income" ? "income" : input.kind === "payment" ? "card_payment" : "expense";
   if (transactionKind === "expense" && !input.categoryId) return NextResponse.json({ error: "Category is required" }, { status: 400 });
   let resolvedCategoryId: string | null = null;
