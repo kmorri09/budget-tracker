@@ -47,8 +47,9 @@ The repository pins the build to Node.js 20+ because Next.js 16 does not support
 - `PLAID_CLIENT_ID` and `PLAID_SECRET` — only when live account sync is enabled
 - `PLAID_ENV` — `sandbox` (default), `development`, or `production`
 - `PLAID_TOKEN_ENCRYPTION_KEY` — encryption key for Plaid access tokens; keep it server-only and stable across deploys
+- `CRON_SECRET` — random bearer secret for the scheduled sync endpoint (`GET` or `POST /api/jobs/sync`)
 - `SESSION_SECRET` — reserved for a future signed-session upgrade; database sessions are currently random, httpOnly cookies
 
 After the first successful deployment, open the app and choose **Create the initial user**. This option is only offered while the users table is empty, and the submitted email must match `INITIAL_USER_EMAIL`. Once the account is created, the option disappears permanently unless the database is intentionally reset.
 
-Railway's scheduled jobs can be added later as a second service using `npm run jobs:check` once alert dispatch and provider sync are enabled. No financial action is scheduled automatically by the current release.
+Configure a Railway cron service to call `POST /api/jobs/sync` (or `GET /api/jobs/sync`) on the web service with `Authorization: Bearer <CRON_SECRET>` (for example, every 15 minutes). The endpoint only syncs connected items, uses the same per-connection lease as manual sync, and reports individual failures without stopping other connections.

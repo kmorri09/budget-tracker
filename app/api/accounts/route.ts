@@ -51,8 +51,8 @@ export async function PATCH(request: Request) {
   let normalizedProviderBalance: number | undefined;
   if (providerBalance !== undefined) {
     normalizedProviderBalance = account.type === "credit_card" ? -Math.abs(Math.round(providerBalance * 100)) : Math.round(providerBalance * 100);
-    const activity = await db.select({ kind: transactions.kind, amountCents: transactions.amountCents }).from(transactions).where(and(eq(transactions.accountId, account.id), eq(transactions.userId, user.id)));
-    const signedCash = activity.reduce((sum, transaction) => {
+    const activity = await db.select({ kind: transactions.kind, amountCents: transactions.amountCents, status: transactions.status }).from(transactions).where(and(eq(transactions.accountId, account.id), eq(transactions.userId, user.id)));
+    const signedCash = activity.filter(transaction => transaction.status !== "removed").reduce((sum, transaction) => {
       if (transaction.kind === "income" || transaction.kind === "refund" || transaction.kind === "transfer_in") return sum + transaction.amountCents;
       if (transaction.kind === "adjustment") return sum + transaction.amountCents;
       return sum - transaction.amountCents;

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte, or } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   if (from.type === "credit_card") return NextResponse.json({ error: "The payment must come from a checking or savings account" }, { status: 400 });
   if (to.type !== "credit_card") return NextResponse.json({ error: "Choose a credit-card account to pay" }, { status: 400 });
 
-  const expenseRows = await db.select().from(transactions).where(and(eq(transactions.userId, user.id), eq(transactions.accountId, to.id), eq(transactions.kind, "expense"), lte(transactions.effectiveDate, input.date))).orderBy(asc(transactions.effectiveDate), asc(transactions.createdAt));
+  const expenseRows = await db.select().from(transactions).where(and(eq(transactions.userId, user.id), eq(transactions.accountId, to.id), eq(transactions.kind, "expense"), ne(transactions.status, "removed"), lte(transactions.effectiveDate, input.date))).orderBy(asc(transactions.effectiveDate), asc(transactions.createdAt));
   const expenseIds = expenseRows.map(row => row.id);
   const existingRows = expenseIds.length ? await db.select().from(cardPaymentApplications).where(and(eq(cardPaymentApplications.userId, user.id), inArray(cardPaymentApplications.transactionId, expenseIds))) : [];
   const alreadyApplied = new Map<string, number>();

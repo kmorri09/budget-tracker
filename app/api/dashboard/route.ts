@@ -25,6 +25,7 @@ export async function GET() {
   ]);
 
   const accountById = new Map(accountRows.map((account) => [account.id, account]));
+  const activeTransactionRows = transactionRows.filter((transaction) => transaction.status !== "removed");
   const activeAccountRows = accountRows.filter((account) => account.active);
   const categoryById = new Map(categoryRows.map((category) => [category.id, category]));
   const activeCategoryRows = categoryRows.filter((category) => category.active);
@@ -44,14 +45,14 @@ export async function GET() {
   const ledgerByAccount = activeAccountRows.map((account) => ({
     ...account,
     ledgerBalanceCents: account.openingBalanceCents
-      + transactionRows.filter((transaction) => transaction.accountId === account.id).reduce((sum, transaction) => sum + signedCashFor(transaction), 0)
+      + activeTransactionRows.filter((transaction) => transaction.accountId === account.id).reduce((sum, transaction) => sum + signedCashFor(transaction), 0)
       + paymentRows.reduce((sum, payment) => sum + (payment.fromAccountId === account.id ? -payment.amountCents : payment.toAccountId === account.id ? payment.amountCents : 0), 0),
   }));
   const ledgerBalanceCents = ledgerByAccount.filter((account) => account.type !== "credit_card").reduce((sum, account) => sum + account.ledgerBalanceCents, 0);
   const cashAccounts = ledgerByAccount.filter((account) => account.type !== "credit_card");
   const providerCashRows = cashAccounts.filter((account) => account.providerBalanceCents !== null);
   const providerBalanceCents = providerCashRows.length === cashAccounts.length && cashAccounts.length > 0 ? providerCashRows.reduce((sum, account) => sum + (account.providerBalanceCents ?? 0), 0) : null;
-  const budgetableIncomeCents = transactionRows.filter((transaction) => transaction.kind === "income").reduce((sum, transaction) => sum + transaction.amountCents, 0);
+  const budgetableIncomeCents = activeTransactionRows.filter((transaction) => transaction.kind === "income").reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const allocatedCents = allocationRows.reduce((sum, allocation) => sum + allocation.amountCents, 0);
   const remainingToBudgetCents = budgetableIncomeCents - allocatedCents;
   const allocationPercent = budgetableIncomeCents > 0 ? Math.max(0, Math.min(100, Math.round((allocatedCents / budgetableIncomeCents) * 100))) : 0;
@@ -60,7 +61,7 @@ export async function GET() {
     return { id: category.id, name: category.name, icon: category.icon ?? "", target: centsToAmount(category.targetCents), allocated: centsToAmount(balance.allocatedCents), spent: centsToAmount(balance.spendingCents - balance.refundCents), available: centsToAmount(balance.availableCents) };
   });
   const cutoff = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
-  const trailingRows = transactionRows.filter((transaction) => transaction.effectiveDate >= isoDate(cutoff) && transaction.effectiveDate <= isoDate(new Date()));
+  const trailingRows = activeTransactionRows.filter((transaction) => transaction.effectiveDate >= isoDate(cutoff) && transaction.effectiveDate <= isoDate(new Date()));
   const trailingIncomeCents = trailingRows.filter((transaction) => transaction.kind === "income").reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const trailingSpendCents = trailingRows.filter((transaction) => transaction.kind === "expense").reduce((sum, transaction) => sum + transaction.amountCents, 0);
 
@@ -85,7 +86,7 @@ export async function GET() {
       }).filter((description): description is string => Boolean(description));
       return { id: payment.id, description: payment.description, amount: centsToAmount(payment.amountCents), date: payment.effectiveDate, fromAccount: accountById.get(payment.fromAccountId)?.name ?? "Account", toAccount: accountById.get(payment.toAccountId)?.name ?? "Credit card", applied: centsToAmount(applied), remaining: centsToAmount(payment.amountCents - applied), status: applied >= payment.amountCents ? "Applied" : applied > 0 ? "Partially applied" : "Unapplied", covered: coveredPurchases.join(", ") || "No purchases applied" };
       }),
-      ...transactionRows.filter(transaction => transaction.kind === "card_payment").map(transaction => ({ id: `legacy-${transaction.id}`, description: transaction.description, amount: centsToAmount(transaction.amountCents), date: transaction.effectiveDate, fromAccount: accountById.get(transaction.accountId)?.name ?? "Account", toAccount: "Legacy payment", applied: 0, remaining: centsToAmount(transaction.amountCents), status: "Legacy — not linked", covered: "Imported payment; purchase coverage was not linked" })),
+      ...activeTransactionRows.filter(transaction => transaction.kind === "card_payment").map(transaction => ({ id: `legacy-${transaction.id}`, description: transaction.description, amount: centsToAmount(transaction.amountCents), date: transaction.effectiveDate, fromAccount: accountById.get(transaction.accountId)?.name ?? "Account", toAccount: "Legacy payment", applied: 0, remaining: centsToAmount(transaction.amountCents), status: "Legacy — not linked", covered: "Imported payment; purchase coverage was not linked" })),
     ],
     activity: transactionRows.map((transaction) => {
       const account = accountById.get(transaction.accountId);

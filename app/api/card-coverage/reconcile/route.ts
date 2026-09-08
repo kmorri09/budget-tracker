@@ -26,6 +26,7 @@ export async function POST(request: Request) {
   const db = getDatabase();
   const transactionRows = await db.select().from(transactions).where(and(eq(transactions.userId, user.id), inArray(transactions.id, transactionIds)));
   if (transactionRows.length !== transactionIds.length) return NextResponse.json({ error: "One or more transactions were not found" }, { status: 400 });
+  if (transactionRows.some(row => row.status === "removed")) return NextResponse.json({ error: "Removed transactions cannot have card coverage reconciled" }, { status: 400 });
   if (transactionRows.some(row => row.kind !== "expense")) return NextResponse.json({ error: "Only expenses can have card coverage reconciled" }, { status: 400 });
   const accountIds = [...new Set(transactionRows.map(row => row.accountId))];
   const accountRows = await db.select().from(accounts).where(and(eq(accounts.userId, user.id), inArray(accounts.id, accountIds)));

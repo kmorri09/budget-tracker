@@ -94,6 +94,14 @@ export const syncRuns = pgTable("sync_runs", {
   error: text("error"),
 }, (table) => ({ userIndex: index("sync_runs_user_idx").on(table.userId), connectionIndex: index("sync_runs_connection_idx").on(table.connectionId, table.startedAt) }));
 
+// A short-lived database lease prevents two requests/jobs from consuming the
+// same provider cursor concurrently. Stale leases are reclaimed by the worker.
+export const syncLocks = pgTable("sync_locks", {
+  connectionId: text("connection_id").primaryKey().references(() => providerConnections.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  acquiredAt: timestamp("acquired_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const categories = pgTable("categories", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -117,6 +125,7 @@ export const transactions = pgTable("transactions", {
   source: text("source").default("manual").notNull(),
   providerTransactionId: text("provider_transaction_id"),
   pending: boolean("pending").default(false).notNull(),
+  removedAt: timestamp("removed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({ userDateIndex: index("transactions_user_date_idx").on(table.userId, table.effectiveDate), providerIndex: uniqueIndex("transactions_provider_idx").on(table.userId, table.providerTransactionId) }));

@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS "transactions" (
   "source" text DEFAULT 'manual' NOT NULL,
   "provider_transaction_id" text,
   "pending" boolean DEFAULT false NOT NULL,
+  "removed_at" timestamptz,
   "created_at" timestamptz DEFAULT now() NOT NULL,
   "updated_at" timestamptz DEFAULT now() NOT NULL
 );
@@ -241,6 +242,15 @@ CREATE TABLE IF NOT EXISTS "sync_runs" (
 );
 CREATE INDEX IF NOT EXISTS "sync_runs_user_idx" ON "sync_runs" ("user_id");
 CREATE INDEX IF NOT EXISTS "sync_runs_connection_idx" ON "sync_runs" ("connection_id", "started_at");
+
+CREATE TABLE IF NOT EXISTS "sync_locks" (
+  "connection_id" text PRIMARY KEY NOT NULL REFERENCES "provider_connections"("id") ON DELETE CASCADE,
+  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "acquired_at" timestamptz DEFAULT now() NOT NULL
+);
+
+-- Additive columns for provider removals on existing databases.
+ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "removed_at" timestamptz;
 
 -- Versioned application data repairs run once even though this schema file is idempotent.
 CREATE TABLE IF NOT EXISTS "app_migrations" (

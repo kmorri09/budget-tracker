@@ -38,6 +38,7 @@ export default function BankConnections({ dashboard, onChanged }: { dashboard: D
   useEffect(() => { void refresh().catch(failure => setError(failure instanceof Error ? failure.message : "Could not load bank connections.")); }, [refresh]);
   async function connect() {
     setBusy(true); setError("");
+    let waitingForLink = false;
     try {
       const response = await fetch("/api/connections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "link-token" }) });
       const result = await response.json().catch(() => null);
@@ -50,7 +51,7 @@ export default function BankConnections({ dashboard, onChanged }: { dashboard: D
       }
       await loadPlaidScript();
       if (!window.Plaid) throw new Error("Plaid Link is unavailable");
-      window.Plaid.create({ token: result.link_token, onSuccess: async (publicToken, metadata) => {
+      const handler = window.Plaid.create({ token: result.link_token, onSuccess: async (publicToken, metadata) => {
         try {
           const exchange = await fetch("/api/connections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "exchange", publicToken, institutionName: metadata.institution?.name }) });
           const exchangeResult = await exchange.json().catch(() => null);
@@ -58,10 +59,31 @@ export default function BankConnections({ dashboard, onChanged }: { dashboard: D
           await refresh(); onChanged("Bank connection added — map its accounts, then sync");
         } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not finish bank connection."); }
         finally { setBusy(false); }
-      }, onExit: failure => { if (failure?.error_message) setError(failure.error_message); setBusy(false); } }).open();
+      }, onExit: failure => { if (failure?.error_message) setError(failure.error_message); setBusy(false); } });
+      waitingForLink = true;
+      handler.open();
       return;
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not connect bank."); }
-    finally { setBusy(false); }
+    finally { if (!waitingForLink) setBusy(false); }
+  }
+  async function reconnect(connection: Connection) {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/connections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reauth-link-token", connectionId: connection.id }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Could not start reconnection.");
+      await loadPlaidScript();
+      if (!window.Plaid) throw new Error("Plaid Link is unavailable");
+      window.Plaid.create({ token: result.link_token, onSuccess: async () => {
+        try {
+          const complete = await fetch(`/api/connections/${connection.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reauth-complete" }) });
+          const completeResult = await complete.json().catch(() => null);
+          if (!complete.ok) throw new Error(completeResult?.error ?? "Could not complete reconnection.");
+          await refresh(); onChanged("Bank connection reauthenticated — sync it to refresh transactions");
+        } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not complete reconnection."); }
+        finally { setBusy(false); }
+      }, onExit: failure => { if (failure?.error_message) setError(failure.error_message); setBusy(false); } }).open();
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not reconnect this bank."); setBusy(false); }
   }
   async function sync(connection: Connection) {
     setBusy(true); setError("");
@@ -100,7 +122,7 @@ export default function BankConnections({ dashboard, onChanged }: { dashboard: D
     {error && <p className="form-error" role="alert">{error}</p>}
     {!data && !error && <p role="status" className="empty-state">Loading connections…</p>}
     {data?.connections.map(connection => <article className="connection-card" key={connection.id}>
-      <div className="connection-card-heading"><div><h3>{connection.institutionName ?? (connection.provider === "mock" ? "Demo Bank" : "Connected institution")}</h3><p className="field-help">{connection.provider === "mock" ? "Demo provider" : "Plaid"} · <span className={connection.status === "error" ? "negative" : ""}>{connection.status === "connected" ? "Connected" : kindLabel(connection.status)}</span>{connection.lastSyncAt ? ` · Last synced ${new Date(connection.lastSyncAt).toLocaleString()}` : " · Not synced yet"}</p></div><div className="section-actions"><button className="secondary-button" disabled={busy || connection.status === "disconnected"} onClick={() => void sync(connection)}>Sync now</button><button className="text-link" disabled={busy} onClick={() => void disconnect(connection)}>Disconnect</button></div></div>
+      <div className="connection-card-heading"><div><h3>{connection.institutionName ?? (connection.provider === "mock" ? "Demo Bank" : "Connected institution")}</h3><p className="field-help">{connection.provider === "mock" ? "Demo provider" : "Plaid"} · <span className={connection.status === "error" || connection.status === "reauth_required" ? "negative" : ""}>{connection.status === "connected" ? "Connected" : connection.status === "reauth_required" ? "Reauthentication required" : kindLabel(connection.status)}</span>{connection.lastSyncAt ? ` · Last synced ${new Date(connection.lastSyncAt).toLocaleString()}` : " · Not synced yet"}</p></div><div className="section-actions">{connection.status === "reauth_required" && connection.provider === "plaid" && <button className="secondary-button" disabled={busy} onClick={() => void reconnect(connection)}>Reconnect</button>}<button className="secondary-button" disabled={busy || connection.status === "disconnected"} onClick={() => void sync(connection)}>Sync now</button><button className="text-link" disabled={busy} onClick={() => void disconnect(connection)}>Disconnect</button></div></div>
       {connection.lastError && <p className="form-error">Last sync failed: {connection.lastError}</p>}
       <div className="provider-account-list">{connection.accounts.map(providerAccount => <div className="provider-account-row" key={providerAccount.id}><div><strong>{providerAccount.name}</strong>{providerAccount.mask && <small>•••• {providerAccount.mask}</small>}<p className="field-help">{kindLabel(providerAccount.type)}{providerAccount.currentBalance !== null ? ` · Provider balance ${money(providerAccount.type === "credit_card" ? -Math.abs(providerAccount.currentBalance) : providerAccount.currentBalance)}` : ""}</p></div><label className="provider-map-label"><span>Budget account</span><select value={providerAccount.localAccountId ?? ""} disabled={busy} onChange={event => void mapAccount(providerAccount, event.target.value)}><option value="">Not synced</option>{dashboard.accounts.filter(account => account.active !== false && (providerAccount.type === "credit_card" ? account.type === "credit_card" : account.type !== "credit_card")).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label></div>)}</div>
       {!connection.accounts.some(account => account.localAccountId) && <p className="field-help">Map at least one provider account before syncing transactions. Unmapped provider accounts remain read-only.</p>}

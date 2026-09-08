@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
-import { accountType, createPlaidLinkToken, encryptProviderToken, exchangePlaidPublicToken, hasPlaidCredentials, hasProviderEncryptionKey, mockProviderAccounts } from "../../../lib/bank-sync";
+import { accountType, createPlaidLinkToken, createPlaidUpdateLinkToken, decryptProviderToken, encryptProviderToken, exchangePlaidPublicToken, hasPlaidCredentials, hasProviderEncryptionKey, mockProviderAccounts } from "../../../lib/bank-sync";
 import { auditEvents, providerAccounts, providerConnections, syncRuns } from "../../../lib/schema";
 
 export const runtime = "nodejs";
@@ -23,6 +23,7 @@ export async function GET() {
 
 const inputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("link-token") }),
+  z.object({ action: z.literal("reauth-link-token"), connectionId: z.string().min(1) }),
   z.object({ action: z.literal("mock") }),
   z.object({ action: z.literal("exchange"), publicToken: z.string().min(1), institutionName: z.string().trim().max(120).optional() }),
 ]);
@@ -33,11 +34,20 @@ export async function POST(request: Request) {
   const parsed = inputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid connection request" }, { status: 400 });
   const input = parsed.data;
+  if (input.action === "mock" && process.env.NODE_ENV === "production" && hasPlaidCredentials()) return NextResponse.json({ error: "Demo connections are disabled when live Plaid credentials are configured" }, { status: 403 });
   if (input.action === "link-token") {
     if (!hasPlaidCredentials()) return NextResponse.json({ configured: false, mode: "demo", message: "Plaid credentials are not configured" });
     if (!hasProviderEncryptionKey()) return NextResponse.json({ error: "Set PLAID_TOKEN_ENCRYPTION_KEY before connecting a live bank" }, { status: 503 });
     try { return NextResponse.json({ configured: true, mode: "plaid", ...(await createPlaidLinkToken(user.id)) }); }
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Could not start bank connection" }, { status: 502 }); }
+  }
+  if (input.action === "reauth-link-token") {
+    if (!hasPlaidCredentials() || !hasProviderEncryptionKey()) return NextResponse.json({ error: "Plaid credentials and PLAID_TOKEN_ENCRYPTION_KEY are required" }, { status: 503 });
+    const db = getDatabase();
+    const connection = (await db.select().from(providerConnections).where(and(eq(providerConnections.id, input.connectionId), eq(providerConnections.userId, user.id))).limit(1))[0];
+    if (!connection || connection.provider !== "plaid") return NextResponse.json({ error: "Plaid connection not found" }, { status: 404 });
+    try { return NextResponse.json({ configured: true, mode: "plaid", ...(await createPlaidUpdateLinkToken(user.id, decryptProviderToken(connection.accessTokenEncrypted))) }); }
+    catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Could not start reconnection" }, { status: 502 }); }
   }
   const db = getDatabase();
   let provider = "mock"; let itemId = `mock-item-${user.id}`; let institutionName = "Demo Bank"; let accessToken = "mock"; let remoteAccounts = mockProviderAccounts();

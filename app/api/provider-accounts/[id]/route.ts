@@ -30,7 +30,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
   const previous = row.providerAccount.localAccountId;
   await db.transaction(async tx => {
-    if (previous && previous !== parsed.data.localAccountId) await tx.update(accounts).set({ provider: null, providerAccountId: null, syncEnabled: false }).where(and(eq(accounts.id, previous), eq(accounts.userId, user.id), eq(accounts.providerAccountId, row.providerAccount.providerAccountId)));
+    if (previous && previous !== parsed.data.localAccountId) await tx.update(accounts).set({ provider: null, providerAccountId: null, providerBalanceCents: null, providerBalanceAt: null, syncEnabled: false }).where(and(eq(accounts.id, previous), eq(accounts.userId, user.id), eq(accounts.providerAccountId, row.providerAccount.providerAccountId)));
     await tx.update(providerAccounts).set({ localAccountId: parsed.data.localAccountId, updatedAt: new Date() }).where(and(eq(providerAccounts.id, id), eq(providerAccounts.userId, user.id)));
     if (local) await tx.update(accounts).set({ provider: row.connection.provider, providerAccountId: row.providerAccount.providerAccountId, syncEnabled: true, providerBalanceCents: row.providerAccount.type === "credit_card" && row.providerAccount.currentBalanceCents !== null ? -Math.abs(row.providerAccount.currentBalanceCents) : row.providerAccount.currentBalanceCents, providerBalanceAt: row.providerAccount.balanceAt ?? new Date() }).where(and(eq(accounts.id, local.id), eq(accounts.userId, user.id)));
     await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "map", entityType: "provider_account", entityId: id, afterJson: JSON.stringify({ localAccountId: parsed.data.localAccountId, connectionId: row.connection.id }) });

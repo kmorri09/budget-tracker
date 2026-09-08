@@ -101,6 +101,7 @@ export async function PATCH(request: Request) {
   const db = getDatabase();
   const existing = (await db.select().from(transactions).where(and(eq(transactions.id, input.id), eq(transactions.userId, user.id))).limit(1))[0];
   if (!existing) return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
+  if (existing.status === "removed") return NextResponse.json({ error: "Removed transactions cannot be edited" }, { status: 400 });
   const account = (await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.id, input.accountId), eq(accounts.userId, user.id))).limit(1))[0];
   if (!account) return NextResponse.json({ error: "Account not found" }, { status: 400 });
   if (input.categoryId) {

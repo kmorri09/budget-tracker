@@ -11,6 +11,7 @@ test("rolling category balance includes all allocations, expenses, and refunds",
     { categoryId: "food", kind: "expense", amountCents: 2_500 },
     { categoryId: "food", kind: "refund", amountCents: 400 },
     { categoryId: "food", kind: "income", amountCents: 90_000 },
+    { categoryId: "food", kind: "expense", amountCents: 9_999, status: "removed" },
     { categoryId: "travel", kind: "expense", amountCents: 20_000 },
   ]);
   assert.deepEqual(balance, { allocatedCents: 9_000, spendingCents: 2_500, refundCents: 400, availableCents: 6_900 });
