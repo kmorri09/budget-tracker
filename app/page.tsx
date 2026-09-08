@@ -6,6 +6,7 @@ import EntryForm, { actionLabels } from "./components/entry-form";
 import CategoryEditDialog from "./components/category-edit-dialog";
 import CategoryReconcileDialog from "./components/category-reconcile-dialog";
 import CardCoverageReconcileDialog from "./components/card-coverage-reconcile-dialog";
+import TransactionEditDialog from "./components/transaction-edit-dialog";
 import { type ActionType, type DashboardData, kindLabel, money, signedAmount } from "../lib/workspace-types";
 import "./workspace.css";
 
@@ -42,6 +43,7 @@ export default function Home() {
   const [reconcilingCategories, setReconcilingCategories] = useState(false);
   const [reconcilingCoverage, setReconcilingCoverage] = useState(false);
   const [paymentTransactionIds, setPaymentTransactionIds] = useState<string[]>([]);
+  const [editingTransaction, setEditingTransaction] = useState<DashboardData["activity"][number] | null>(null);
 
   const refresh = useCallback(async () => {
     setError("");
@@ -107,6 +109,7 @@ export default function Home() {
           <DataTable key={drilldown.key} initialCategory={drilldown.category} title="Transactions" dated amountKey="amount" amountLabel="Net amount" rows={dashboard.activity.map(entry => ({ id: entry.id, name: entry.description, date: entry.date, account: entry.account, category: entry.category ?? "Uncategorized", type: kindLabel(entry.kind), paymentStatus: entry.paymentStatus, status: entry.pending ? "Pending" : kindLabel(entry.status), source: kindLabel(entry.source), amount: signedAmount(entry), remainingToPay: entry.remainingToPay }))}
             columns={[{ key: "name", label: "Description" }, { key: "date", label: "Date" }, { key: "amount", label: "Amount", money: true }, { key: "category", label: "Category" }, { key: "account", label: "Account", detail: true }, { key: "type", label: "Type", detail: true }, { key: "paymentStatus", label: "Card coverage", detail: true }, { key: "status", label: "Status", detail: true }, { key: "source", label: "Source", detail: true }]}
             facets={[{ key: "category", label: "Category" }, { key: "account", label: "Account" }, { key: "type", label: "Type" }, { key: "paymentStatus", label: "Card coverage" }, { key: "status", label: "Status" }, { key: "source", label: "Source" }]}
+            rowActions={[{ label: "Edit", onClick: row => { const transaction = dashboard.activity.find(entry => entry.id === row.id); if (transaction) setEditingTransaction(transaction); } }]}
             selection={{ actionLabel: "Create card payment", isEligible: row => row.type === "Expense" && row.paymentStatus !== "Paid" && row.paymentStatus !== "Not applicable" && Number(row.remainingToPay) > 0, onAction: paySelected }} />
         </section>
         <section hidden={destination !== "payments"} aria-label="Card payments">
@@ -136,6 +139,7 @@ export default function Home() {
     {editingCategory && <CategoryEditDialog category={editingCategory} onClose={() => setEditingCategory(null)} onSaved={() => { setEditingCategory(null); setToast("Category details updated"); void refresh(); }} />}
     {dashboard && reconcilingCategories && <CategoryReconcileDialog categories={dashboard.categories} onClose={() => setReconcilingCategories(false)} onSaved={(count) => { setReconcilingCategories(false); setToast(count ? `${count} category ${count === 1 ? "balance" : "balances"} reconciled` : "Category balances already matched"); void refresh(); }} />}
     {dashboard && reconcilingCoverage && <CardCoverageReconcileDialog dashboard={dashboard} onClose={() => setReconcilingCoverage(false)} onSaved={(count, state) => { setReconcilingCoverage(false); setToast(count ? `${count} card ${count === 1 ? "purchase" : "purchases"} marked ${state}` : `Selected purchases were already ${state}`); void refresh(); }} />}
+    {editingTransaction && dashboard && <TransactionEditDialog transaction={editingTransaction} dashboard={dashboard} onClose={() => setEditingTransaction(null)} onSaved={() => { setEditingTransaction(null); setToast("Transaction updated"); void refresh(); }} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </main>;
 }

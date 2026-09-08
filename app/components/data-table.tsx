@@ -20,7 +20,7 @@ export function SearchFilter({ label, options, value, onChange }: { label: strin
     document.addEventListener("pointerdown", closeOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
   }, []);
-  return <details ref={details} className="filter-menu" name="workspace-filters" onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>{label}{value.length > 0 && <span className="filter-count">{value.length}</span>} <span aria-hidden="true">⌄</span></summary>
+  return <details ref={details} className="filter-menu" name="workspace-filters" onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>{label}{value.length > 0 && <span className="filter-count">{value.length}</span>} <span className="filter-chevron" aria-hidden="true" /></summary>
     <div className="filter-popover"><input aria-label={"Search " + label} type="search" placeholder={"Find " + label.toLowerCase()} value={search} onChange={e => setSearch(e.target.value)} />
       <button type="button" className="text-link" onClick={() => onChange([])}>Clear {label.toLowerCase()}</button>
       <div className="filter-options">{options.filter(option => option.toLowerCase().includes(search.toLowerCase())).map((option, i) =>

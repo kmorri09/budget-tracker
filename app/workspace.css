@@ -49,6 +49,8 @@
 .filter-menu summary { list-style: none; display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; cursor: pointer; }
 .filter-menu summary::-webkit-details-marker { display: none; }
 .filter-menu[open] summary { border-color: #8bb49c; background: #eef5ef; }
+.filter-chevron { width: 7px; height: 7px; margin-left: 3px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg) translateY(-2px); transition: transform .15s ease; }
+.filter-menu[open] .filter-chevron { transform: rotate(225deg) translate(-1px, -1px); }
 .filter-count { color: white; background: var(--green-dark); border-radius: 12px; min-width: 18px; padding: 2px 5px; text-align: center; font-size: 10px; }
 .filter-popover { position: absolute; left: 0; top: calc(100% + 7px); z-index: 5; width: min(320px, 100%); padding: 12px; background: white; box-shadow: 0 8px 30px #23372a26; border: 1px solid #cfddd3; border-radius: 12px; }
 .filter-options { max-height: 230px; overflow-y: auto; }
@@ -67,10 +69,11 @@
 .workspace-table th { text-align: left; background: #eaf2ec; color: #52655a; font-weight: 500; padding: 6px 8px; }
 .workspace-table th:first-child { width: 21%; border-radius: 6px 0 0 6px; }
 .workspace-table th:last-child { width: 0; padding: 0; }
-.workspace-table th.selection-column { width: 42px !important; padding: 6px 10px; }
+.workspace-table th.selection-column { width: 42px !important; padding: 6px 0; text-align: center; }
 .workspace-table th.selection-column + th { width: 21%; }
-.workspace-table .selection-column label { display: grid; place-items: center; min-height: 32px; }
-.workspace-table .selection-column input { width: 18px; min-height: 18px; height: 18px; accent-color: var(--green-dark); }
+.workspace-table td.selection-column { padding: 0; text-align: center; vertical-align: middle; }
+.workspace-table .selection-column label { display: grid; place-items: center; width: 100%; min-height: 44px; }
+.workspace-table .selection-column input { width: 18px; min-height: 18px; height: 18px; margin: 0; accent-color: var(--green-dark); }
 .workspace-table .table-actions-heading { width: 155px; }
 .workspace-table th button { width: 100%; min-height: 36px; text-align: left; padding: 0; border: 0; color: inherit; background: transparent; font-size: 11px; font-weight: 600; }
 .workspace-table td { border-bottom: 1px solid var(--line); padding: 16px 8px; vertical-align: top; overflow-wrap: anywhere; line-height: 1.5; }
@@ -113,6 +116,9 @@
 .entry-dialog form, .entry-dialog fieldset { display: grid; gap: 16px; }
 .entry-dialog fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .entry-dialog label { display: grid; gap: 6px; color: #52655a; font-size: 13px; font-weight: 600; }
+.entry-dialog select { min-height: 44px; width: 100%; border: 1px solid #d4dfd7; border-radius: 9px; padding: 0 12px; background: #fbfcfb; color: var(--ink); font: inherit; }
+.entry-dialog .toggle-field { display: flex; align-items: center; gap: 9px; min-height: 44px; }
+.entry-dialog .toggle-field input { width: 18px; min-height: 18px; height: 18px; accent-color: var(--green-dark); }
 .entry-dialog .type-options { display: flex; gap: 12px; flex-wrap: wrap; }
 .entry-dialog .type-options legend { margin-bottom: 8px; font-size: 13px; }
 .entry-dialog .type-options label { display: flex; align-items: center; gap: 5px; min-height: 44px; font-size: 12px; }
@@ -143,7 +149,7 @@
 .coverage-selection { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 12px; border-radius: 9px; background: #f1f7f3; color: var(--muted); font-size: 12px; }
 .coverage-list { max-height: min(43vh, 470px); overflow-y: auto; border-top: 1px solid var(--line); }
 .coverage-row { display: grid !important; grid-template-columns: 24px minmax(0, 1fr) minmax(110px, auto); align-items: center; gap: 12px !important; min-height: 62px; padding: 9px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
-.coverage-row > input { width: 18px; min-height: 18px; height: 18px; accent-color: var(--green-dark); }
+.coverage-row > input { width: 18px; min-height: 18px; height: 18px; margin: 0; justify-self: center; accent-color: var(--green-dark); }
 .coverage-row span:last-child { text-align: right; }
 .coverage-row strong, .coverage-row small { display: block; }
 .coverage-row small { margin-top: 3px; color: var(--muted); font-size: 10px; font-weight: 400; }

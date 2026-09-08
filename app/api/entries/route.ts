@@ -17,6 +17,19 @@ const entrySchema = z.object({
   description: z.string().trim().min(1).max(200),
 });
 
+const transactionKindSchema = z.enum(["expense", "income", "refund", "card_payment", "transfer_in", "transfer_out", "adjustment"]);
+const transactionUpdateSchema = z.object({
+  id: z.string().min(1),
+  kind: transactionKindSchema,
+  amount: z.coerce.number().positive().finite(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  accountId: z.string().min(1),
+  categoryId: z.string().min(1).nullable(),
+  description: z.string().trim().min(1).max(200),
+  status: z.string().trim().min(1).max(40),
+  pending: z.boolean(),
+});
+
 const cents = (amount: number) => Math.round(amount * 100);
 
 export async function POST(request: Request) {
@@ -70,4 +83,28 @@ export async function POST(request: Request) {
   await db.insert(transactions).values({ id, userId: user.id, accountId: account.id, categoryId: resolvedCategoryId, kind: transactionKind, amountCents, effectiveDate: input.date, description: input.description, status: "posted", source: "manual", pending: false });
   await db.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "create", entityType: "transaction", entityId: id, afterJson: JSON.stringify(input) });
   return NextResponse.json({ id, ok: true });
+}
+
+export async function PATCH(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const parsed = transactionUpdateSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid transaction" }, { status: 400 });
+  const input = parsed.data;
+  if (input.kind === "expense" && !input.categoryId) return NextResponse.json({ error: "Category is required for an expense" }, { status: 400 });
+  const db = getDatabase();
+  const existing = (await db.select().from(transactions).where(and(eq(transactions.id, input.id), eq(transactions.userId, user.id))).limit(1))[0];
+  if (!existing) return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
+  const account = (await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.id, input.accountId), eq(accounts.userId, user.id))).limit(1))[0];
+  if (!account) return NextResponse.json({ error: "Account not found" }, { status: 400 });
+  if (input.categoryId) {
+    const category = (await db.select({ id: categories.id }).from(categories).where(and(eq(categories.id, input.categoryId), eq(categories.userId, user.id))).limit(1))[0];
+    if (!category) return NextResponse.json({ error: "Category not found" }, { status: 400 });
+  }
+  const changes = { kind: input.kind, amountCents: cents(input.amount), effectiveDate: input.date, accountId: input.accountId, categoryId: input.categoryId, description: input.description, status: input.status, pending: input.pending, updatedAt: new Date() };
+  await db.transaction(async (tx) => {
+    await tx.update(transactions).set(changes).where(and(eq(transactions.id, input.id), eq(transactions.userId, user.id)));
+    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "transaction", entityId: input.id, beforeJson: JSON.stringify({ kind: existing.kind, amountCents: existing.amountCents, effectiveDate: existing.effectiveDate, accountId: existing.accountId, categoryId: existing.categoryId, description: existing.description, status: existing.status, pending: existing.pending }), afterJson: JSON.stringify(changes) });
+  });
+  return NextResponse.json({ id: input.id, ok: true });
 }

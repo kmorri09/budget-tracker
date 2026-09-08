@@ -91,7 +91,7 @@ export async function GET() {
       const account = accountById.get(transaction.accountId);
       const applied = Math.max(0, Math.min(transaction.amountCents, paymentAppliedByTransaction.get(transaction.id) ?? 0));
       const paymentStatus = transaction.kind === "expense" && account?.type === "credit_card" ? applied >= transaction.amountCents ? "Paid" : applied > 0 ? "Partially paid" : "Unpaid" : "Not applicable";
-      return { id: transaction.id, description: transaction.description, amount: centsToAmount(transaction.amountCents), source: transaction.source, kind: transaction.kind, status: transaction.status, pending: transaction.pending, date: transaction.effectiveDate, category: transaction.categoryId ? categoryById.get(transaction.categoryId)?.name : null, account: account?.name ?? "Account", accountId: transaction.accountId, paymentStatus, remainingToPay: centsToAmount(Math.max(0, transaction.amountCents - applied)) };
+      return { id: transaction.id, description: transaction.description, amount: centsToAmount(transaction.amountCents), source: transaction.source, kind: transaction.kind, status: transaction.status, pending: transaction.pending, date: transaction.effectiveDate, category: transaction.categoryId ? categoryById.get(transaction.categoryId)?.name : null, categoryId: transaction.categoryId, account: account?.name ?? "Account", accountId: transaction.accountId, paymentStatus, remainingToPay: centsToAmount(Math.max(0, transaction.amountCents - applied)) };
     }),
   });
 }
