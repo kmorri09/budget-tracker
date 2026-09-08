@@ -5,6 +5,7 @@ import DataTable from "./components/data-table";
 import EntryForm, { actionLabels } from "./components/entry-form";
 import CategoryEditDialog from "./components/category-edit-dialog";
 import CategoryReconcileDialog from "./components/category-reconcile-dialog";
+import CardCoverageReconcileDialog from "./components/card-coverage-reconcile-dialog";
 import { type ActionType, type DashboardData, kindLabel, money, signedAmount } from "../lib/workspace-types";
 import "./workspace.css";
 
@@ -39,6 +40,7 @@ export default function Home() {
   const [drilldown, setDrilldown] = useState<{ category?: string; key: number }>({ key: 0 });
   const [editingCategory, setEditingCategory] = useState<DashboardData["categories"][number] | null>(null);
   const [reconcilingCategories, setReconcilingCategories] = useState(false);
+  const [reconcilingCoverage, setReconcilingCoverage] = useState(false);
   const [paymentTransactionIds, setPaymentTransactionIds] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
@@ -101,11 +103,11 @@ export default function Home() {
       {dashboard && <>
         <section hidden={destination !== "home"} aria-label="Home"><Overview dashboard={dashboard} navigate={navigate} onAction={openAction} viewCategory={viewCategory} /></section>
         <section hidden={destination !== "transactions"} aria-label="Transactions">
-          <div className="view-heading"><p>Money in is positive; money out is negative.</p><div className="section-actions"><button className="secondary-button" onClick={() => openAction("income")}>＋ Income</button><button className="primary-button" onClick={() => openAction("transaction")}>＋ Add transaction</button></div></div>
+          <div className="view-heading"><p>Money in is positive; money out is negative.</p><div className="section-actions"><button className="secondary-button" onClick={() => setReconcilingCoverage(true)}>Reconcile card coverage</button><button className="secondary-button" onClick={() => openAction("income")}>＋ Income</button><button className="primary-button" onClick={() => openAction("transaction")}>＋ Add transaction</button></div></div>
           <DataTable key={drilldown.key} initialCategory={drilldown.category} title="Transactions" dated amountKey="amount" amountLabel="Net amount" rows={dashboard.activity.map(entry => ({ id: entry.id, name: entry.description, date: entry.date, account: entry.account, category: entry.category ?? "Uncategorized", type: kindLabel(entry.kind), paymentStatus: entry.paymentStatus, status: entry.pending ? "Pending" : kindLabel(entry.status), source: kindLabel(entry.source), amount: signedAmount(entry), remainingToPay: entry.remainingToPay }))}
             columns={[{ key: "name", label: "Description" }, { key: "date", label: "Date" }, { key: "amount", label: "Amount", money: true }, { key: "category", label: "Category" }, { key: "account", label: "Account", detail: true }, { key: "type", label: "Type", detail: true }, { key: "paymentStatus", label: "Card coverage", detail: true }, { key: "status", label: "Status", detail: true }, { key: "source", label: "Source", detail: true }]}
             facets={[{ key: "category", label: "Category" }, { key: "account", label: "Account" }, { key: "type", label: "Type" }, { key: "paymentStatus", label: "Card coverage" }, { key: "status", label: "Status" }, { key: "source", label: "Source" }]}
-            selection={{ actionLabel: "Create card payment", isEligible: row => row.type === "Expense" && row.paymentStatus !== "Paid" && row.paymentStatus !== "—" && Number(row.remainingToPay) > 0, onAction: paySelected }} />
+            selection={{ actionLabel: "Create card payment", isEligible: row => row.type === "Expense" && row.paymentStatus !== "Paid" && row.paymentStatus !== "Not applicable" && Number(row.remainingToPay) > 0, onAction: paySelected }} />
         </section>
         <section hidden={destination !== "payments"} aria-label="Card payments">
           <div className="view-heading"><p>Each payment moves cash to a card and is applied to its oldest unpaid purchases.</p><div className="section-actions"><button className="primary-button" onClick={() => openAction("payment")}>＋ Record card payment</button></div></div>
@@ -133,6 +135,7 @@ export default function Home() {
     {dashboard && action && <EntryForm action={action} dashboard={dashboard} initialPaymentTransactionIds={paymentTransactionIds} onClose={() => { setAction(null); setPaymentTransactionIds([]); }} onSaved={saved} />}
     {editingCategory && <CategoryEditDialog category={editingCategory} onClose={() => setEditingCategory(null)} onSaved={() => { setEditingCategory(null); setToast("Category details updated"); void refresh(); }} />}
     {dashboard && reconcilingCategories && <CategoryReconcileDialog categories={dashboard.categories} onClose={() => setReconcilingCategories(false)} onSaved={(count) => { setReconcilingCategories(false); setToast(count ? `${count} category ${count === 1 ? "balance" : "balances"} reconciled` : "Category balances already matched"); void refresh(); }} />}
+    {dashboard && reconcilingCoverage && <CardCoverageReconcileDialog dashboard={dashboard} onClose={() => setReconcilingCoverage(false)} onSaved={(count, state) => { setReconcilingCoverage(false); setToast(count ? `${count} card ${count === 1 ? "purchase" : "purchases"} marked ${state}` : `Selected purchases were already ${state}`); void refresh(); }} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </main>;
 }

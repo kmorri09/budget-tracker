@@ -86,6 +86,18 @@ export const cardPaymentApplications = pgTable("card_payment_applications", {
   uniqueApplication: uniqueIndex("card_payment_applications_unique_idx").on(table.paymentId, table.transactionId),
 }));
 
+// Manual coverage corrections are intentionally separate from card payments.
+// They let the user force a purchase's paid state without inventing cash movement.
+export const cardCoverageAdjustments = pgTable("card_coverage_adjustments", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  transactionId: text("transaction_id").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  effectiveDate: date("effective_date").notNull(),
+  note: text("note").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({ transactionIndex: index("card_coverage_adjustments_transaction_idx").on(table.transactionId) }));
+
 export const allocations = pgTable("allocations", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

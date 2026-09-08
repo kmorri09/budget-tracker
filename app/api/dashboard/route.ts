@@ -2,7 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
-import { accounts, allocations, cardPaymentApplications, cardPayments, categories, obligations, reviewItems, transactions } from "../../../lib/schema";
+import { accounts, allocations, cardCoverageAdjustments, cardPaymentApplications, cardPayments, categories, obligations, reviewItems, transactions } from "../../../lib/schema";
 import { calculateCategoryBalance } from "../../../lib/category-balance";
 
 const centsToAmount = (cents: number) => Math.round(cents) / 100;
@@ -12,7 +12,7 @@ export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const db = getDatabase();
-  const [accountRows, categoryRows, transactionRows, allocationRows, obligationRows, reviewRows, paymentRows, paymentApplicationRows] = await Promise.all([
+  const [accountRows, categoryRows, transactionRows, allocationRows, obligationRows, reviewRows, paymentRows, paymentApplicationRows, coverageAdjustmentRows] = await Promise.all([
     db.select().from(accounts).where(eq(accounts.userId, user.id)),
     db.select().from(categories).where(eq(categories.userId, user.id)),
     db.select().from(transactions).where(eq(transactions.userId, user.id)).orderBy(desc(transactions.effectiveDate), desc(transactions.createdAt)),
@@ -21,6 +21,7 @@ export async function GET() {
     db.select().from(reviewItems).where(and(eq(reviewItems.userId, user.id), eq(reviewItems.status, "open"))),
     db.select().from(cardPayments).where(eq(cardPayments.userId, user.id)),
     db.select().from(cardPaymentApplications).where(eq(cardPaymentApplications.userId, user.id)),
+    db.select().from(cardCoverageAdjustments).where(eq(cardCoverageAdjustments.userId, user.id)),
   ]);
 
   const accountById = new Map(accountRows.map((account) => [account.id, account]));
@@ -33,6 +34,7 @@ export async function GET() {
     paymentAppliedByTransaction.set(application.transactionId, (paymentAppliedByTransaction.get(application.transactionId) ?? 0) + application.amountCents);
     paymentAppliedByPayment.set(application.paymentId, (paymentAppliedByPayment.get(application.paymentId) ?? 0) + application.amountCents);
   }
+  for (const adjustment of coverageAdjustmentRows) paymentAppliedByTransaction.set(adjustment.transactionId, (paymentAppliedByTransaction.get(adjustment.transactionId) ?? 0) + adjustment.amountCents);
   const signedCashFor = (transaction: typeof transactionRows[number]) => {
     if (transaction.kind === "income" || transaction.kind === "refund") return transaction.amountCents;
     if (transaction.kind === "transfer_in") return transaction.amountCents;
@@ -87,8 +89,8 @@ export async function GET() {
     ],
     activity: transactionRows.map((transaction) => {
       const account = accountById.get(transaction.accountId);
-      const applied = paymentAppliedByTransaction.get(transaction.id) ?? 0;
-      const paymentStatus = transaction.kind === "expense" && account?.type === "credit_card" ? applied >= transaction.amountCents ? "Paid" : applied > 0 ? "Partially paid" : "Unpaid" : "—";
+      const applied = Math.max(0, Math.min(transaction.amountCents, paymentAppliedByTransaction.get(transaction.id) ?? 0));
+      const paymentStatus = transaction.kind === "expense" && account?.type === "credit_card" ? applied >= transaction.amountCents ? "Paid" : applied > 0 ? "Partially paid" : "Unpaid" : "Not applicable";
       return { id: transaction.id, description: transaction.description, amount: centsToAmount(transaction.amountCents), source: transaction.source, kind: transaction.kind, status: transaction.status, pending: transaction.pending, date: transaction.effectiveDate, category: transaction.categoryId ? categoryById.get(transaction.categoryId)?.name : null, account: account?.name ?? "Account", accountId: transaction.accountId, paymentStatus, remainingToPay: centsToAmount(Math.max(0, transaction.amountCents - applied)) };
     }),
   });
