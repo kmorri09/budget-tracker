@@ -91,7 +91,9 @@
 .account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; align-items: start; }
 .account-management-note { margin: -6px 0 18px; }
 .account-card-heading, .account-edit-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.account-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .account-card-heading h2 { margin: 0; }
+.account-default-badge { display: inline-flex; align-items: center; min-height: 23px; padding: 3px 8px; border: 1px solid #d8e0da; border-radius: 7px; background: #f1f4f2; color: #66736c; font-size: 10px; font-weight: 700; white-space: nowrap; }
 .account-menu-button { flex: 0 0 auto; width: 38px; height: 38px; }
 .account-card-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 18px; }
 .account-card-actions .text-link { font-size: 12px; }
