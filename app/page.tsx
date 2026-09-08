@@ -18,8 +18,9 @@ const navigation = [
   { key: "categories", label: "Categories", icon: "▦" },
   { key: "allocations", label: "Allocations", icon: "⇄" },
   { key: "review", label: "Review", icon: "◎" },
+  { key: "accounts", label: "Accounts", icon: "▤" },
 ] as const;
-type Destination = typeof navigation[number]["key"] | "accounts";
+type Destination = typeof navigation[number]["key"];
 const quickActions: ActionType[] = ["transaction", "income", "allocation", "transfer", "payment"];
 const subtitles: Record<Destination, string> = {
   home: "Your rolling plan, at a glance.",
@@ -28,7 +29,7 @@ const subtitles: Record<Destination, string> = {
   categories: "Where your money is assigned. Balances roll forward without a monthly reset.",
   allocations: "Your funding history. Moving funds creates a removal and an addition; it does not move cash.",
   review: "Check imported activity and other items that need your attention.",
-  accounts: "Manage your accounts, reconcile balances, and access workspace settings.",
+  accounts: "Manage accounts, reconcile balances, and configure bank connections.",
 };
 
 export default function Home() {
@@ -65,7 +66,7 @@ export default function Home() {
       const hash = window.location.hash.slice(1);
       const aliases: Record<string, string> = { budget: "categories", activity: "transactions", more: "accounts" };
       const key = aliases[hash] ?? hash;
-      setDestination(key === "accounts" || navigation.some(item => item.key === key) ? key as Destination : "home");
+      setDestination(navigation.some(item => item.key === key) ? key as Destination : "home");
     }
     readHash(); window.addEventListener("hashchange", readHash);
     return () => window.removeEventListener("hashchange", readHash);
@@ -88,7 +89,7 @@ export default function Home() {
     setPaymentTransactionIds(entries.map(entry => entry.id)); setAction("payment");
   }
   function saved() { setAction(null); setPaymentTransactionIds([]); setToast("Saved to your budget"); void refresh(); }
-  const title = destination === "home" ? "Hello, " + name : destination === "accounts" ? "Accounts & settings" : navigation.find(item => item.key === destination)!.label;
+  const title = destination === "home" ? "Hello, " + name : navigation.find(item => item.key === destination)!.label;
 
   return <main className="app-shell workspace">
     <a href="#workspace-content" className="skip-link">Skip to content</a>
@@ -96,10 +97,10 @@ export default function Home() {
       <div className="brand"><span className="brand-mark">$</span><span>Budget</span><small>private workspace</small></div>
       <p className="workspace-owner">{name}&apos;s rolling budget</p>
       <nav className="side-nav" aria-label="Primary navigation">{navigation.map(item => <button key={item.key} className={"nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true">{item.icon}</span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</button>)}</nav>
-      <div className="sidebar-bottom"><button className={"nav-item " + (destination === "accounts" ? "active" : "")} aria-current={destination === "accounts" ? "page" : undefined} onClick={() => navigate("accounts")}><span aria-hidden="true">⚙</span>Accounts & settings</button><p>Private workspace<br />Balances roll forward. Analytics use the last 30 days.</p></div>
+      <div className="sidebar-bottom"><p>Private workspace<br />Balances roll forward. Analytics use the last 30 days.</p></div>
     </aside>
     <div className="content-wrap" id="workspace-content" tabIndex={-1}>
-      <header className="topbar"><div><p className="eyebrow">{destination === "home" ? "Today" : "Your workspace"}</p><h1>{title}</h1></div><div className="top-actions"><button className="settings-shortcut secondary-button" aria-label="Accounts and settings" onClick={() => navigate("accounts")}>⚙ <span>Accounts</span></button><div className="quick-menu"><button className="primary-button" aria-expanded={quickOpen} aria-haspopup="menu" aria-controls="quick-entry-menu" onClick={() => setQuickOpen(!quickOpen)}>Quick actions <span aria-hidden="true">⌄</span></button>{quickOpen && <div id="quick-entry-menu" className="quick-popover" role="menu" onKeyDown={event => { if (event.key === "Escape") setQuickOpen(false); }}>{[...quickActions, "category", "account"].map(item => <button role="menuitem" key={item} onClick={() => openAction(item as ActionType)}>{actionLabels[item as ActionType]}</button>)}</div>}</div></div></header>
+      <header className="topbar"><div><p className="eyebrow">{destination === "home" ? "Today" : "Your workspace"}</p><h1>{title}</h1></div><div className="top-actions"><div className="quick-menu"><button className="primary-button quick-trigger" aria-expanded={quickOpen} aria-haspopup="menu" aria-controls="quick-entry-menu" onClick={() => setQuickOpen(!quickOpen)}>Quick actions <span className="quick-chevron" aria-hidden="true" /></button>{quickOpen && <div id="quick-entry-menu" className="quick-popover" role="menu" onKeyDown={event => { if (event.key === "Escape") setQuickOpen(false); }}>{[...quickActions, "category", "account"].map(item => <button role="menuitem" key={item} onClick={() => openAction(item as ActionType)}>{actionLabels[item as ActionType]}</button>)}</div>}</div></div></header>
       <p className="page-description">{subtitles[destination]}</p>
       {error && <div className="error-banner" role="alert">{error} <button className="secondary-button" onClick={() => void refresh()}>Retry</button></div>}
       {!dashboard && !error && <p role="status">Loading your private budget…</p>}
@@ -132,7 +133,7 @@ export default function Home() {
             columns={[{ key: "name", label: "Note" }, { key: "date", label: "Date" }, { key: "category", label: "Category" }, { key: "amount", label: "Amount", money: true }, { key: "direction", label: "Direction", detail: true }]} facets={[{ key: "category", label: "Category" }, { key: "direction", label: "Direction" }]} />
         </section>
         <section hidden={destination !== "review"} aria-label="Review"><ReviewInbox dashboard={dashboard} onChanged={() => { setToast("Review updated"); void refresh(); }} /></section>
-  <section hidden={destination !== "accounts"} aria-label="Accounts and settings"><Accounts dashboard={dashboard} onAction={openAction} onChanged={(message) => { setToast(message ?? "Account updated"); void refresh(); }} /></section>
+  <section hidden={destination !== "accounts"} aria-label="Accounts"><Accounts dashboard={dashboard} onAction={openAction} onChanged={(message) => { setToast(message ?? "Account updated"); void refresh(); }} /></section>
       </>}
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">{navigation.map(item => <button key={item.key} className={"mobile-nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true">{item.icon}</span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</button>)}</nav>
@@ -153,7 +154,7 @@ function Overview({ dashboard: data, navigate, onAction, viewCategory }: { dashb
     <div className="analytics-grid"><article className="panel"><p className="eyebrow">Income · last 30 days</p><h3>{money(data.trailing30.income)}</h3><small>{data.trailing30.startDate} – {data.trailing30.endDate}</small></article><article className="panel"><p className="eyebrow">Spending · last 30 days</p><h3>{money(data.trailing30.spending)}</h3><small>Expenses only · excludes payments, refunds, and reconciliation</small></article></div>
     <div className="main-grid"><article className="panel"><div className="section-heading"><h2>Category balances</h2><button className="text-link" onClick={() => navigate("categories")}>All categories →</button></div>{!data.categories.length && <p className="empty-state">Add categories to start planning your money.</p>}{data.categories.filter(category => category.allocated > 0).sort((a, b) => a.available - b.available).slice(0, 6).map(category => <div className="overview-row" key={category.id}><button className="text-link" onClick={() => viewCategory(category.name)}>{category.name}</button><span className={category.available < 0 ? "negative" : ""}>{money(category.available)}<small>{category.available < 0 ? "Overspent" : "Available"}</small></span></div>)}{data.categories.length > 0 && !data.categories.some(category => category.allocated > 0) && <p className="empty-state">No categories have allocated money yet.</p>}</article>
       <div className="right-stack"><article className="panel"><div className="section-heading"><h2>Needs attention</h2></div><button className="attention-link" onClick={() => navigate("review")}><span>Review inbox</span><strong>{data.reviews.length} open →</strong></button><button className="attention-link" onClick={() => navigate("categories")}><span>Overspent categories</span><strong>{overspent.length} →</strong></button></article><article className="panel"><div className="section-heading"><h2>Upcoming obligations</h2></div>{data.obligations.length ? [...data.obligations].sort((a, b) => a.dueDate.localeCompare(b.dueDate)).map(item => <div className="overview-row" key={item.id}><span>{item.name}<small>{item.dueDate} · {item.category}</small></span><strong>{money(item.amount)}</strong></div>) : <p className="empty-state">No obligations yet.</p>}</article></div></div>
-    <article className="panel activity-panel"><div className="section-heading"><h2>Recent transactions</h2><button className="text-link" onClick={() => navigate("transactions")}>All transactions →</button></div>{data.activity.slice(0, 8).map(entry => <div className="overview-row" key={entry.id}><span>{entry.description}<small>{entry.date} · {entry.account} · {entry.category ?? kindLabel(entry.kind)}</small></span><strong className={signedAmount(entry) < 0 ? "negative" : ""}>{money(signedAmount(entry))}</strong></div>)}{!data.activity.length && <p className="empty-state">No transactions yet. Add one or import your Notion snapshot in Accounts & settings.</p>}</article>
+    <article className="panel activity-panel"><div className="section-heading"><h2>Recent transactions</h2><button className="text-link" onClick={() => navigate("transactions")}>All transactions →</button></div>{data.activity.slice(0, 8).map(entry => <div className="overview-row" key={entry.id}><span>{entry.description}<small>{entry.date} · {entry.account} · {entry.category ?? kindLabel(entry.kind)}</small></span><strong className={signedAmount(entry) < 0 ? "negative" : ""}>{money(signedAmount(entry))}</strong></div>)}{!data.activity.length && <p className="empty-state">No transactions yet. Add one or import your Notion snapshot from Accounts.</p>}</article>
   </>;
 }
 

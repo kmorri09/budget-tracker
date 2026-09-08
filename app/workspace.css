@@ -8,7 +8,6 @@
 .workspace .page-description { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0 0 26px; max-width: 780px; }
 .workspace-owner { font-size: 12px; color: var(--muted); padding: 0 10px; margin: 0 0 20px; }
 .workspace .nav-item { min-height: 48px; font-size: 14px; }
-.workspace .sidebar-bottom .nav-item { font-size: 12px; width: 100%; }
 .workspace button:focus-visible, .workspace a:focus-visible, .workspace summary:focus-visible { outline: 3px solid #78a995; outline-offset: 3px; }
 .workspace button:disabled { cursor: not-allowed; opacity: .5; }
 .workspace .primary-button, .workspace .secondary-button { min-height: 44px; font-size: 13px; }
@@ -25,6 +24,9 @@
 .view-heading p { font-size: 13px; color: var(--muted); margin: 0; }
 .workspace .section-actions { flex-wrap: wrap; }
 .quick-menu { position: relative; }
+.quick-trigger { display: inline-flex; align-items: center; gap: 9px; }
+.quick-chevron { width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg) translateY(-2px); transition: transform .15s ease; }
+.quick-trigger[aria-expanded="true"] .quick-chevron { transform: rotate(225deg) translate(-1px, -1px); }
 .quick-popover { position: absolute; right: 0; top: calc(100% + 8px); z-index: 9; width: 240px; border: 1px solid var(--line); padding: 6px; border-radius: 12px; background: white; box-shadow: var(--shadow); }
 .quick-popover button { background: transparent; border: 0; text-align: left; width: 100%; min-height: 44px; padding: 10px; border-radius: 7px; color: var(--ink); }
 .quick-popover button:hover { background: var(--mint); }
@@ -197,8 +199,6 @@
   .workspace .topbar { flex-wrap: wrap; gap: 12px; }
   .workspace .topbar h1 { font-size: 30px; }
   .workspace .top-actions { margin-left: auto; }
-  .workspace .settings-shortcut { width: 44px; padding: 0; font-size: 20px; }
-  .settings-shortcut span { display: none; }
   .workspace .page-description { margin: 12px 0 22px; font-size: 13px; }
   .workspace .mobile-nav-item { flex: 1; min-width: 0; font-size: 10px; min-height: 49px; color: #5c7063; }
   .workspace .mobile-nav-item.active { background: #edf5ef; border-radius: 8px; color: var(--green-dark); }
