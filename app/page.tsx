@@ -39,6 +39,7 @@ export default function Home() {
   const [drilldown, setDrilldown] = useState<{ category?: string; key: number }>({ key: 0 });
   const [editingCategory, setEditingCategory] = useState<DashboardData["categories"][number] | null>(null);
   const [reconcilingCategories, setReconcilingCategories] = useState(false);
+  const [paymentTransactionIds, setPaymentTransactionIds] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
     setError("");
@@ -74,9 +75,14 @@ export default function Home() {
   }, [quickOpen]);
 
   function navigate(next: Destination) { window.location.hash = next; setDestination(next); setQuickOpen(false); window.scrollTo({ top: 0 }); }
-  function openAction(next: ActionType) { setQuickOpen(false); setAction(next); }
+  function openAction(next: ActionType) { setQuickOpen(false); if (next !== "payment") setPaymentTransactionIds([]); setAction(next); }
   function viewCategory(category: string) { setDrilldown(current => ({ category, key: current.key + 1 })); navigate("transactions"); }
-  function saved() { setAction(null); setToast("Saved to your budget"); void refresh(); }
+  function paySelected(rows: { id: string }[]) {
+    const entries = rows.map(row => dashboard?.activity.find(entry => entry.id === row.id)).filter((entry): entry is DashboardData["activity"][number] => Boolean(entry));
+    if (new Set(entries.map(entry => entry.accountId)).size !== 1) { setToast("Choose unpaid purchases from one credit card at a time"); return; }
+    setPaymentTransactionIds(entries.map(entry => entry.id)); setAction("payment");
+  }
+  function saved() { setAction(null); setPaymentTransactionIds([]); setToast("Saved to your budget"); void refresh(); }
   const title = destination === "home" ? "Hello, " + name : destination === "accounts" ? "Accounts & settings" : navigation.find(item => item.key === destination)!.label;
 
   return <main className="app-shell workspace">
@@ -98,7 +104,8 @@ export default function Home() {
           <div className="view-heading"><p>Money in is positive; money out is negative.</p><div className="section-actions"><button className="secondary-button" onClick={() => openAction("income")}>＋ Income</button><button className="primary-button" onClick={() => openAction("transaction")}>＋ Add transaction</button></div></div>
           <DataTable key={drilldown.key} initialCategory={drilldown.category} title="Transactions" dated amountKey="amount" amountLabel="Net amount" rows={dashboard.activity.map(entry => ({ id: entry.id, name: entry.description, date: entry.date, account: entry.account, category: entry.category ?? "Uncategorized", type: kindLabel(entry.kind), paymentStatus: entry.paymentStatus, status: entry.pending ? "Pending" : kindLabel(entry.status), source: kindLabel(entry.source), amount: signedAmount(entry), remainingToPay: entry.remainingToPay }))}
             columns={[{ key: "name", label: "Description" }, { key: "date", label: "Date" }, { key: "amount", label: "Amount", money: true }, { key: "category", label: "Category" }, { key: "account", label: "Account", detail: true }, { key: "type", label: "Type", detail: true }, { key: "paymentStatus", label: "Card coverage", detail: true }, { key: "status", label: "Status", detail: true }, { key: "source", label: "Source", detail: true }]}
-            facets={[{ key: "category", label: "Category" }, { key: "account", label: "Account" }, { key: "type", label: "Type" }, { key: "paymentStatus", label: "Card coverage" }, { key: "status", label: "Status" }, { key: "source", label: "Source" }]} />
+            facets={[{ key: "category", label: "Category" }, { key: "account", label: "Account" }, { key: "type", label: "Type" }, { key: "paymentStatus", label: "Card coverage" }, { key: "status", label: "Status" }, { key: "source", label: "Source" }]}
+            selection={{ actionLabel: "Create card payment", isEligible: row => row.type === "Expense" && row.paymentStatus !== "Paid" && row.paymentStatus !== "—" && Number(row.remainingToPay) > 0, onAction: paySelected }} />
         </section>
         <section hidden={destination !== "payments"} aria-label="Card payments">
           <div className="view-heading"><p>Each payment moves cash to a card and is applied to its oldest unpaid purchases.</p><div className="section-actions"><button className="primary-button" onClick={() => openAction("payment")}>＋ Record card payment</button></div></div>
@@ -123,7 +130,7 @@ export default function Home() {
       </>}
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">{navigation.map(item => <button key={item.key} className={"mobile-nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true">{item.icon}</span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</button>)}</nav>
-    {dashboard && action && <EntryForm action={action} dashboard={dashboard} onClose={() => setAction(null)} onSaved={saved} />}
+    {dashboard && action && <EntryForm action={action} dashboard={dashboard} initialPaymentTransactionIds={paymentTransactionIds} onClose={() => { setAction(null); setPaymentTransactionIds([]); }} onSaved={saved} />}
     {editingCategory && <CategoryEditDialog category={editingCategory} onClose={() => setEditingCategory(null)} onSaved={() => { setEditingCategory(null); setToast("Category details updated"); void refresh(); }} />}
     {dashboard && reconcilingCategories && <CategoryReconcileDialog categories={dashboard.categories} onClose={() => setReconcilingCategories(false)} onSaved={(count) => { setReconcilingCategories(false); setToast(count ? `${count} category ${count === 1 ? "balance" : "balances"} reconciled` : "Category balances already matched"); void refresh(); }} />}
     {toast && <div className="toast" role="status">{toast}</div>}
