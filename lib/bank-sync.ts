@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, lt } from "drizzle-orm";
+import { and, eq, inArray, lt, or } from "drizzle-orm";
 import type { Database } from "./db";
 import { accounts, auditEvents, cardPayments, providerAccounts, providerConnections, rawProviderTransactions, reviewItems, syncLocks, syncRuns, transactions } from "./schema";
 import { accountType, findCardPaymentMatch, findLedgerDuplicate, mockProviderAccounts, syncCutoverDate, toNormalized, type CardPaymentMatchCandidate, type LedgerMatchCandidate, type NormalizedTransaction, type PlaidAccount, type PlaidTransaction } from "./bank-sync-core";
@@ -110,16 +110,17 @@ export async function syncConnection(db: Database, userId: string, connectionId:
     const localRows = localIds.length ? await db.select({ id: accounts.id, syncEnabled: accounts.syncEnabled }).from(accounts).where(and(eq(accounts.userId, userId), inArray(accounts.id, localIds))) : [];
     const syncableIds = new Set(onlyEnabled ? localRows.filter(row => row.syncEnabled).map(row => row.id) : localRows.map(row => row.id));
     const localByProvider = new Map(providerRows.filter(row => row.localAccountId && syncableIds.has(row.localAccountId)).map(row => [row.providerAccountId, row.localAccountId!]));
+    const accountTypeByProvider = new Map(providerRows.map(row => [row.providerAccountId, row.type]));
     const cutoverDate = syncCutoverDate(connection.createdAt);
     const ledgerRows = localIds.length ? await db.select().from(transactions).where(and(eq(transactions.userId, userId), inArray(transactions.accountId, localIds))) : [];
-    const paymentRows = localIds.length ? await db.select().from(cardPayments).where(and(eq(cardPayments.userId, userId), inArray(cardPayments.fromAccountId, localIds))) : [];
+    const paymentRows = localIds.length ? await db.select().from(cardPayments).where(and(eq(cardPayments.userId, userId), or(inArray(cardPayments.fromAccountId, localIds), inArray(cardPayments.toAccountId, localIds)))) : [];
     const matchCandidates: LedgerMatchCandidate[] = ledgerRows.map(row => ({ id: row.id, accountId: row.accountId, amountCents: row.amountCents, kind: row.kind, effectiveDate: row.effectiveDate, description: row.description, source: row.source, status: row.status, providerTransactionId: row.providerTransactionId }));
-    const paymentCandidates: CardPaymentMatchCandidate[] = paymentRows.map(row => ({ id: row.id, fromAccountId: row.fromAccountId, amountCents: row.amountCents, effectiveDate: row.effectiveDate, providerTransactionId: row.providerTransactionId }));
+    const paymentCandidates: CardPaymentMatchCandidate[] = paymentRows.map(row => ({ id: row.id, fromAccountId: row.fromAccountId, toAccountId: row.toAccountId, amountCents: row.amountCents, effectiveDate: row.effectiveDate, providerTransactionId: row.providerTransactionId, destinationProviderTransactionId: row.destinationProviderTransactionId }));
     const reservedMatchIds = new Set<string>();
-    const reservedPaymentIds = new Set<string>();
+    const reservedPaymentSides = new Set<string>();
     let addedCount = 0; let modifiedCount = 0; let matchedCount = 0; let suppressedCount = 0;
     const findMatch = (normalized: NormalizedTransaction, localAccountId: string, excludeId?: string) => findLedgerDuplicate(normalized, localAccountId, matchCandidates.filter(candidate => !reservedMatchIds.has(candidate.id)), excludeId);
-    const findPayment = (normalized: NormalizedTransaction, localAccountId: string) => findCardPaymentMatch(normalized, localAccountId, paymentCandidates.filter(candidate => !reservedPaymentIds.has(candidate.id)));
+    const findPayment = (normalized: NormalizedTransaction, localAccountId: string) => findCardPaymentMatch(normalized, localAccountId, paymentCandidates.filter(candidate => !reservedPaymentSides.has(`${candidate.id}:${normalized.kind === "transfer_out" ? "source" : "destination"}`)));
     const linkExistingLedgerEntry = async (candidate: LedgerMatchCandidate, normalized: NormalizedTransaction, duplicate?: typeof transactions.$inferSelect) => {
       await db.transaction(async tx => {
         if (duplicate) {
@@ -133,17 +134,20 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       reservedMatchIds.add(candidate.id);
       matchedCount++;
     };
-    const linkExistingCardPayment = async (candidate: CardPaymentMatchCandidate, normalized: NormalizedTransaction, duplicate?: typeof transactions.$inferSelect) => {
+    const linkExistingCardPayment = async (match: NonNullable<ReturnType<typeof findCardPaymentMatch>>, normalized: NormalizedTransaction, duplicate?: typeof transactions.$inferSelect) => {
+      const { candidate, side } = match;
+      const linkChanges = side === "source" ? { providerTransactionId: normalized.providerTransactionId, updatedAt: now } : { destinationProviderTransactionId: normalized.providerTransactionId, updatedAt: now };
       await db.transaction(async tx => {
         if (duplicate) {
           await tx.update(transactions).set({ status: "removed", removedAt: now, providerTransactionId: null, pending: false, updatedAt: now }).where(and(eq(transactions.id, duplicate.id), eq(transactions.userId, userId)));
-          await tx.update(reviewItems).set({ status: "resolved", resolvedAt: now, details: "Automatically resolved after matching this Plaid withdrawal to an existing card payment." }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, duplicate.id), eq(reviewItems.status, "open")));
+          await tx.update(reviewItems).set({ status: "resolved", resolvedAt: now, details: "Automatically resolved after matching this Plaid activity to an existing card payment." }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, duplicate.id), eq(reviewItems.status, "open")));
         }
-        await tx.update(cardPayments).set({ providerTransactionId: normalized.providerTransactionId, updatedAt: now }).where(and(eq(cardPayments.id, candidate.id), eq(cardPayments.userId, userId)));
-        await tx.insert(auditEvents).values({ id: randomUUID(), userId, action: "deduplicate", entityType: "card_payment", entityId: candidate.id, beforeJson: JSON.stringify({ duplicateTransactionId: duplicate?.id ?? null }), afterJson: JSON.stringify({ providerTransactionId: normalized.providerTransactionId, connectionId, matchedBy: "source_account+amount+date" }) });
+        await tx.update(cardPayments).set(linkChanges).where(and(eq(cardPayments.id, candidate.id), eq(cardPayments.userId, userId)));
+        await tx.insert(auditEvents).values({ id: randomUUID(), userId, action: "deduplicate", entityType: "card_payment", entityId: candidate.id, beforeJson: JSON.stringify({ duplicateTransactionId: duplicate?.id ?? null }), afterJson: JSON.stringify({ providerTransactionId: normalized.providerTransactionId, providerSide: side, connectionId, matchedBy: "payment_side+account+amount+date" }) });
       });
-      candidate.providerTransactionId = normalized.providerTransactionId;
-      reservedPaymentIds.add(candidate.id);
+      if (side === "source") candidate.providerTransactionId = normalized.providerTransactionId;
+      else candidate.destinationProviderTransactionId = normalized.providerTransactionId;
+      reservedPaymentSides.add(`${candidate.id}:${side}`);
       matchedCount++;
     };
     const suppressPreCutover = async (row: typeof transactions.$inferSelect, providerTransactionId: string) => {
@@ -155,6 +159,7 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       });
       suppressedCount++;
     };
+    const findLinkedPayment = async (providerTransactionId: string) => (await db.select().from(cardPayments).where(and(eq(cardPayments.userId, userId), or(eq(cardPayments.providerTransactionId, providerTransactionId), eq(cardPayments.destinationProviderTransactionId, providerTransactionId)))).limit(1))[0];
 
     // Repair the first sync as well as future syncs. Raw rows preserve the
     // provider record even when the duplicate normalized row is suppressed.
@@ -165,17 +170,18 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       const localAccountId = raw ? localByProvider.get(raw.providerAccountId) : null;
       if (!raw || !localAccountId) continue;
       const parsedRaw = JSON.parse(raw.rawJson) as PlaidTransaction;
-      const normalized = toNormalized(parsedRaw);
+      const normalized = toNormalized(parsedRaw, accountTypeByProvider.get(raw.providerAccountId));
       const paymentCandidate = findPayment(normalized, localAccountId);
       if (paymentCandidate) { await linkExistingCardPayment(paymentCandidate, normalized, plaidRow); continue; }
       const candidate = findMatch(normalized, localAccountId, plaidRow.id);
       if (candidate) await linkExistingLedgerEntry(candidate, normalized, plaidRow);
       else if (normalized.date < cutoverDate) await suppressPreCutover(plaidRow, normalized.providerTransactionId);
-      else if (!plaidRow.userEdited && (normalized.kind === "transfer_in" || normalized.kind === "transfer_out") && plaidRow.kind !== normalized.kind) {
+      else if (!plaidRow.userEdited && ["transfer_in", "transfer_out", "refund"].includes(normalized.kind) && plaidRow.kind !== normalized.kind) {
+        const isTransfer = normalized.kind === "transfer_in" || normalized.kind === "transfer_out";
         await db.transaction(async tx => {
           await tx.update(transactions).set({ kind: normalized.kind, categoryId: null, updatedAt: now }).where(and(eq(transactions.id, plaidRow.id), eq(transactions.userId, userId)));
-          await tx.update(reviewItems).set({ kind: "provider_transfer", title: `Review imported transfer: ${normalized.description}`, details: normalized.kind === "transfer_out" ? "No existing card payment matched this withdrawal. If it paid an untracked card, keep it as a transaction; otherwise record the card payment and this import will be reconciled automatically." : "Confirm this transfer is not new spending and keep it as a transaction if no matching entry exists." }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, plaidRow.id), eq(reviewItems.status, "open")));
-          await tx.insert(auditEvents).values({ id: randomUUID(), userId, action: "reclassify", entityType: "provider_transaction", entityId: plaidRow.id, beforeJson: JSON.stringify({ kind: plaidRow.kind }), afterJson: JSON.stringify({ kind: normalized.kind, connectionId, matchedBy: "provider_transfer_descriptor" }) });
+          await tx.update(reviewItems).set(isTransfer ? { kind: "provider_transfer", title: `Review imported transfer: ${normalized.description}`, details: normalized.kind === "transfer_out" ? "No existing card payment matched this withdrawal. If it paid an untracked card, keep it as a transaction; otherwise record the card payment and this import will be reconciled automatically." : "Confirm this transfer is not new spending and keep it as a transaction if no matching entry exists." } : { kind: "bank_transaction", title: `Review imported refund: ${normalized.description}`, details: "Assign the original spending category, or confirm this refund is already represented in your budget." }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, plaidRow.id), eq(reviewItems.status, "open")));
+          await tx.insert(auditEvents).values({ id: randomUUID(), userId, action: "reclassify", entityType: "provider_transaction", entityId: plaidRow.id, beforeJson: JSON.stringify({ kind: plaidRow.kind }), afterJson: JSON.stringify({ kind: normalized.kind, connectionId, matchedBy: isTransfer ? "provider_transfer_descriptor" : "credit_card_credit" }) });
         });
         plaidRow.kind = normalized.kind;
         const matchCandidate = matchCandidates.find(row => row.id === plaidRow.id);
@@ -185,14 +191,16 @@ export async function syncConnection(db: Database, userId: string, connectionId:
     }
 
     for (const remote of [...added, ...modified]) {
-      const normalized = toNormalized(remote);
+      const normalized = toNormalized(remote, accountTypeByProvider.get(remote.account_id));
       await db.insert(rawProviderTransactions).values({ id: randomUUID(), userId, connectionId, providerAccountId: normalized.providerAccountId, providerTransactionId: normalized.providerTransactionId, pendingTransactionId: normalized.pendingTransactionId, pending: normalized.pending, rawJson: JSON.stringify(normalized.raw), lastSeenAt: now, updatedAt: now }).onConflictDoUpdate({ target: [rawProviderTransactions.userId, rawProviderTransactions.providerTransactionId], set: { providerAccountId: normalized.providerAccountId, pendingTransactionId: normalized.pendingTransactionId, pending: normalized.pending, rawJson: JSON.stringify(normalized.raw), lastSeenAt: now, updatedAt: now } });
       const localAccountId = localByProvider.get(normalized.providerAccountId);
       if (!localAccountId) continue;
-      let existingPayment = (await db.select().from(cardPayments).where(and(eq(cardPayments.userId, userId), eq(cardPayments.providerTransactionId, normalized.providerTransactionId))).limit(1))[0];
-      if (!existingPayment && normalized.pendingTransactionId) existingPayment = (await db.select().from(cardPayments).where(and(eq(cardPayments.userId, userId), eq(cardPayments.providerTransactionId, normalized.pendingTransactionId))).limit(1))[0];
+      let existingPayment = await findLinkedPayment(normalized.providerTransactionId);
+      if (!existingPayment && normalized.pendingTransactionId) existingPayment = await findLinkedPayment(normalized.pendingTransactionId);
       if (existingPayment) {
-        if (existingPayment.providerTransactionId !== normalized.providerTransactionId) await db.update(cardPayments).set({ providerTransactionId: normalized.providerTransactionId, updatedAt: now }).where(and(eq(cardPayments.id, existingPayment.id), eq(cardPayments.userId, userId)));
+        const destinationSide = existingPayment.destinationProviderTransactionId === normalized.providerTransactionId || existingPayment.destinationProviderTransactionId === normalized.pendingTransactionId;
+        const currentLink = destinationSide ? existingPayment.destinationProviderTransactionId : existingPayment.providerTransactionId;
+        if (currentLink !== normalized.providerTransactionId) await db.update(cardPayments).set(destinationSide ? { destinationProviderTransactionId: normalized.providerTransactionId, updatedAt: now } : { providerTransactionId: normalized.providerTransactionId, updatedAt: now }).where(and(eq(cardPayments.id, existingPayment.id), eq(cardPayments.userId, userId)));
         modifiedCount++;
         continue;
       }
@@ -204,7 +212,7 @@ export async function syncConnection(db: Database, userId: string, connectionId:
         if (existing.status === "removed" && normalized.date < cutoverDate) continue;
         const providerManaged = existing.source === "plaid";
         const acceptProviderChanges = providerManaged && !existing.userEdited;
-        await db.update(transactions).set({ accountId: acceptProviderChanges ? localAccountId : existing.accountId, providerTransactionId: normalized.providerTransactionId, amountCents: acceptProviderChanges ? normalized.amountCents : existing.amountCents, kind: acceptProviderChanges ? normalized.kind : existing.kind, categoryId: acceptProviderChanges ? (normalized.kind === "expense" ? existing.categoryId : null) : existing.categoryId, effectiveDate: acceptProviderChanges ? normalized.date : existing.effectiveDate, description: acceptProviderChanges ? normalized.description : existing.description, status: acceptProviderChanges ? (normalized.pending ? "pending" : "posted") : existing.status, pending: acceptProviderChanges ? normalized.pending : existing.pending, source: existing.source, updatedAt: now }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
+        await db.update(transactions).set({ accountId: acceptProviderChanges ? localAccountId : existing.accountId, providerTransactionId: normalized.providerTransactionId, amountCents: acceptProviderChanges ? normalized.amountCents : existing.amountCents, kind: acceptProviderChanges ? normalized.kind : existing.kind, categoryId: acceptProviderChanges ? (["expense", "refund"].includes(normalized.kind) ? existing.categoryId : null) : existing.categoryId, effectiveDate: acceptProviderChanges ? normalized.date : existing.effectiveDate, description: acceptProviderChanges ? normalized.description : existing.description, status: acceptProviderChanges ? (normalized.pending ? "pending" : "posted") : existing.status, pending: acceptProviderChanges ? normalized.pending : existing.pending, source: existing.source, updatedAt: now }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
         modifiedCount++;
       } else {
         const candidate = findMatch(normalized, localAccountId);
@@ -212,7 +220,7 @@ export async function syncConnection(db: Database, userId: string, connectionId:
         if (normalized.date < cutoverDate) { suppressedCount++; continue; }
         const id = randomUUID();
         await db.insert(transactions).values({ id, userId, accountId: localAccountId, categoryId: null, kind: normalized.kind, amountCents: normalized.amountCents, effectiveDate: normalized.date, description: normalized.description, status: normalized.pending ? "pending" : "posted", source: "plaid", providerTransactionId: normalized.providerTransactionId, pending: normalized.pending });
-        if (normalized.kind === "expense") await db.insert(reviewItems).values({ id: randomUUID(), userId, transactionId: id, kind: "bank_transaction", title: `Review imported transaction: ${normalized.description}`, details: "Assign a category or confirm this imported activity is already represented in your budget." });
+        if (normalized.kind === "expense" || normalized.kind === "refund") await db.insert(reviewItems).values({ id: randomUUID(), userId, transactionId: id, kind: "bank_transaction", title: `Review imported ${normalized.kind === "refund" ? "refund" : "transaction"}: ${normalized.description}`, details: normalized.kind === "refund" ? "Assign the original spending category, or confirm this refund is already represented in your budget." : "Assign a category or confirm this imported activity is already represented in your budget." });
         if (normalized.kind === "transfer_in" || normalized.kind === "transfer_out") await db.insert(reviewItems).values({ id: randomUUID(), userId, transactionId: id, kind: "provider_transfer", title: `Review imported transfer: ${normalized.description}`, details: normalized.kind === "transfer_out" ? "No existing card payment matched this withdrawal. If it paid an untracked card, keep it as a transaction; otherwise record the card payment and this import will be reconciled automatically." : "Confirm this transfer is not new spending and keep it as a transaction if no matching entry exists." });
         addedCount++;
       }
@@ -226,10 +234,11 @@ export async function syncConnection(db: Database, userId: string, connectionId:
         } else await db.update(transactions).set({ providerTransactionId: null, updatedAt: new Date() }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
         await db.insert(auditEvents).values({ id: randomUUID(), userId, action: "remove", entityType: "provider_transaction", entityId: existing.id, afterJson: JSON.stringify({ providerTransactionId: removedRow.transaction_id, connectionId }) });
       }
-      const existingPayment = (await db.select().from(cardPayments).where(and(eq(cardPayments.userId, userId), eq(cardPayments.providerTransactionId, removedRow.transaction_id))).limit(1))[0];
+      const existingPayment = await findLinkedPayment(removedRow.transaction_id);
       if (existingPayment) {
-        await db.update(cardPayments).set({ providerTransactionId: null, updatedAt: now }).where(and(eq(cardPayments.id, existingPayment.id), eq(cardPayments.userId, userId)));
-        await db.insert(auditEvents).values({ id: randomUUID(), userId, action: "unlink", entityType: "card_payment", entityId: existingPayment.id, beforeJson: JSON.stringify({ providerTransactionId: removedRow.transaction_id }), afterJson: JSON.stringify({ providerTransactionId: null, connectionId }) });
+        const destinationSide = existingPayment.destinationProviderTransactionId === removedRow.transaction_id;
+        await db.update(cardPayments).set(destinationSide ? { destinationProviderTransactionId: null, updatedAt: now } : { providerTransactionId: null, updatedAt: now }).where(and(eq(cardPayments.id, existingPayment.id), eq(cardPayments.userId, userId)));
+        await db.insert(auditEvents).values({ id: randomUUID(), userId, action: "unlink", entityType: "card_payment", entityId: existingPayment.id, beforeJson: JSON.stringify({ providerTransactionId: removedRow.transaction_id, providerSide: destinationSide ? "destination" : "source" }), afterJson: JSON.stringify({ providerTransactionId: null, connectionId }) });
       }
     }
     await db.update(providerConnections).set({ cursor: nextCursor, status: "connected", lastSyncAt: now, lastError: null, updatedAt: now }).where(and(eq(providerConnections.id, connectionId), eq(providerConnections.userId, userId)));

@@ -74,12 +74,15 @@ CREATE TABLE IF NOT EXISTS "card_payments" (
   "effective_date" date NOT NULL,
   "description" text NOT NULL,
   "provider_transaction_id" text,
+  "destination_provider_transaction_id" text,
   "created_at" timestamptz DEFAULT now() NOT NULL,
   "updated_at" timestamptz DEFAULT now() NOT NULL
 );
 ALTER TABLE "card_payments" ADD COLUMN IF NOT EXISTS "provider_transaction_id" text;
+ALTER TABLE "card_payments" ADD COLUMN IF NOT EXISTS "destination_provider_transaction_id" text;
 CREATE INDEX IF NOT EXISTS "card_payments_user_date_idx" ON "card_payments" ("user_id", "effective_date");
 CREATE UNIQUE INDEX IF NOT EXISTS "card_payments_provider_idx" ON "card_payments" ("user_id", "provider_transaction_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "card_payments_destination_provider_idx" ON "card_payments" ("user_id", "destination_provider_transaction_id");
 
 CREATE TABLE IF NOT EXISTS "card_payment_applications" (
   "id" text PRIMARY KEY NOT NULL,

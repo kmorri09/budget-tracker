@@ -42,10 +42,11 @@ export default function DataTable({ title, rows, columns, facets, dated = false,
   const [range, setRange] = useState(dated && !initialCategory ? "30" : "all");
   const [extra, setExtra] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
+  const [pageSize, setPageSize] = useState(25);
   const update = (change: Partial<TableQuery>) => { setQuery(current => ({ ...current, ...change })); setPage(0); };
   const filtered = queryRows(rows, query, amountKey);
-  const pages = Math.max(1, Math.ceil(filtered.length / 25)), safePage = Math.min(page, pages - 1);
-  const visible = filtered.slice(safePage * 25, (safePage + 1) * 25);
+  const pages = Math.max(1, Math.ceil(filtered.length / pageSize)), safePage = Math.min(page, pages - 1);
+  const visible = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
   const invalidRange = Boolean((query.from && query.to && query.from > query.to) || (query.min !== "" && query.max !== "" && Number(query.min) > Number(query.max)));
   function sort(key: string) { update({ sort: key, direction: query.sort === key && query.direction === "asc" ? "desc" : "asc" }); }
   const summaryAmount = filtered.reduce((sum, row) => sum + Number(row[amountKey]), 0);
@@ -81,6 +82,6 @@ export default function DataTable({ title, rows, columns, facets, dated = false,
       </td>)}{rowActions.length > 0 && <td className="row-actions" data-label="Actions">{rowActions.filter(action => action.isEligible?.(row) ?? true).map(action => <button type="button" className="text-link" key={action.label} onClick={() => action.onClick(row)}>{action.label}<span className="sr-only"> {String(row[columns[0].key])}</span></button>)}</td>}<td className="row-toggle"><button className="text-link" aria-expanded={expanded === row.id} onClick={() => setExpanded(expanded === row.id ? null : row.id)}>{expanded === row.id ? "Less" : "Details"}</button></td></tr>)}</tbody>
     </table>
     {visible.length === 0 && <div className="table-empty"><h3>{rows.length ? "No matches" : "Nothing here yet"}</h3><p>{rows.length ? "Try changing your date range or clearing a filter." : "Use the add button above to create your first entry."}</p></div>}
-    <div className="table-pagination"><span>Page {safePage + 1} of {pages} · 25 per page</span><div><button className="secondary-button" disabled={safePage === 0} onClick={() => setPage(safePage-1)}>Previous</button><button className="secondary-button" disabled={safePage + 1 >= pages} onClick={() => setPage(safePage+1)}>Next</button></div></div>
+    <div className="table-pagination"><label>Rows per page<select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(0); }}><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label><span>Page {safePage + 1} of {pages}</span><div><button className="secondary-button" disabled={safePage === 0} onClick={() => setPage(safePage-1)}>Previous</button><button className="secondary-button" disabled={safePage + 1 >= pages} onClick={() => setPage(safePage+1)}>Next</button></div></div>
   </section>;
 }

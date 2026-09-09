@@ -1,11 +1,13 @@
 export type PlaidAccount = { account_id: string; name: string; official_name?: string | null; mask?: string | null; type: string; subtype?: string | null; balances: { current?: number | null; available?: number | null } };
 export type PlaidTransaction = { transaction_id: string; pending_transaction_id?: string | null; account_id: string; amount: number; date: string; authorized_date?: string | null; name?: string | null; merchant_name?: string | null; pending?: boolean; personal_finance_category?: { primary?: string | null } | null };
-export type NormalizedTransaction = { providerTransactionId: string; pendingTransactionId: string | null; providerAccountId: string; amountCents: number; kind: "expense" | "income" | "transfer_in" | "transfer_out"; date: string; description: string; pending: boolean; raw: PlaidTransaction };
+export type NormalizedTransaction = { providerTransactionId: string; pendingTransactionId: string | null; providerAccountId: string; amountCents: number; kind: "expense" | "income" | "refund" | "transfer_in" | "transfer_out"; date: string; description: string; pending: boolean; raw: PlaidTransaction };
 export type LedgerMatchCandidate = { id: string; accountId: string; amountCents: number; kind: string; effectiveDate: string; description: string; source: string; status: string; providerTransactionId: string | null };
-export type CardPaymentMatchCandidate = { id: string; fromAccountId: string; amountCents: number; effectiveDate: string; providerTransactionId: string | null };
+export type CardPaymentMatchCandidate = { id: string; fromAccountId: string; toAccountId: string; amountCents: number; effectiveDate: string; providerTransactionId: string | null; destinationProviderTransactionId: string | null };
+export type CardPaymentMatch = { candidate: CardPaymentMatchCandidate; side: "source" | "destination" };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const CARD_PAYMENT_MATCH_DAYS = 5;
+export const LEDGER_MATCH_DAYS = 5;
 
 function cashDirection(kind: string) {
   if (["income", "refund", "transfer_in"].includes(kind)) return "in";
@@ -33,7 +35,7 @@ export function syncCutoverDate(connectedAt: Date, lookbackDays = 7) {
 }
 
 // Match only high-confidence ledger duplicates: same account, exact cents,
-// same cash direction, and posting dates no more than three days apart. A
+// same cash direction, and posting dates no more than five days apart. A
 // unique same-day match is accepted even when the bank and manual descriptions
 // differ (for example employer legal name versus "paycheck").
 export function findLedgerDuplicate(normalized: NormalizedTransaction, localAccountId: string, candidates: LedgerMatchCandidate[], excludeId?: string) {
@@ -45,7 +47,7 @@ export function findLedgerDuplicate(normalized: NormalizedTransaction, localAcco
     && (!candidate.providerTransactionId || candidate.providerTransactionId.startsWith("notion:"))
     && candidate.amountCents === normalized.amountCents
     && cashDirection(candidate.kind) === direction
-    && dayDistance(candidate.effectiveDate, normalized.date) <= 3);
+    && dayDistance(candidate.effectiveDate, normalized.date) <= LEDGER_MATCH_DAYS);
   const sameDay = eligible.filter(candidate => candidate.effectiveDate === normalized.date);
   if (sameDay.length === 1) return sameDay[0];
   if (!sameDay.length && eligible.length === 1) return eligible[0];
@@ -54,18 +56,19 @@ export function findLedgerDuplicate(normalized: NormalizedTransaction, localAcco
   return null;
 }
 
-// A bank-side card withdrawal and an existing card-payment record describe the
-// same cash movement. Match only a unique exact account/amount payment within
-// the normal posting-date drift so recurring equal payments remain reviewable.
+// A card payment appears twice when both accounts are connected: a withdrawal
+// from cash and a credit on the card. Attach either side to the same payment,
+// but only when account, cents, and posting window identify one unique record.
 export function findCardPaymentMatch(normalized: NormalizedTransaction, localAccountId: string, candidates: CardPaymentMatchCandidate[]) {
-  if (normalized.kind !== "transfer_out") return null;
-  const eligible = candidates.filter(candidate => candidate.fromAccountId === localAccountId
+  const side = normalized.kind === "transfer_out" ? "source" : normalized.kind === "transfer_in" ? "destination" : null;
+  if (!side) return null;
+  const eligible = candidates.filter(candidate => (side === "source" ? candidate.fromAccountId : candidate.toAccountId) === localAccountId
     && candidate.amountCents === normalized.amountCents
-    && !candidate.providerTransactionId
+    && !(side === "source" ? candidate.providerTransactionId : candidate.destinationProviderTransactionId)
     && dayDistance(candidate.effectiveDate, normalized.date) <= CARD_PAYMENT_MATCH_DAYS);
   const sameDay = eligible.filter(candidate => candidate.effectiveDate === normalized.date);
-  if (sameDay.length === 1) return sameDay[0];
-  if (!sameDay.length && eligible.length === 1) return eligible[0];
+  if (sameDay.length === 1) return { candidate: sameDay[0], side } satisfies CardPaymentMatch;
+  if (!sameDay.length && eligible.length === 1) return { candidate: eligible[0], side } satisfies CardPaymentMatch;
   return null;
 }
 
@@ -75,16 +78,17 @@ export function accountType(account: PlaidAccount) {
   return "checking";
 }
 
-export function inferTransactionKind(transaction: PlaidTransaction): NormalizedTransaction["kind"] {
+export function inferTransactionKind(transaction: PlaidTransaction, localAccountType?: string): NormalizedTransaction["kind"] {
   const primary = transaction.personal_finance_category?.primary?.toUpperCase() ?? "";
   const description = `${transaction.merchant_name ?? ""} ${transaction.name ?? ""}`.toLowerCase();
   const transferLike = primary.includes("TRANSFER") || /\b(transfer|payment|e-?payment|paydown|autopay|credit card|card payment|credit crd|cardmember)\b/.test(description) || /\b(chase credit crd|wells fargo card|amex e-?payment)\b/.test(description);
   if (transferLike) return transaction.amount < 0 ? "transfer_in" : "transfer_out";
+  if (localAccountType === "credit_card" && transaction.amount < 0) return "refund";
   return transaction.amount < 0 ? "income" : "expense";
 }
 
-export function toNormalized(transaction: PlaidTransaction): NormalizedTransaction {
-  return { providerTransactionId: transaction.transaction_id, pendingTransactionId: transaction.pending_transaction_id ?? null, providerAccountId: transaction.account_id, amountCents: Math.round(Math.abs(transaction.amount) * 100), kind: inferTransactionKind(transaction), date: transaction.date || transaction.authorized_date || new Date().toISOString().slice(0, 10), description: transaction.merchant_name || transaction.name || "Imported transaction", pending: Boolean(transaction.pending), raw: transaction };
+export function toNormalized(transaction: PlaidTransaction, localAccountType?: string): NormalizedTransaction {
+  return { providerTransactionId: transaction.transaction_id, pendingTransactionId: transaction.pending_transaction_id ?? null, providerAccountId: transaction.account_id, amountCents: Math.round(Math.abs(transaction.amount) * 100), kind: inferTransactionKind(transaction, localAccountType), date: transaction.date || transaction.authorized_date || new Date().toISOString().slice(0, 10), description: transaction.merchant_name || transaction.name || "Imported transaction", pending: Boolean(transaction.pending), raw: transaction };
 }
 
 export function mockProviderAccounts(): PlaidAccount[] {

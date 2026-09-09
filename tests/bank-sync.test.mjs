@@ -35,6 +35,12 @@ test("transfer-like provider activity never becomes budget spending", () => {
   assert.equal(inferTransactionKind({ transaction_id: "t7", account_id: "a", amount: 1000, date: "2026-09-08", name: "AMEX EPAYMENT", pending: false }), "transfer_out");
 });
 
+test("credit-card merchant credits become refunds while payments stay transfers", () => {
+  assert.equal(inferTransactionKind({ transaction_id: "refund", account_id: "card", amount: -35, date: "2026-09-08", name: "MERCHANT REFUND", pending: false }, "credit_card"), "refund");
+  assert.equal(inferTransactionKind({ transaction_id: "cash-credit", account_id: "cash", amount: -35, date: "2026-09-08", name: "MERCHANT REFUND", pending: false }, "checking"), "income");
+  assert.equal(inferTransactionKind({ transaction_id: "card-payment", account_id: "card", amount: -35, date: "2026-09-08", name: "AUTOPAY PAYMENT", pending: false }, "credit_card"), "transfer_in");
+});
+
 test("exact ledger matches merge despite different bank descriptions", () => {
   const normalized = toNormalized({ transaction_id: "payroll", account_id: "remote", amount: -4193.29, date: "2026-09-02", name: "MITSUBISHI ELECT", pending: false });
   const match = findLedgerDuplicate(normalized, "sofi", [
@@ -51,17 +57,33 @@ test("ambiguous repeated amounts are not automatically merged", () => {
   assert.equal(findLedgerDuplicate(normalized, "sofi", repeated), null);
 });
 
+test("unique exact ledger matches tolerate a five-day posting delay", () => {
+  const normalized = toNormalized({ transaction_id: "delayed", account_id: "remote", amount: 19.99, date: "2026-09-07", name: "Merchant", pending: false });
+  const match = findLedgerDuplicate(normalized, "card", [{ id: "manual", accountId: "card", amountCents: 1999, kind: "expense", effectiveDate: "2026-09-03", description: "Merchant", source: "manual", status: "posted", providerTransactionId: null }]);
+  assert.equal(match?.id, "manual");
+});
+
 test("bank withdrawals match a unique existing card payment", () => {
   const normalized = toNormalized({ transaction_id: "amex-bank-side", account_id: "remote", amount: 850.70, date: "2026-09-03", name: "AMEX EPAYMENT", pending: false });
   const match = findCardPaymentMatch(normalized, "sofi", [
-    { id: "amex-payment", fromAccountId: "sofi", amountCents: 85070, effectiveDate: "2026-08-30", providerTransactionId: null },
-    { id: "other-account", fromAccountId: "checking", amountCents: 85070, effectiveDate: "2026-09-03", providerTransactionId: null },
+    { id: "amex-payment", fromAccountId: "sofi", toAccountId: "amex", amountCents: 85070, effectiveDate: "2026-08-30", providerTransactionId: null, destinationProviderTransactionId: null },
+    { id: "other-account", fromAccountId: "checking", toAccountId: "amex", amountCents: 85070, effectiveDate: "2026-09-03", providerTransactionId: null, destinationProviderTransactionId: null },
   ]);
-  assert.equal(match?.id, "amex-payment");
+  assert.equal(match?.candidate.id, "amex-payment");
+  assert.equal(match?.side, "source");
+});
+
+test("card-side payment credits match the destination side of a card payment", () => {
+  const normalized = toNormalized({ transaction_id: "chase-credit", account_id: "remote-card", amount: -190, date: "2026-09-07", name: "AUTOPAY PAYMENT", pending: false }, "credit_card");
+  const match = findCardPaymentMatch(normalized, "chase", [
+    { id: "chase-payment", fromAccountId: "sofi", toAccountId: "chase", amountCents: 19000, effectiveDate: "2026-09-03", providerTransactionId: "sofi-withdrawal", destinationProviderTransactionId: null },
+  ]);
+  assert.equal(match?.candidate.id, "chase-payment");
+  assert.equal(match?.side, "destination");
 });
 
 test("ambiguous card payments stay unmatched for review", () => {
   const normalized = toNormalized({ transaction_id: "card-bank-side", account_id: "remote", amount: 360.79, date: "2026-09-01", name: "WELLS FARGO CARD", pending: false });
-  const candidates = ["one", "two"].map(id => ({ id, fromAccountId: "sofi", amountCents: 36079, effectiveDate: "2026-09-01", providerTransactionId: null }));
+  const candidates = ["one", "two"].map(id => ({ id, fromAccountId: "sofi", toAccountId: "card", amountCents: 36079, effectiveDate: "2026-09-01", providerTransactionId: null, destinationProviderTransactionId: null }));
   assert.equal(findCardPaymentMatch(normalized, "sofi", candidates), null);
 });

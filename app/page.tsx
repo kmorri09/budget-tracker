@@ -19,7 +19,7 @@ import "./workspace.css";
 const navigation = [
   { key: "home", label: "Home", icon: "⌂" },
   { key: "transactions", label: "Transactions", icon: "⇅" },
-  { key: "payments", label: "Card payments", icon: "💳" },
+  { key: "payments", label: "Card payments", icon: "" },
   { key: "categories", label: "Categories", icon: "▦" },
   { key: "allocations", label: "Allocations", icon: "⇄" },
   { key: "obligations", label: "Obligations", icon: "◷" },
@@ -27,6 +27,10 @@ const navigation = [
   { key: "accounts", label: "Accounts", icon: "▤" },
 ] as const;
 type Destination = typeof navigation[number]["key"];
+function NavigationIcon({ item }: { item: typeof navigation[number] }) {
+  if (item.key === "payments") return <svg className="nav-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="2.75" y="5.25" width="18.5" height="13.5" rx="2.25" /><path d="M3 9.25h18" /><path d="M6.25 15h4" /></svg>;
+  return item.icon;
+}
 const quickActions: ActionType[] = ["transaction", "income", "allocation", "transfer", "payment"];
 const subtitles: Record<Destination, string> = {
   home: "Your rolling plan, at a glance.",
@@ -109,7 +113,7 @@ export default function Home() {
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">$</span><span>Budget</span><small>private workspace</small></div>
       <p className="workspace-owner">{name}&apos;s rolling budget</p>
-      <nav className="side-nav" aria-label="Primary navigation">{navigation.map(item => <button key={item.key} className={"nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true">{item.icon}</span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</button>)}</nav>
+      <nav className="side-nav" aria-label="Primary navigation">{navigation.map(item => <button key={item.key} className={"nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true"><NavigationIcon item={item} /></span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</button>)}</nav>
       <div className="sidebar-bottom"><p>Private workspace<br />Balances roll forward. Analytics use the last 30 days.</p></div>
     </aside>
     <div className="content-wrap" id="workspace-content" tabIndex={-1}>
@@ -158,7 +162,7 @@ export default function Home() {
   <section hidden={destination !== "accounts"} aria-label="Accounts"><Accounts dashboard={dashboard} onAction={openAction} onChanged={(message) => { setToast(message ?? "Account updated"); void refresh(); }} /></section>
       </>}
     </div>
-    <nav className="mobile-nav" aria-label="Mobile navigation">{navigation.map(item => <button key={item.key} className={"mobile-nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true">{item.icon}</span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</button>)}</nav>
+    <nav className="mobile-nav" aria-label="Mobile navigation">{navigation.map(item => <button key={item.key} className={"mobile-nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true"><NavigationIcon item={item} /></span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</button>)}</nav>
     {dashboard && action && <EntryForm action={action} dashboard={dashboard} initialPaymentTransactionIds={paymentTransactionIds} initialPaymentImport={paymentImport} onClose={() => { setAction(null); setPaymentTransactionIds([]); setPaymentImport(null); }} onSaved={saved} />}
     {editingCategory && <CategoryEditDialog category={editingCategory} onClose={() => setEditingCategory(null)} onSaved={() => { setEditingCategory(null); setToast("Category details updated"); void refresh(); }} />}
     {dashboard && reconcilingCategories && <CategoryReconcileDialog categories={dashboard.categories} onClose={() => setReconcilingCategories(false)} onSaved={(count) => { setReconcilingCategories(false); setToast(count ? `${count} category ${count === 1 ? "balance" : "balances"} reconciled` : "Category balances already matched"); void refresh(); }} />}
@@ -208,12 +212,12 @@ function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashbo
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); }
   }
   async function ignoreHistorical(id: string) {
-    if (!window.confirm("Ignore this bank withdrawal because it is already included in the account's starting or reconciled balance? It will be removed from the ledger and Plaid will not re-import it.")) return;
+    if (!window.confirm("Ignore this Plaid activity because it is already represented by another record or in the account's starting or reconciled balance? It will be removed from the ledger and Plaid will not re-import it.")) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/reviews", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ignoreTransaction: true }) });
       const result = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(result?.error ?? "Could not ignore this historical withdrawal.");
+      if (!response.ok) throw new Error(result?.error ?? "Could not ignore this Plaid activity.");
       onChanged();
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); }
   }
@@ -223,8 +227,8 @@ function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashbo
   });
   return <div className="panel"><div className="view-heading"><label className="table-search"><span className="sr-only">Search reviews</span><input type="search" placeholder="Search reviews…" value={search} onChange={event => setSearch(event.target.value)} /></label>{dashboard.reviews.length > 0 && <button className="secondary-button" disabled={busy} onClick={() => void resolve()}>Mark all reviewed ({dashboard.reviews.length})</button>}</div><p className="field-help">Inspect each transaction below. Use Edit transaction to correct its category or type; Mark reviewed only removes the reminder and does not change the transaction.</p>{error && <p className="form-error" role="alert">{error}</p>}{visible.map(item => {
     const transaction = item.transaction;
-    const title = transaction && (item.kind === "provider_transfer" || item.kind === "bank_transaction") ? `Review imported ${item.kind === "provider_transfer" ? "transfer" : "transaction"}: ${transaction.description}` : item.title;
-    return <article className="review-item" key={item.id}><div className="review-item-content"><strong>{title}</strong><p>{item.details}</p>{transaction ? <dl className="review-facts"><div><dt>Description</dt><dd>{transaction.description}</dd></div><div><dt>Date</dt><dd>{transaction.date}</dd></div><div><dt>Amount</dt><dd className={signedAmount(transaction) < 0 ? "negative" : ""}>{money(signedAmount(transaction))}</dd></div><div><dt>Account</dt><dd>{transaction.account}</dd></div><div><dt>Type</dt><dd>{kindLabel(transaction.kind)}</dd></div><div><dt>Category</dt><dd>{transaction.category ?? "Uncategorized"}</dd></div><div><dt>Source / status</dt><dd>{kindLabel(transaction.source)} · {transaction.pending ? "Pending" : kindLabel(transaction.status)}</dd></div></dl> : <p className="review-missing">The linked transaction is no longer in the active ledger. You can safely mark this reminder reviewed.</p>}</div><div className="review-item-actions">{transaction && item.kind === "provider_transfer" && transaction.kind === "transfer_out" && <button className="primary-button" disabled={busy} onClick={() => onRecordPayment(transaction)}>Record card payment</button>}{transaction?.source === "plaid" && item.kind === "provider_transfer" && <button className="secondary-button" disabled={busy} onClick={() => void ignoreHistorical(item.id)}>Ignore historical withdrawal</button>}{transaction && <button className="secondary-button" disabled={busy} onClick={() => onEdit(transaction)}>Edit transaction</button>}<button className="secondary-button" disabled={busy} onClick={() => void resolve(item.id)}>{item.kind === "provider_transfer" ? "Keep as transaction" : "Mark reviewed"}</button></div></article>;
+    const title = transaction && (item.kind === "provider_transfer" || item.kind === "bank_transaction") ? `Review imported ${item.kind === "provider_transfer" ? "transfer" : transaction.kind === "refund" ? "refund" : "transaction"}: ${transaction.description}` : item.title;
+    return <article className="review-item" key={item.id}><div className="review-item-content"><strong>{title}</strong><p>{item.details}</p>{transaction ? <dl className="review-facts"><div><dt>Description</dt><dd>{transaction.description}</dd></div><div><dt>Date</dt><dd>{transaction.date}</dd></div><div><dt>Amount</dt><dd className={signedAmount(transaction) < 0 ? "negative" : ""}>{money(signedAmount(transaction))}</dd></div><div><dt>Account</dt><dd>{transaction.account}</dd></div><div><dt>Type</dt><dd>{kindLabel(transaction.kind)}</dd></div><div><dt>Category</dt><dd>{transaction.category ?? "Uncategorized"}</dd></div><div><dt>Source / status</dt><dd>{kindLabel(transaction.source)} · {transaction.pending ? "Pending" : kindLabel(transaction.status)}</dd></div></dl> : <p className="review-missing">The linked transaction is no longer in the active ledger. You can safely mark this reminder reviewed.</p>}</div><div className="review-item-actions">{transaction && item.kind === "provider_transfer" && transaction.kind === "transfer_out" && <button className="primary-button" disabled={busy} onClick={() => onRecordPayment(transaction)}>Record card payment</button>}{transaction?.source === "plaid" && <button className="secondary-button" disabled={busy} onClick={() => void ignoreHistorical(item.id)}>Already represented — ignore</button>}{transaction && <button className="secondary-button" disabled={busy} onClick={() => onEdit(transaction)}>Edit transaction</button>}<button className="secondary-button" disabled={busy} onClick={() => void resolve(item.id)}>{item.kind === "provider_transfer" ? "Keep as transaction" : "Mark reviewed"}</button></div></article>;
   })}{!visible.length && <p className="empty-state">{dashboard.reviews.length ? "No matching reviews." : "Nothing needs review right now."}</p>}</div>;
 }
 

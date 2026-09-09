@@ -23,14 +23,14 @@ export default function CardPaymentEditDialog({ payment, dashboard, onClose, onS
   }, []);
 
   async function removePayment(suppressProviderTransaction = false) {
-    const effect = payment.providerLinked ? suppressProviderTransaction ? "The linked bank withdrawal will also be ignored, restoring the cash balance without letting Plaid import it again." : "The linked bank withdrawal will return to Review as a transfer." : "Its purchase applications will be reversed and both account balances will be updated.";
+    const effect = payment.providerLinked ? suppressProviderTransaction ? "Its linked bank activity will also be ignored without letting Plaid import it again." : "Its linked bank activity will return to Review as transfers." : "Its purchase applications will be reversed and both account balances will be updated.";
     if (!window.confirm(`Delete “${payment.description}”? ${effect}`)) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/card-payments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: payment.id, suppressProviderTransaction }) });
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error ?? "Could not delete card payment.");
-      onSaved(result?.suppressedProviderTransaction ? "Card payment and duplicate historical withdrawal removed" : result?.restoredProviderTransaction ? "Card payment deleted; bank withdrawal returned to Review" : "Card payment deleted");
+      onSaved(result?.suppressedProviderTransaction ? "Card payment and linked bank activity removed" : result?.restoredProviderTransaction ? "Card payment deleted; linked bank activity returned to Review" : "Card payment deleted");
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not delete card payment."); } finally { setBusy(false); }
   }
 
@@ -57,10 +57,10 @@ export default function CardPaymentEditDialog({ payment, dashboard, onClose, onS
           return <div className="payment-allocation-row" key={entry.id}><span><strong>{entry.description}</strong><small>{entry.date} · {entry.paymentStatus} · up to {money(maximum)}</small></span><span className="payment-allocation-controls"><input aria-label={`Amount applied to ${entry.description}`} type="number" min="0.01" max={maximum} step="0.01" placeholder="0.00" value={applications[entry.id] ?? ""} onChange={event => setApplications(current => ({ ...current, [entry.id]: event.target.value }))} /><button className="secondary-button" type="button" onClick={() => setApplications(current => ({ ...current, [entry.id]: maximum.toFixed(2) }))}>Full amount</button></span></div>;
         })}{!purchases.length && <p className="empty-state">No eligible purchases for this card and date.</p>}</div>
       </fieldset>
-      {payment.providerLinked && <p className="field-help">This payment is linked to a Plaid withdrawal. Editing preserves that link. If the withdrawal was already included in your starting balance, delete and ignore it; otherwise return it to Review.</p>}
+      {payment.providerLinked && <p className="field-help">This payment is linked to Plaid activity on one or both accounts. Editing preserves those links. If that activity is already in a starting balance, delete and ignore it; otherwise return it to Review.</p>}
       {applied > (Number(amount) || 0) && <p className="form-error">Applied purchases exceed the payment amount.</p>}
       {error && <p className="form-error" role="alert">{error}</p>}
-      <div className="form-footer">{payment.providerLinked ? <><button type="button" className="danger-button" disabled={busy} onClick={() => void removePayment(true)}>Delete &amp; ignore withdrawal</button><button type="button" className="text-link" disabled={busy} onClick={() => void removePayment(false)}>Delete; return withdrawal to Review</button></> : <button type="button" className="danger-button" disabled={busy} onClick={() => void removePayment()}>Delete payment</button>}<button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || applied > (Number(amount) || 0)}>{busy ? "Saving…" : "Save changes"}</button></div>
+      <div className="form-footer">{payment.providerLinked ? <><button type="button" className="danger-button" disabled={busy} onClick={() => void removePayment(true)}>Delete &amp; ignore bank activity</button><button type="button" className="text-link" disabled={busy} onClick={() => void removePayment(false)}>Delete; return activity to Review</button></> : <button type="button" className="danger-button" disabled={busy} onClick={() => void removePayment()}>Delete payment</button>}<button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || applied > (Number(amount) || 0)}>{busy ? "Saving…" : "Save changes"}</button></div>
     </form>
   </dialog>;
 }

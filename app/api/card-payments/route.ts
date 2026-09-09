@@ -42,8 +42,17 @@ export async function POST(request: Request) {
   const paymentTime = new Date(`${input.date}T00:00:00Z`).getTime();
   const dateFrom = new Date(paymentTime - CARD_PAYMENT_MATCH_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const dateTo = new Date(paymentTime + CARD_PAYMENT_MATCH_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const importedCandidates = (await db.select().from(transactions).where(and(eq(transactions.userId, user.id), eq(transactions.accountId, from.id), eq(transactions.kind, "transfer_out"), eq(transactions.source, "plaid"), eq(transactions.amountCents, amountCents), ne(transactions.status, "removed"), gte(transactions.effectiveDate, dateFrom), lte(transactions.effectiveDate, dateTo)))).filter(row => Boolean(row.providerTransactionId));
-  const matchedImport = importedCandidates.length === 1 ? importedCandidates[0] : null;
+  const [sourceCandidates, destinationCandidates] = await Promise.all([
+    db.select().from(transactions).where(and(eq(transactions.userId, user.id), eq(transactions.accountId, from.id), eq(transactions.kind, "transfer_out"), eq(transactions.source, "plaid"), eq(transactions.amountCents, amountCents), ne(transactions.status, "removed"), gte(transactions.effectiveDate, dateFrom), lte(transactions.effectiveDate, dateTo))),
+    db.select().from(transactions).where(and(eq(transactions.userId, user.id), eq(transactions.accountId, to.id), eq(transactions.kind, "transfer_in"), eq(transactions.source, "plaid"), eq(transactions.amountCents, amountCents), ne(transactions.status, "removed"), gte(transactions.effectiveDate, dateFrom), lte(transactions.effectiveDate, dateTo))),
+  ]);
+  const linkedSourceCandidates = sourceCandidates.filter(row => Boolean(row.providerTransactionId));
+  const linkedDestinationCandidates = destinationCandidates.filter(row => Boolean(row.providerTransactionId));
+  const matchedSource = linkedSourceCandidates.length === 1 ? linkedSourceCandidates[0] : null;
+  const matchedDestination = linkedDestinationCandidates.length === 1 ? linkedDestinationCandidates[0] : null;
+  const matchedImports: (typeof sourceCandidates)[number][] = [];
+  if (matchedSource) matchedImports.push(matchedSource);
+  if (matchedDestination) matchedImports.push(matchedDestination);
 
   const expenseRows = await db.select().from(transactions).where(and(eq(transactions.userId, user.id), eq(transactions.accountId, to.id), eq(transactions.kind, "expense"), ne(transactions.status, "removed"), lte(transactions.effectiveDate, input.date))).orderBy(asc(transactions.effectiveDate), asc(transactions.createdAt));
   const expenseIds = expenseRows.map(row => row.id);
@@ -80,15 +89,15 @@ export async function POST(request: Request) {
 
   const paymentId = randomUUID();
   await db.transaction(async tx => {
-    await tx.insert(cardPayments).values({ id: paymentId, userId: user.id, fromAccountId: from.id, toAccountId: to.id, amountCents, effectiveDate: input.date, description: input.description, providerTransactionId: matchedImport?.providerTransactionId ?? null });
+    await tx.insert(cardPayments).values({ id: paymentId, userId: user.id, fromAccountId: from.id, toAccountId: to.id, amountCents, effectiveDate: input.date, description: input.description, providerTransactionId: matchedSource?.providerTransactionId ?? null, destinationProviderTransactionId: matchedDestination?.providerTransactionId ?? null });
     if (applications.length) await tx.insert(cardPaymentApplications).values(applications.map(item => ({ id: randomUUID(), userId: user.id, paymentId, transactionId: item.transactionId, amountCents: item.amountCents })));
-    if (matchedImport) {
+    for (const matchedImport of matchedImports) {
       await tx.update(transactions).set({ status: "removed", removedAt: new Date(), providerTransactionId: null, pending: false, updatedAt: new Date() }).where(and(eq(transactions.id, matchedImport.id), eq(transactions.userId, user.id)));
-      await tx.update(reviewItems).set({ status: "resolved", resolvedAt: new Date(), details: "Resolved after converting this Plaid withdrawal into a card payment." }).where(and(eq(reviewItems.userId, user.id), eq(reviewItems.transactionId, matchedImport.id), eq(reviewItems.status, "open")));
+      await tx.update(reviewItems).set({ status: "resolved", resolvedAt: new Date(), details: "Resolved after converting this Plaid activity into a card payment." }).where(and(eq(reviewItems.userId, user.id), eq(reviewItems.transactionId, matchedImport.id), eq(reviewItems.status, "open")));
     }
-    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "create", entityType: "card_payment", entityId: paymentId, afterJson: JSON.stringify({ ...input, amountCents, appliedCents, matchedProviderTransactionId: matchedImport?.providerTransactionId ?? null }) });
+    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "create", entityType: "card_payment", entityId: paymentId, afterJson: JSON.stringify({ ...input, amountCents, appliedCents, matchedSourceProviderTransactionId: matchedSource?.providerTransactionId ?? null, matchedDestinationProviderTransactionId: matchedDestination?.providerTransactionId ?? null }) });
   });
-  return NextResponse.json({ id: paymentId, appliedCents, unappliedCents: amountCents - appliedCents, reconciledImport: Boolean(matchedImport), ok: true });
+  return NextResponse.json({ id: paymentId, appliedCents, unappliedCents: amountCents - appliedCents, reconciledImport: matchedImports.length > 0, reconciledImportCount: matchedImports.length, ok: true });
 }
 
 export async function PATCH(request: Request) {
@@ -148,15 +157,17 @@ export async function DELETE(request: Request) {
   const existing = (await db.select().from(cardPayments).where(and(eq(cardPayments.id, parsed.data.id), eq(cardPayments.userId, user.id))).limit(1))[0];
   if (!existing) return NextResponse.json({ error: "Card payment not found" }, { status: 404 });
   const applications = await db.select().from(cardPaymentApplications).where(and(eq(cardPaymentApplications.paymentId, existing.id), eq(cardPaymentApplications.userId, user.id)));
-  const replacementTransactionId = existing.providerTransactionId ? randomUUID() : null;
+  const linkedLegs: { providerTransactionId: string; accountId: string; kind: "transfer_out" | "transfer_in"; replacementTransactionId: string }[] = [];
+  if (existing.providerTransactionId) linkedLegs.push({ providerTransactionId: existing.providerTransactionId, accountId: existing.fromAccountId, kind: "transfer_out", replacementTransactionId: randomUUID() });
+  if (existing.destinationProviderTransactionId) linkedLegs.push({ providerTransactionId: existing.destinationProviderTransactionId, accountId: existing.toAccountId, kind: "transfer_in", replacementTransactionId: randomUUID() });
   await db.transaction(async tx => {
     await tx.delete(cardPayments).where(and(eq(cardPayments.id, existing.id), eq(cardPayments.userId, user.id)));
-    if (existing.providerTransactionId && replacementTransactionId) {
+    for (const leg of linkedLegs) {
       const suppress = parsed.data.suppressProviderTransaction;
-      await tx.insert(transactions).values({ id: replacementTransactionId, userId: user.id, accountId: existing.fromAccountId, categoryId: null, kind: "transfer_out", amountCents: existing.amountCents, effectiveDate: existing.effectiveDate, description: existing.description, status: suppress ? "removed" : "posted", source: "plaid", providerTransactionId: existing.providerTransactionId, userEdited: true, pending: false, removedAt: suppress ? new Date() : null });
-      if (!suppress) await tx.insert(reviewItems).values({ id: randomUUID(), userId: user.id, transactionId: replacementTransactionId, kind: "provider_transfer", title: `Review imported transfer: ${existing.description}`, details: "This bank withdrawal returned to Review because its linked card payment was deleted. Keep it as a transaction or record the correct card payment." });
+      await tx.insert(transactions).values({ id: leg.replacementTransactionId, userId: user.id, accountId: leg.accountId, categoryId: null, kind: leg.kind, amountCents: existing.amountCents, effectiveDate: existing.effectiveDate, description: existing.description, status: suppress ? "removed" : "posted", source: "plaid", providerTransactionId: leg.providerTransactionId, userEdited: true, pending: false, removedAt: suppress ? new Date() : null });
+      if (!suppress) await tx.insert(reviewItems).values({ id: randomUUID(), userId: user.id, transactionId: leg.replacementTransactionId, kind: "provider_transfer", title: `Review imported transfer: ${existing.description}`, details: "This Plaid transfer returned to Review because its linked card payment was deleted. Keep it as a transaction or record the correct card payment." });
     }
-    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "delete", entityType: "card_payment", entityId: existing.id, beforeJson: JSON.stringify({ payment: existing, applications }), afterJson: JSON.stringify({ deleted: true, replacementTransactionId, providerDisposition: parsed.data.suppressProviderTransaction ? "suppressed" : "review" }) });
+    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "delete", entityType: "card_payment", entityId: existing.id, beforeJson: JSON.stringify({ payment: existing, applications }), afterJson: JSON.stringify({ deleted: true, replacementTransactionIds: linkedLegs.map(leg => leg.replacementTransactionId), providerDisposition: parsed.data.suppressProviderTransaction ? "suppressed" : "review" }) });
   });
-  return NextResponse.json({ id: existing.id, restoredProviderTransaction: Boolean(replacementTransactionId && !parsed.data.suppressProviderTransaction), suppressedProviderTransaction: Boolean(replacementTransactionId && parsed.data.suppressProviderTransaction), ok: true });
+  return NextResponse.json({ id: existing.id, restoredProviderTransaction: Boolean(linkedLegs.length && !parsed.data.suppressProviderTransaction), suppressedProviderTransaction: Boolean(linkedLegs.length && parsed.data.suppressProviderTransaction), affectedProviderTransactions: linkedLegs.length, ok: true });
 }

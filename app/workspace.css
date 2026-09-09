@@ -8,6 +8,7 @@
 .workspace .page-description { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0 0 26px; max-width: 780px; }
 .workspace-owner { font-size: 12px; color: var(--muted); padding: 0 10px; margin: 0 0 20px; }
 .workspace .nav-item { min-height: 48px; font-size: 14px; }
+.nav-card-icon { display: block; width: 18px; height: 18px; color: inherit; }
 .workspace button:focus-visible, .workspace a:focus-visible, .workspace summary:focus-visible { outline: 3px solid #78a995; outline-offset: 3px; }
 .workspace button:disabled { cursor: not-allowed; opacity: .5; }
 .workspace .primary-button, .workspace .secondary-button { min-height: 44px; font-size: 13px; }
@@ -89,6 +90,8 @@
 .table-empty { padding: 40px 12px; text-align: center; color: var(--muted); font-size: 13px; }
 .table-empty h3 { color: var(--ink); }
 .table-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 18px; font-size: 12px; color: var(--muted); }
+.table-pagination > label { display: flex; align-items: center; gap: 8px; }
+.table-pagination select { min-height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 30px 0 10px; background: #fbfcfb; color: var(--ink); font: inherit; }
 .table-pagination > div { display: flex; gap: 8px; }
 .account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; align-items: start; }
 .account-management-note { margin: -6px 0 18px; }
