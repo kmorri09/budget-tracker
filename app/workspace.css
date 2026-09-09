@@ -87,6 +87,7 @@
 .workspace-table td { border-bottom: 1px solid var(--line); padding: 16px 8px; vertical-align: top; overflow-wrap: anywhere; line-height: 1.5; }
 .workspace-table tbody tr:hover { background: #f7faf7; }
 .workspace-table .numeric { font-variant-numeric: tabular-nums; }
+.workspace-table .cell-truncate { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
 .workspace-table .row-title { font-weight: 600; }
 .workspace-table .row-toggle { display: none; }
 .workspace-table .row-actions .text-link { font-size: 11px; margin-right: 12px; }
