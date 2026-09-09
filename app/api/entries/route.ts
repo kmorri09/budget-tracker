@@ -8,13 +8,15 @@ import { accounts, allocations, auditEvents, cardCoverageAdjustments, cardPaymen
 
 const entrySchema = z.object({
   kind: z.enum(["transaction", "income", "allocation", "transfer", "payment"]),
-  amount: z.coerce.number().positive().finite(),
+  amount: z.coerce.number().finite().refine(value => value !== 0, "Amount cannot be zero"),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   accountId: z.string().min(1).optional(),
   categoryId: z.string().optional().nullable(),
   fromCategoryId: z.string().optional().nullable(),
   toCategoryId: z.string().optional().nullable(),
   description: z.string().trim().min(1).max(200),
+}).superRefine((input, context) => {
+  if (input.kind !== "allocation" && input.amount <= 0) context.addIssue({ code: z.ZodIssueCode.custom, path: ["amount"], message: "Amount must be greater than zero" });
 });
 
 const transactionKindSchema = z.enum(["expense", "income", "refund", "card_payment", "transfer_in", "transfer_out", "adjustment"]);

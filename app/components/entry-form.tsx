@@ -1,7 +1,7 @@
 "use client";
 
 import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
-import { type ActionType, type DashboardData, today } from "../../lib/workspace-types";
+import { type ActionType, type DashboardData, money, today } from "../../lib/workspace-types";
 
 export const actionLabels: Record<ActionType, string> = { transaction: "Add transaction", income: "Add income", allocation: "Allocate money", transfer: "Move category funds", payment: "Record card payment", category: "Add category", account: "Add account" };
 
@@ -29,11 +29,13 @@ export default function EntryForm({ action, dashboard, initialPaymentTransaction
   const [error, setError] = useState("");
   const [manualPayment, setManualPayment] = useState(initialPaymentEntries.length > 0);
   const [toCard, setToCard] = useState(initialPaymentCard);
+  const [allocationCategoryName, setAllocationCategoryName] = useState("");
   const [applicationAmounts, setApplicationAmounts] = useState<Record<string, string>>(initialApplications);
   const [paymentAmount, setPaymentAmount] = useState(initialPaymentAmount > 0 ? initialPaymentAmount.toFixed(2) : "");
   const budgetOnly = action === "allocation" || action === "transfer";
   const needsCategory = ["transaction", "allocation", "transfer"].includes(action);
   const entryAccountNames = action === "income" ? cashAccountNames : accountNames;
+  const selectedAllocationCategory = action === "allocation" ? dashboard.categories.find(category => category.name === allocationCategoryName) : null;
   const missing = action === "payment"
     ? !cashAccountNames.length || !creditCardNames.length
     : !["account", "category"].includes(action) && ((!budgetOnly && !entryAccountNames.length) || (needsCategory && !categoryNames.length));
@@ -73,11 +75,11 @@ export default function EntryForm({ action, dashboard, initialPaymentTransaction
       </> : action === "category" ? <>
         <label>Category name<input name="name" required maxLength={80} autoFocus /></label><div className="form-grid"><label>Icon (optional)<input name="icon" placeholder="e.g. 🏠" maxLength={4} /></label><label>Target amount<input name="target" type="number" min="0" step="0.01" defaultValue="0" /></label></div>
       </> : <>
-        <label>Amount<input name="amount" type="number" min="0.01" step="0.01" placeholder="0.00" required autoFocus {...(action === "payment" ? { value: paymentAmount, onChange: (event: ChangeEvent<HTMLInputElement>) => setPaymentAmount(event.target.value) } : {})} /></label>
+        <label>Amount<input name="amount" type="number" min={action === "allocation" ? undefined : 0.01} step="0.01" placeholder="0.00" required autoFocus {...(action === "payment" ? { value: paymentAmount, onChange: (event: ChangeEvent<HTMLInputElement>) => setPaymentAmount(event.target.value) } : {})} /></label>
         <div className="form-grid"><label>Date<input name="date" type="date" defaultValue={initialPaymentImport?.date ?? today()} required /></label>{action === "payment" ? <Suggestion label="From account" name="fromAccountId" options={cashAccountNames} initial={initialPaymentImport?.account ?? (cashAccountNames.length === 1 ? cashAccountNames[0] : "")} /> : !budgetOnly && <Suggestion label={action === "income" ? "Deposit account" : "Account"} name="accountId" options={entryAccountNames} initial={action === "income" ? defaultCashAccount : entryAccountNames.length === 1 ? entryAccountNames[0] : ""} />}</div>
         {action === "payment" && <Suggestion label="To credit card" name="toAccountId" options={creditCardNames} value={toCard} onChange={value => { setToCard(value); if (value !== toCard) { setApplicationAmounts({}); if (initialPaymentEntries.length) setPaymentAmount(""); } }} />}
         <label>{budgetOnly ? "Note" : "Description"}<input name="description" required maxLength={200} defaultValue={initialPaymentImport?.description ?? (action === "payment" && initialPaymentEntries.length ? `Payment for ${initialPaymentEntries.length} selected ${initialPaymentEntries.length === 1 ? "purchase" : "purchases"}` : "")} placeholder={budgetOnly ? "What is this funding for?" : "What was this for?"} /></label>
-        {(action === "transaction" || action === "allocation") && <Suggestion label="Category" name="categoryId" options={categoryNames} />}
+        {(action === "transaction" || action === "allocation") && <><Suggestion label="Category" name="categoryId" options={categoryNames} value={action === "allocation" ? allocationCategoryName : undefined} onChange={action === "allocation" ? setAllocationCategoryName : undefined} />{selectedAllocationCategory && <p className="field-help allocation-availability">Currently available in <strong>{selectedAllocationCategory.name}</strong>: <strong>{money(selectedAllocationCategory.available)}</strong></p>}</>}
         {action === "transfer" && <><Suggestion label="From category" name="fromCategoryId" options={categoryNames} /><Suggestion label="To category" name="toCategoryId" options={categoryNames} /></>}
         {budgetOnly && <p className="field-help">Changes your category funding, not your account balances. Funds roll forward indefinitely.</p>}
         {action === "payment" && <>
