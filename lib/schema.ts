@@ -141,9 +141,13 @@ export const cardPayments = pgTable("card_payments", {
   amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
   effectiveDate: date("effective_date").notNull(),
   description: text("description").notNull(),
+  providerTransactionId: text("provider_transaction_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({ userDateIndex: index("card_payments_user_date_idx").on(table.userId, table.effectiveDate) }));
+}, (table) => ({
+  userDateIndex: index("card_payments_user_date_idx").on(table.userId, table.effectiveDate),
+  providerIndex: uniqueIndex("card_payments_provider_idx").on(table.userId, table.providerTransactionId),
+}));
 
 export const cardPaymentApplications = pgTable("card_payment_applications", {
   id: text("id").primaryKey(),

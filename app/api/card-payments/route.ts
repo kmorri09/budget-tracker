@@ -1,10 +1,11 @@
-import { and, asc, eq, inArray, lte, ne, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
-import { accounts, auditEvents, cardPaymentApplications, cardPayments, transactions } from "../../../lib/schema";
+import { CARD_PAYMENT_MATCH_DAYS } from "../../../lib/bank-sync-core";
+import { accounts, auditEvents, cardCoverageAdjustments, cardPaymentApplications, cardPayments, reviewItems, transactions } from "../../../lib/schema";
 
 export const runtime = "nodejs";
 
@@ -35,11 +36,20 @@ export async function POST(request: Request) {
   if (from.type === "credit_card") return NextResponse.json({ error: "The payment must come from a checking or savings account" }, { status: 400 });
   if (to.type !== "credit_card") return NextResponse.json({ error: "Choose a credit-card account to pay" }, { status: 400 });
 
+  const paymentTime = new Date(`${input.date}T00:00:00Z`).getTime();
+  const dateFrom = new Date(paymentTime - CARD_PAYMENT_MATCH_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const dateTo = new Date(paymentTime + CARD_PAYMENT_MATCH_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const importedCandidates = (await db.select().from(transactions).where(and(eq(transactions.userId, user.id), eq(transactions.accountId, from.id), eq(transactions.kind, "transfer_out"), eq(transactions.source, "plaid"), eq(transactions.amountCents, amountCents), ne(transactions.status, "removed"), gte(transactions.effectiveDate, dateFrom), lte(transactions.effectiveDate, dateTo)))).filter(row => Boolean(row.providerTransactionId));
+  const matchedImport = importedCandidates.length === 1 ? importedCandidates[0] : null;
+
   const expenseRows = await db.select().from(transactions).where(and(eq(transactions.userId, user.id), eq(transactions.accountId, to.id), eq(transactions.kind, "expense"), ne(transactions.status, "removed"), lte(transactions.effectiveDate, input.date))).orderBy(asc(transactions.effectiveDate), asc(transactions.createdAt));
   const expenseIds = expenseRows.map(row => row.id);
-  const existingRows = expenseIds.length ? await db.select().from(cardPaymentApplications).where(and(eq(cardPaymentApplications.userId, user.id), inArray(cardPaymentApplications.transactionId, expenseIds))) : [];
+  const [existingRows, coverageRows] = expenseIds.length ? await Promise.all([
+    db.select().from(cardPaymentApplications).where(and(eq(cardPaymentApplications.userId, user.id), inArray(cardPaymentApplications.transactionId, expenseIds))),
+    db.select().from(cardCoverageAdjustments).where(and(eq(cardCoverageAdjustments.userId, user.id), inArray(cardCoverageAdjustments.transactionId, expenseIds))),
+  ]) : [[], []];
   const alreadyApplied = new Map<string, number>();
-  for (const row of existingRows) alreadyApplied.set(row.transactionId, (alreadyApplied.get(row.transactionId) ?? 0) + row.amountCents);
+  for (const row of [...existingRows, ...coverageRows]) alreadyApplied.set(row.transactionId, (alreadyApplied.get(row.transactionId) ?? 0) + row.amountCents);
 
   const requested = input.applications ? input.applications.map(item => ({ transactionId: item.transactionId, amountCents: cents(item.amount) })) : null;
   const applications: { transactionId: string; amountCents: number }[] = [];
@@ -67,9 +77,13 @@ export async function POST(request: Request) {
 
   const paymentId = randomUUID();
   await db.transaction(async tx => {
-    await tx.insert(cardPayments).values({ id: paymentId, userId: user.id, fromAccountId: from.id, toAccountId: to.id, amountCents, effectiveDate: input.date, description: input.description });
+    await tx.insert(cardPayments).values({ id: paymentId, userId: user.id, fromAccountId: from.id, toAccountId: to.id, amountCents, effectiveDate: input.date, description: input.description, providerTransactionId: matchedImport?.providerTransactionId ?? null });
     if (applications.length) await tx.insert(cardPaymentApplications).values(applications.map(item => ({ id: randomUUID(), userId: user.id, paymentId, transactionId: item.transactionId, amountCents: item.amountCents })));
-    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "create", entityType: "card_payment", entityId: paymentId, afterJson: JSON.stringify({ ...input, amountCents, appliedCents }) });
+    if (matchedImport) {
+      await tx.update(transactions).set({ status: "removed", removedAt: new Date(), providerTransactionId: null, pending: false, updatedAt: new Date() }).where(and(eq(transactions.id, matchedImport.id), eq(transactions.userId, user.id)));
+      await tx.update(reviewItems).set({ status: "resolved", resolvedAt: new Date(), details: "Resolved after converting this Plaid withdrawal into a card payment." }).where(and(eq(reviewItems.userId, user.id), eq(reviewItems.transactionId, matchedImport.id), eq(reviewItems.status, "open")));
+    }
+    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "create", entityType: "card_payment", entityId: paymentId, afterJson: JSON.stringify({ ...input, amountCents, appliedCents, matchedProviderTransactionId: matchedImport?.providerTransactionId ?? null }) });
   });
-  return NextResponse.json({ id: paymentId, appliedCents, unappliedCents: amountCents - appliedCents, ok: true });
+  return NextResponse.json({ id: paymentId, appliedCents, unappliedCents: amountCents - appliedCents, reconciledImport: Boolean(matchedImport), ok: true });
 }

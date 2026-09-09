@@ -2,8 +2,10 @@ export type PlaidAccount = { account_id: string; name: string; official_name?: s
 export type PlaidTransaction = { transaction_id: string; pending_transaction_id?: string | null; account_id: string; amount: number; date: string; authorized_date?: string | null; name?: string | null; merchant_name?: string | null; pending?: boolean; personal_finance_category?: { primary?: string | null } | null };
 export type NormalizedTransaction = { providerTransactionId: string; pendingTransactionId: string | null; providerAccountId: string; amountCents: number; kind: "expense" | "income" | "transfer_in" | "transfer_out"; date: string; description: string; pending: boolean; raw: PlaidTransaction };
 export type LedgerMatchCandidate = { id: string; accountId: string; amountCents: number; kind: string; effectiveDate: string; description: string; source: string; status: string; providerTransactionId: string | null };
+export type CardPaymentMatchCandidate = { id: string; fromAccountId: string; amountCents: number; effectiveDate: string; providerTransactionId: string | null };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+export const CARD_PAYMENT_MATCH_DAYS = 5;
 
 function cashDirection(kind: string) {
   if (["income", "refund", "transfer_in"].includes(kind)) return "in";
@@ -49,6 +51,21 @@ export function findLedgerDuplicate(normalized: NormalizedTransaction, localAcco
   if (!sameDay.length && eligible.length === 1) return eligible[0];
   const ranked = eligible.map(candidate => ({ candidate, score: descriptionScore(candidate.description, normalized.description) })).sort((a, b) => b.score - a.score);
   if (ranked[0]?.score >= 0.5 && ranked[0].score > (ranked[1]?.score ?? 0)) return ranked[0].candidate;
+  return null;
+}
+
+// A bank-side card withdrawal and an existing card-payment record describe the
+// same cash movement. Match only a unique exact account/amount payment within
+// the normal posting-date drift so recurring equal payments remain reviewable.
+export function findCardPaymentMatch(normalized: NormalizedTransaction, localAccountId: string, candidates: CardPaymentMatchCandidate[]) {
+  if (normalized.kind !== "transfer_out") return null;
+  const eligible = candidates.filter(candidate => candidate.fromAccountId === localAccountId
+    && candidate.amountCents === normalized.amountCents
+    && !candidate.providerTransactionId
+    && dayDistance(candidate.effectiveDate, normalized.date) <= CARD_PAYMENT_MATCH_DAYS);
+  const sameDay = eligible.filter(candidate => candidate.effectiveDate === normalized.date);
+  if (sameDay.length === 1) return sameDay[0];
+  if (!sameDay.length && eligible.length === 1) return eligible[0];
   return null;
 }
 

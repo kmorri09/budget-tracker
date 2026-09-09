@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { accountType, findLedgerDuplicate, inferTransactionKind, mockProviderAccounts, syncCutoverDate, toNormalized } from "../lib/bank-sync-core.ts";
+import { accountType, findCardPaymentMatch, findLedgerDuplicate, inferTransactionKind, mockProviderAccounts, syncCutoverDate, toNormalized } from "../lib/bank-sync-core.ts";
 import { decryptProviderToken, encryptProviderToken } from "../lib/provider-crypto.ts";
 
 test("provider tokens round-trip through authenticated encryption", () => {
@@ -49,4 +49,19 @@ test("ambiguous repeated amounts are not automatically merged", () => {
   const normalized = toNormalized({ transaction_id: "coffee", account_id: "remote", amount: 4.75, date: "2026-09-02", name: "Coffee", pending: false });
   const repeated = ["one", "two"].map(id => ({ id, accountId: "sofi", amountCents: 475, kind: "expense", effectiveDate: "2026-09-02", description: "Coffee", source: "manual", status: "posted", providerTransactionId: null }));
   assert.equal(findLedgerDuplicate(normalized, "sofi", repeated), null);
+});
+
+test("bank withdrawals match a unique existing card payment", () => {
+  const normalized = toNormalized({ transaction_id: "amex-bank-side", account_id: "remote", amount: 850.70, date: "2026-09-03", name: "AMEX EPAYMENT", pending: false });
+  const match = findCardPaymentMatch(normalized, "sofi", [
+    { id: "amex-payment", fromAccountId: "sofi", amountCents: 85070, effectiveDate: "2026-08-30", providerTransactionId: null },
+    { id: "other-account", fromAccountId: "checking", amountCents: 85070, effectiveDate: "2026-09-03", providerTransactionId: null },
+  ]);
+  assert.equal(match?.id, "amex-payment");
+});
+
+test("ambiguous card payments stay unmatched for review", () => {
+  const normalized = toNormalized({ transaction_id: "card-bank-side", account_id: "remote", amount: 360.79, date: "2026-09-01", name: "WELLS FARGO CARD", pending: false });
+  const candidates = ["one", "two"].map(id => ({ id, fromAccountId: "sofi", amountCents: 36079, effectiveDate: "2026-09-01", providerTransactionId: null }));
+  assert.equal(findCardPaymentMatch(normalized, "sofi", candidates), null);
 });

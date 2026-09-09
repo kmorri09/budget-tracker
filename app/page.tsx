@@ -50,6 +50,7 @@ export default function Home() {
   const [reconcilingBudget, setReconcilingBudget] = useState(false);
   const [fundingObligations, setFundingObligations] = useState(false);
   const [paymentTransactionIds, setPaymentTransactionIds] = useState<string[]>([]);
+  const [paymentImport, setPaymentImport] = useState<DashboardData["activity"][number] | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<DashboardData["activity"][number] | null>(null);
 
   const refresh = useCallback(async () => {
@@ -86,14 +87,15 @@ export default function Home() {
   }, [quickOpen]);
 
   function navigate(next: Destination) { window.location.hash = next; setDestination(next); setQuickOpen(false); window.scrollTo({ top: 0 }); }
-  function openAction(next: ActionType) { setQuickOpen(false); if (next !== "payment") setPaymentTransactionIds([]); setAction(next); }
+  function openAction(next: ActionType) { setQuickOpen(false); setPaymentImport(null); if (next !== "payment") setPaymentTransactionIds([]); setAction(next); }
   function viewCategory(category: string) { setDrilldown(current => ({ category, key: current.key + 1 })); navigate("transactions"); }
   function paySelected(rows: { id: string }[]) {
     const entries = rows.map(row => dashboard?.activity.find(entry => entry.id === row.id)).filter((entry): entry is DashboardData["activity"][number] => Boolean(entry));
     if (new Set(entries.map(entry => entry.accountId)).size !== 1) { setToast("Choose unpaid purchases from one credit card at a time"); return; }
-    setPaymentTransactionIds(entries.map(entry => entry.id)); setAction("payment");
+    setPaymentImport(null); setPaymentTransactionIds(entries.map(entry => entry.id)); setAction("payment");
   }
-  function saved() { setAction(null); setPaymentTransactionIds([]); setToast("Saved to your budget"); void refresh(); }
+  function recordImportedPayment(transaction: DashboardData["activity"][number]) { setPaymentTransactionIds([]); setPaymentImport(transaction); setAction("payment"); }
+  function saved(message?: string) { setAction(null); setPaymentTransactionIds([]); setPaymentImport(null); setToast(message ?? "Saved to your budget"); void refresh(); }
   const title = destination === "home" ? "Hello, " + name : navigation.find(item => item.key === destination)!.label;
 
   return <main className="app-shell workspace">
@@ -137,12 +139,12 @@ export default function Home() {
           <DataTable title="Allocations" dated amountKey="amount" amountLabel="Net funding" rows={dashboard.allocations.map(allocation => ({ id: allocation.id, name: allocation.note || "Allocation", date: allocation.date, category: allocation.category, categoryAvailable: dashboard.categories.find(category => category.name === allocation.category)?.available ?? 0, amount: allocation.amount, direction: allocation.amount < 0 ? "Removed" : "Added" }))}
             columns={[{ key: "name", label: "Note" }, { key: "date", label: "Date" }, { key: "category", label: "Category" }, { key: "categoryAvailable", label: "Current available", money: true }, { key: "amount", label: "Amount", money: true }, { key: "direction", label: "Direction", detail: true }]} facets={[{ key: "category", label: "Category" }, { key: "direction", label: "Direction" }]} />
         </section>
-        <section hidden={destination !== "review"} aria-label="Review"><ReviewInbox dashboard={dashboard} onEdit={setEditingTransaction} onChanged={() => { setToast("Review updated"); void refresh(); }} /></section>
+        <section hidden={destination !== "review"} aria-label="Review"><ReviewInbox dashboard={dashboard} onEdit={setEditingTransaction} onRecordPayment={recordImportedPayment} onChanged={() => { setToast("Review updated"); void refresh(); }} /></section>
   <section hidden={destination !== "accounts"} aria-label="Accounts"><Accounts dashboard={dashboard} onAction={openAction} onChanged={(message) => { setToast(message ?? "Account updated"); void refresh(); }} /></section>
       </>}
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">{navigation.map(item => <button key={item.key} className={"mobile-nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true">{item.icon}</span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</button>)}</nav>
-    {dashboard && action && <EntryForm action={action} dashboard={dashboard} initialPaymentTransactionIds={paymentTransactionIds} onClose={() => { setAction(null); setPaymentTransactionIds([]); }} onSaved={saved} />}
+    {dashboard && action && <EntryForm action={action} dashboard={dashboard} initialPaymentTransactionIds={paymentTransactionIds} initialPaymentImport={paymentImport} onClose={() => { setAction(null); setPaymentTransactionIds([]); setPaymentImport(null); }} onSaved={saved} />}
     {editingCategory && <CategoryEditDialog category={editingCategory} onClose={() => setEditingCategory(null)} onSaved={() => { setEditingCategory(null); setToast("Category details updated"); void refresh(); }} />}
     {dashboard && reconcilingCategories && <CategoryReconcileDialog categories={dashboard.categories} onClose={() => setReconcilingCategories(false)} onSaved={(count) => { setReconcilingCategories(false); setToast(count ? `${count} category ${count === 1 ? "balance" : "balances"} reconciled` : "Category balances already matched"); void refresh(); }} />}
     {dashboard && reconcilingCoverage && <CardCoverageReconcileDialog dashboard={dashboard} onClose={() => setReconcilingCoverage(false)} onSaved={(count, state) => { setReconcilingCoverage(false); setToast(count ? `${count} card ${count === 1 ? "purchase" : "purchases"} marked ${state}` : `Selected purchases were already ${state}`); void refresh(); }} />}
@@ -166,7 +168,7 @@ function Overview({ dashboard: data, navigate, onAction, onReconcileBudget, onFu
   </>;
 }
 
-function ReviewInbox({ dashboard, onEdit, onChanged }: { dashboard: DashboardData; onEdit: (transaction: DashboardData["activity"][number]) => void; onChanged: () => void }) {
+function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashboard: DashboardData; onEdit: (transaction: DashboardData["activity"][number]) => void; onRecordPayment: (transaction: DashboardData["activity"][number]) => void; onChanged: () => void }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [search, setSearch] = useState("");
   async function resolve(id?: string) {
     if (!id && !window.confirm("Resolve all " + dashboard.reviews.length + " open review items? This does not change the underlying transactions.")) return;
@@ -183,7 +185,7 @@ function ReviewInbox({ dashboard, onEdit, onChanged }: { dashboard: DashboardDat
   });
   return <div className="panel"><div className="view-heading"><label className="table-search"><span className="sr-only">Search reviews</span><input type="search" placeholder="Search reviews…" value={search} onChange={event => setSearch(event.target.value)} /></label>{dashboard.reviews.length > 0 && <button className="secondary-button" disabled={busy} onClick={() => void resolve()}>Mark all reviewed ({dashboard.reviews.length})</button>}</div><p className="field-help">Inspect each transaction below. Use Edit transaction to correct its category or type; Mark reviewed only removes the reminder and does not change the transaction.</p>{error && <p className="form-error" role="alert">{error}</p>}{visible.map(item => {
     const transaction = item.transaction;
-    return <article className="review-item" key={item.id}><div className="review-item-content"><strong>{item.title}</strong><p>{item.details}</p>{transaction ? <dl className="review-facts"><div><dt>Date</dt><dd>{transaction.date}</dd></div><div><dt>Amount</dt><dd className={signedAmount(transaction) < 0 ? "negative" : ""}>{money(signedAmount(transaction))}</dd></div><div><dt>Account</dt><dd>{transaction.account}</dd></div><div><dt>Type</dt><dd>{kindLabel(transaction.kind)}</dd></div><div><dt>Category</dt><dd>{transaction.category ?? "Uncategorized"}</dd></div><div><dt>Source / status</dt><dd>{kindLabel(transaction.source)} · {transaction.pending ? "Pending" : kindLabel(transaction.status)}</dd></div></dl> : <p className="review-missing">The linked transaction is no longer in the active ledger. You can safely mark this reminder reviewed.</p>}</div><div className="review-item-actions">{transaction && <button className="primary-button" disabled={busy} onClick={() => onEdit(transaction)}>Edit transaction</button>}<button className="secondary-button" disabled={busy} onClick={() => void resolve(item.id)}>Mark reviewed</button></div></article>;
+    return <article className="review-item" key={item.id}><div className="review-item-content"><strong>{item.title}</strong><p>{item.details}</p>{transaction ? <dl className="review-facts"><div><dt>Date</dt><dd>{transaction.date}</dd></div><div><dt>Amount</dt><dd className={signedAmount(transaction) < 0 ? "negative" : ""}>{money(signedAmount(transaction))}</dd></div><div><dt>Account</dt><dd>{transaction.account}</dd></div><div><dt>Type</dt><dd>{kindLabel(transaction.kind)}</dd></div><div><dt>Category</dt><dd>{transaction.category ?? "Uncategorized"}</dd></div><div><dt>Source / status</dt><dd>{kindLabel(transaction.source)} · {transaction.pending ? "Pending" : kindLabel(transaction.status)}</dd></div></dl> : <p className="review-missing">The linked transaction is no longer in the active ledger. You can safely mark this reminder reviewed.</p>}</div><div className="review-item-actions">{transaction && item.kind === "provider_transfer" && transaction.kind === "transfer_out" && <button className="primary-button" disabled={busy} onClick={() => onRecordPayment(transaction)}>Record card payment</button>}{transaction && <button className="secondary-button" disabled={busy} onClick={() => onEdit(transaction)}>Edit transaction</button>}<button className="secondary-button" disabled={busy} onClick={() => void resolve(item.id)}>{item.kind === "provider_transfer" ? "Keep as transaction" : "Mark reviewed"}</button></div></article>;
   })}{!visible.length && <p className="empty-state">{dashboard.reviews.length ? "No matching reviews." : "Nothing needs review right now."}</p>}</div>;
 }
 
