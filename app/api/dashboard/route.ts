@@ -19,7 +19,7 @@ export async function GET() {
     db.select().from(transactions).where(eq(transactions.userId, user.id)).orderBy(desc(transactions.effectiveDate), desc(transactions.createdAt)),
     db.select().from(allocations).where(eq(allocations.userId, user.id)),
     db.select().from(budgetAdjustments).where(eq(budgetAdjustments.userId, user.id)),
-    db.select().from(obligations).where(and(eq(obligations.userId, user.id), eq(obligations.active, true))),
+    db.select().from(obligations).where(eq(obligations.userId, user.id)),
     db.select().from(reviewItems).where(and(eq(reviewItems.userId, user.id), eq(reviewItems.status, "open"))),
     db.select().from(cardPayments).where(eq(cardPayments.userId, user.id)),
     db.select().from(cardPaymentApplications).where(eq(cardPaymentApplications.userId, user.id)),
@@ -85,7 +85,7 @@ export async function GET() {
     trailing30: { income: centsToAmount(trailingIncomeCents), spending: centsToAmount(trailingSpendCents), startDate: isoDate(cutoff), endDate: isoDate(new Date()) },
     categories: categoryBalances,
     allocations: allocationRows.map((row) => ({ id: row.id, date: row.effectiveDate, amount: centsToAmount(row.amountCents), note: row.note ?? "", category: categoryById.get(row.categoryId)?.name ?? "Uncategorized" })),
-    obligations: obligationRows.map((obligation) => ({ id: obligation.id, name: obligation.name, dueDate: obligation.dueDate, amount: centsToAmount(obligation.amountCents), category: categoryById.get(obligation.categoryId)?.name ?? "Uncategorized", categoryId: obligation.categoryId, account: accountById.get(obligation.accountId)?.name ?? "Account" })),
+    obligations: obligationRows.map((obligation) => ({ id: obligation.id, name: obligation.name, dueDate: obligation.dueDate, amount: centsToAmount(obligation.amountCents), category: categoryById.get(obligation.categoryId)?.name ?? "Uncategorized", categoryId: obligation.categoryId, account: accountById.get(obligation.accountId)?.name ?? "Account", accountId: obligation.accountId, cadence: obligation.cadence, active: obligation.active })),
     reviews: reviewRows.map((review) => ({ id: review.id, kind: review.kind, title: review.title, details: review.details, transaction: review.transactionId ? transactionById.get(review.transactionId) ? toEntry(transactionById.get(review.transactionId)!) : null : null })),
     payments: [
       ...paymentRows.map((payment) => {
@@ -94,9 +94,9 @@ export async function GET() {
         const transaction = transactionRows.find(row => row.id === application.transactionId);
         return transaction ? `${transaction.description} (${centsToAmount(application.amountCents).toFixed(2)})` : null;
       }).filter((description): description is string => Boolean(description));
-      return { id: payment.id, description: payment.description, amount: centsToAmount(payment.amountCents), date: payment.effectiveDate, fromAccount: accountById.get(payment.fromAccountId)?.name ?? "Account", toAccount: accountById.get(payment.toAccountId)?.name ?? "Credit card", applied: centsToAmount(applied), remaining: centsToAmount(payment.amountCents - applied), status: applied >= payment.amountCents ? "Applied" : applied > 0 ? "Partially applied" : "Unapplied", covered: coveredPurchases.join(", ") || "No purchases applied" };
+      return { id: payment.id, description: payment.description, amount: centsToAmount(payment.amountCents), date: payment.effectiveDate, fromAccount: accountById.get(payment.fromAccountId)?.name ?? "Account", fromAccountId: payment.fromAccountId, toAccount: accountById.get(payment.toAccountId)?.name ?? "Credit card", toAccountId: payment.toAccountId, applied: centsToAmount(applied), remaining: centsToAmount(payment.amountCents - applied), status: applied >= payment.amountCents ? "Applied" : applied > 0 ? "Partially applied" : "Unapplied", covered: coveredPurchases.join(", ") || "No purchases applied", applications: paymentApplicationRows.filter(application => application.paymentId === payment.id).map(application => ({ transactionId: application.transactionId, amount: centsToAmount(application.amountCents) })), providerLinked: Boolean(payment.providerTransactionId), editable: true };
       }),
-      ...activeTransactionRows.filter(transaction => transaction.kind === "card_payment").map(transaction => ({ id: `legacy-${transaction.id}`, description: transaction.description, amount: centsToAmount(transaction.amountCents), date: transaction.effectiveDate, fromAccount: accountById.get(transaction.accountId)?.name ?? "Account", toAccount: "Legacy payment", applied: 0, remaining: centsToAmount(transaction.amountCents), status: "Legacy — not linked", covered: "Imported payment; purchase coverage was not linked" })),
+      ...activeTransactionRows.filter(transaction => transaction.kind === "card_payment").map(transaction => ({ id: `legacy-${transaction.id}`, description: transaction.description, amount: centsToAmount(transaction.amountCents), date: transaction.effectiveDate, fromAccount: accountById.get(transaction.accountId)?.name ?? "Account", fromAccountId: transaction.accountId, toAccount: "Legacy payment", toAccountId: "", applied: 0, remaining: centsToAmount(transaction.amountCents), status: "Legacy — not linked", covered: "Imported payment; purchase coverage was not linked", applications: [], providerLinked: false, editable: false })),
     ],
     activity: activeTransactionRows.map(toEntry),
   });

@@ -171,7 +171,7 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       const candidate = findMatch(normalized, localAccountId, plaidRow.id);
       if (candidate) await linkExistingLedgerEntry(candidate, normalized, plaidRow);
       else if (normalized.date < cutoverDate) await suppressPreCutover(plaidRow, normalized.providerTransactionId);
-      else if ((normalized.kind === "transfer_in" || normalized.kind === "transfer_out") && plaidRow.kind !== normalized.kind) {
+      else if (!plaidRow.userEdited && (normalized.kind === "transfer_in" || normalized.kind === "transfer_out") && plaidRow.kind !== normalized.kind) {
         await db.transaction(async tx => {
           await tx.update(transactions).set({ kind: normalized.kind, categoryId: null, updatedAt: now }).where(and(eq(transactions.id, plaidRow.id), eq(transactions.userId, userId)));
           await tx.update(reviewItems).set({ kind: "provider_transfer", title: `Review imported transfer: ${normalized.description}`, details: normalized.kind === "transfer_out" ? "No existing card payment matched this withdrawal. If it paid an untracked card, keep it as a transaction; otherwise record the card payment and this import will be reconciled automatically." : "Confirm this transfer is not new spending and keep it as a transaction if no matching entry exists." }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, plaidRow.id), eq(reviewItems.status, "open")));
@@ -203,7 +203,8 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       if (existing) {
         if (existing.status === "removed" && normalized.date < cutoverDate) continue;
         const providerManaged = existing.source === "plaid";
-        await db.update(transactions).set({ accountId: localAccountId, providerTransactionId: normalized.providerTransactionId, amountCents: normalized.amountCents, kind: normalized.kind, categoryId: normalized.kind === "expense" ? existing.categoryId : null, effectiveDate: providerManaged ? normalized.date : existing.effectiveDate, description: providerManaged ? normalized.description : existing.description, status: providerManaged ? (normalized.pending ? "pending" : "posted") : existing.status, pending: providerManaged ? normalized.pending : existing.pending, source: existing.source, updatedAt: now }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
+        const acceptProviderChanges = providerManaged && !existing.userEdited;
+        await db.update(transactions).set({ accountId: acceptProviderChanges ? localAccountId : existing.accountId, providerTransactionId: normalized.providerTransactionId, amountCents: acceptProviderChanges ? normalized.amountCents : existing.amountCents, kind: acceptProviderChanges ? normalized.kind : existing.kind, categoryId: acceptProviderChanges ? (normalized.kind === "expense" ? existing.categoryId : null) : existing.categoryId, effectiveDate: acceptProviderChanges ? normalized.date : existing.effectiveDate, description: acceptProviderChanges ? normalized.description : existing.description, status: acceptProviderChanges ? (normalized.pending ? "pending" : "posted") : existing.status, pending: acceptProviderChanges ? normalized.pending : existing.pending, source: existing.source, updatedAt: now }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
         modifiedCount++;
       } else {
         const candidate = findMatch(normalized, localAccountId);

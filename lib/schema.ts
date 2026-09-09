@@ -124,6 +124,7 @@ export const transactions = pgTable("transactions", {
   status: text("status").default("posted").notNull(),
   source: text("source").default("manual").notNull(),
   providerTransactionId: text("provider_transaction_id"),
+  userEdited: boolean("user_edited").default(false).notNull(),
   pending: boolean("pending").default(false).notNull(),
   removedAt: timestamp("removed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

@@ -108,9 +108,11 @@ export async function PATCH(request: Request) {
     const category = (await db.select({ id: categories.id }).from(categories).where(and(eq(categories.id, input.categoryId), eq(categories.userId, user.id))).limit(1))[0];
     if (!category) return NextResponse.json({ error: "Category not found" }, { status: 400 });
   }
-  const changes = { kind: input.kind, amountCents: cents(input.amount), effectiveDate: input.date, accountId: input.accountId, categoryId: input.categoryId, description: input.description, status: input.status, pending: input.pending, updatedAt: new Date() };
+  const changes = { kind: input.kind, amountCents: cents(input.amount), effectiveDate: input.date, accountId: input.accountId, categoryId: input.categoryId, description: input.description, status: input.status, pending: input.pending, userEdited: true, updatedAt: new Date() };
   await db.transaction(async (tx) => {
     await tx.update(transactions).set(changes).where(and(eq(transactions.id, input.id), eq(transactions.userId, user.id)));
+    const reviewTitle = input.kind === "transfer_in" || input.kind === "transfer_out" ? `Review imported transfer: ${input.description}` : `Review imported transaction: ${input.description}`;
+    await tx.update(reviewItems).set({ title: reviewTitle }).where(and(eq(reviewItems.transactionId, input.id), eq(reviewItems.userId, user.id), eq(reviewItems.status, "open")));
     await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "transaction", entityId: input.id, beforeJson: JSON.stringify({ kind: existing.kind, amountCents: existing.amountCents, effectiveDate: existing.effectiveDate, accountId: existing.accountId, categoryId: existing.categoryId, description: existing.description, status: existing.status, pending: existing.pending }), afterJson: JSON.stringify(changes) });
   });
   return NextResponse.json({ id: input.id, ok: true });

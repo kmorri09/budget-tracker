@@ -1,8 +1,9 @@
 export type Account = { id: string; name: string; institution: string; type: string; syncEnabled: boolean; isDefaultCash: boolean; active?: boolean; openingBalance: number; providerBalance: number | null; providerBalanceAt: string | null; ledgerBalance: number };
 export type Category = { id: string; name: string; icon: string; available: number; target: number; allocated: number; spent: number };
 export type Entry = { id: string; description: string; amount: number; kind: string; source: string; status: string; pending: boolean; date: string; category: string | null; categoryId: string | null; account: string; accountId: string; paymentStatus: string; remainingToPay: number };
-export type CardPayment = { id: string; description: string; amount: number; date: string; fromAccount: string; toAccount: string; applied: number; remaining: number; status: string; covered: string };
+export type CardPayment = { id: string; description: string; amount: number; date: string; fromAccount: string; fromAccountId: string; toAccount: string; toAccountId: string; applied: number; remaining: number; status: string; covered: string; applications: { transactionId: string; amount: number }[]; providerLinked: boolean; editable: boolean };
 export type Allocation = { id: string; date: string; amount: number; note: string; category: string };
+export type Obligation = { id: string; name: string; dueDate: string; amount: number; category: string; categoryId: string; account: string; accountId: string; cadence: string | null; active: boolean };
 export type DashboardData = {
   ledgerBalance: number; providerBalance: number | null; remainingToBudget: number;
   availableBreakdown: { income: number; adjustments: number; allocations: number; available: number };
@@ -11,7 +12,7 @@ export type DashboardData = {
   activity: Entry[]; allocations: Allocation[]; payments: CardPayment[];
   trailing30: { income: number; spending: number; startDate: string; endDate: string };
   reviews: { id: string; kind: string; title: string; details: string | null; transaction: Entry | null }[];
-  obligations: { id: string; name: string; dueDate: string; amount: number; category: string; categoryId: string; account: string }[];
+  obligations: Obligation[];
 };
 export type ActionType = "transaction" | "income" | "allocation" | "transfer" | "payment" | "category" | "account";
 export const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);

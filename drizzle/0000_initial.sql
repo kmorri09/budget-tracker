@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS "transactions" (
   "status" text DEFAULT 'posted' NOT NULL,
   "source" text DEFAULT 'manual' NOT NULL,
   "provider_transaction_id" text,
+  "user_edited" boolean DEFAULT false NOT NULL,
   "pending" boolean DEFAULT false NOT NULL,
   "removed_at" timestamptz,
   "created_at" timestamptz DEFAULT now() NOT NULL,
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS "transactions" (
 );
 CREATE INDEX IF NOT EXISTS "transactions_user_date_idx" ON "transactions" ("user_id", "effective_date");
 CREATE UNIQUE INDEX IF NOT EXISTS "transactions_provider_idx" ON "transactions" ("user_id", "provider_transaction_id");
+ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "user_edited" boolean DEFAULT false NOT NULL;
 
 CREATE TABLE IF NOT EXISTS "card_payments" (
   "id" text PRIMARY KEY NOT NULL,
@@ -161,6 +163,18 @@ CREATE TABLE IF NOT EXISTS "audit_events" (
   "created_at" timestamptz DEFAULT now() NOT NULL
 );
 CREATE INDEX IF NOT EXISTS "audit_events_user_created_idx" ON "audit_events" ("user_id", "created_at");
+
+-- Preserve edits made to imported transactions before user_edited existed.
+UPDATE "transactions" AS transaction
+SET "user_edited" = true
+WHERE transaction."source" = 'plaid'
+  AND EXISTS (
+    SELECT 1 FROM "audit_events" AS event
+    WHERE event."user_id" = transaction."user_id"
+      AND event."entity_type" = 'transaction'
+      AND event."entity_id" = transaction."id"
+      AND event."action" = 'update'
+  );
 
 -- Reconciliation fields are additive so existing Railway databases can migrate safely.
 ALTER TABLE "accounts" ADD COLUMN IF NOT EXISTS "provider_balance_cents" bigint;
