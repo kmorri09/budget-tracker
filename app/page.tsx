@@ -10,6 +10,7 @@ import TransactionEditDialog from "./components/transaction-edit-dialog";
 import CardPaymentEditDialog from "./components/card-payment-edit-dialog";
 import BudgetReconcileDialog from "./components/budget-reconcile-dialog";
 import FundObligationsDialog from "./components/fund-obligations-dialog";
+import ObligationEditDialog from "./components/obligation-edit-dialog";
 import BankConnections from "./components/bank-connections";
 import { type ActionType, type DashboardData, kindLabel, money, signedAmount, today } from "../lib/workspace-types";
 import { categoriesAllocatedInLastDays } from "../lib/recent-allocations";
@@ -18,9 +19,10 @@ import "./workspace.css";
 const navigation = [
   { key: "home", label: "Home", icon: "⌂" },
   { key: "transactions", label: "Transactions", icon: "⇅" },
-  { key: "payments", label: "Card payments", icon: "↔" },
+  { key: "payments", label: "Card payments", icon: "💳" },
   { key: "categories", label: "Categories", icon: "▦" },
   { key: "allocations", label: "Allocations", icon: "⇄" },
+  { key: "obligations", label: "Obligations", icon: "◷" },
   { key: "review", label: "Review", icon: "◎" },
   { key: "accounts", label: "Accounts", icon: "▤" },
 ] as const;
@@ -32,6 +34,7 @@ const subtitles: Record<Destination, string> = {
   payments: "Payments from cash accounts to credit cards, with purchase coverage.",
   categories: "Where your money is assigned. Balances roll forward without a monthly reset.",
   allocations: "Your funding history. Moving funds creates a removal and an addition; it does not move cash.",
+  obligations: "Manage planned bills and other upcoming amounts that can be funded automatically.",
   review: "Check imported activity and other items that need your attention.",
   accounts: "Manage accounts, reconcile balances, and configure bank connections.",
 };
@@ -50,6 +53,7 @@ export default function Home() {
   const [reconcilingCoverage, setReconcilingCoverage] = useState(false);
   const [reconcilingBudget, setReconcilingBudget] = useState(false);
   const [fundingObligations, setFundingObligations] = useState(false);
+  const [obligationEditor, setObligationEditor] = useState<DashboardData["obligations"][number] | "new" | null>(null);
   const [paymentTransactionIds, setPaymentTransactionIds] = useState<string[]>([]);
   const [paymentImport, setPaymentImport] = useState<DashboardData["activity"][number] | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<DashboardData["activity"][number] | null>(null);
@@ -109,7 +113,7 @@ export default function Home() {
       <div className="sidebar-bottom"><p>Private workspace<br />Balances roll forward. Analytics use the last 30 days.</p></div>
     </aside>
     <div className="content-wrap" id="workspace-content" tabIndex={-1}>
-      <header className="topbar"><div>{destination !== "home" && <p className="eyebrow">Your workspace</p>}<h1>{title}</h1></div><div className="top-actions"><div className="quick-menu"><button className="primary-button quick-trigger" aria-expanded={quickOpen} aria-haspopup="menu" aria-controls="quick-entry-menu" onClick={() => setQuickOpen(!quickOpen)}>Quick actions <span className="quick-chevron" aria-hidden="true" /></button>{quickOpen && <div id="quick-entry-menu" className="quick-popover" role="menu" onKeyDown={event => { if (event.key === "Escape") setQuickOpen(false); }}>{[...quickActions, "category", "account"].map(item => <button role="menuitem" key={item} onClick={() => openAction(item as ActionType)}>{actionLabels[item as ActionType]}</button>)}<button role="menuitem" onClick={() => { setQuickOpen(false); setFundingObligations(true); }}>Fund upcoming obligations</button></div>}</div></div></header>
+      <header className="topbar"><div>{destination !== "home" && <p className="eyebrow">Your workspace</p>}<h1>{title}</h1></div><div className="top-actions"><div className="quick-menu"><button className="primary-button quick-trigger" aria-expanded={quickOpen} aria-haspopup="menu" aria-controls="quick-entry-menu" onClick={() => setQuickOpen(!quickOpen)}>Quick actions <span className="quick-chevron" aria-hidden="true" /></button>{quickOpen && <div id="quick-entry-menu" className="quick-popover" role="menu" onKeyDown={event => { if (event.key === "Escape") setQuickOpen(false); }}>{[...quickActions, "category", "account"].map(item => <button role="menuitem" key={item} onClick={() => openAction(item as ActionType)}>{actionLabels[item as ActionType]}</button>)}<button role="menuitem" onClick={() => { setQuickOpen(false); setObligationEditor("new"); }}>Add obligation</button><button role="menuitem" onClick={() => { setQuickOpen(false); setFundingObligations(true); }}>Fund upcoming obligations</button></div>}</div></div></header>
       <p className="page-description">{subtitles[destination]}</p>
       {error && <div className="error-banner" role="alert">{error} <button className="secondary-button" onClick={() => void refresh()}>Retry</button></div>}
       {!dashboard && !error && <p role="status">Loading your private budget…</p>}
@@ -142,6 +146,14 @@ export default function Home() {
           <DataTable title="Allocations" dated amountKey="amount" amountLabel="Net funding" rows={dashboard.allocations.map(allocation => ({ id: allocation.id, name: allocation.note || "Allocation", date: allocation.date, category: allocation.category, categoryAvailable: dashboard.categories.find(category => category.name === allocation.category)?.available ?? 0, amount: allocation.amount, direction: allocation.amount < 0 ? "Removed" : "Added" }))}
             columns={[{ key: "name", label: "Note" }, { key: "date", label: "Date" }, { key: "category", label: "Category" }, { key: "categoryAvailable", label: "Current available", money: true }, { key: "amount", label: "Amount", money: true }, { key: "direction", label: "Direction", detail: true }]} facets={[{ key: "category", label: "Category" }, { key: "direction", label: "Direction" }]} />
         </section>
+        <section hidden={destination !== "obligations"} aria-label="Obligations">
+          <div className="view-heading"><p>Inactive obligations remain available here but are excluded from automatic funding.</p><div className="section-actions"><button className="secondary-button" onClick={() => setFundingObligations(true)}>Fund upcoming</button><button className="primary-button" onClick={() => setObligationEditor("new")}>＋ Add obligation</button></div></div>
+          <DataTable title="Obligations" amountKey="amount" amountLabel="Total amount" initialSort="dueDate" initialDirection="asc" rows={dashboard.obligations.map(obligation => ({ id: obligation.id, name: obligation.name, dueDate: obligation.dueDate, amount: obligation.amount, category: obligation.category, account: obligation.account, cadence: obligation.cadence || "One time", status: obligation.active ? obligation.dueDate < today() ? "Overdue" : "Active" : "Inactive" }))}
+            columns={[{ key: "name", label: "Name" }, { key: "dueDate", label: "Due date" }, { key: "amount", label: "Amount", money: true }, { key: "category", label: "Category" }, { key: "status", label: "Status" }, { key: "account", label: "Account", detail: true }, { key: "cadence", label: "Cadence", detail: true }]}
+            facets={[{ key: "status", label: "Status" }, { key: "category", label: "Category" }, { key: "account", label: "Account" }, { key: "cadence", label: "Cadence" }]}
+            onRow={row => { const obligation = dashboard.obligations.find(item => item.id === row.id); if (obligation) setObligationEditor(obligation); }}
+            rowActions={[{ label: "Edit", onClick: row => { const obligation = dashboard.obligations.find(item => item.id === row.id); if (obligation) setObligationEditor(obligation); } }, { label: "Deactivate", isEligible: row => row.status !== "Inactive", onClick: row => { const obligation = dashboard.obligations.find(item => item.id === row.id); if (obligation) void updateObligationStatus(obligation, false); } }, { label: "Reactivate", isEligible: row => row.status === "Inactive", onClick: row => { const obligation = dashboard.obligations.find(item => item.id === row.id); if (obligation) void updateObligationStatus(obligation, true); } }]} />
+        </section>
         <section hidden={destination !== "review"} aria-label="Review"><ReviewInbox dashboard={dashboard} onEdit={setEditingTransaction} onRecordPayment={recordImportedPayment} onChanged={() => { setToast("Review updated"); void refresh(); }} /></section>
   <section hidden={destination !== "accounts"} aria-label="Accounts"><Accounts dashboard={dashboard} onAction={openAction} onChanged={(message) => { setToast(message ?? "Account updated"); void refresh(); }} /></section>
       </>}
@@ -153,21 +165,33 @@ export default function Home() {
     {dashboard && reconcilingCoverage && <CardCoverageReconcileDialog dashboard={dashboard} onClose={() => setReconcilingCoverage(false)} onSaved={(count, state) => { setReconcilingCoverage(false); setToast(count ? `${count} card ${count === 1 ? "purchase" : "purchases"} marked ${state}` : `Selected purchases were already ${state}`); void refresh(); }} />}
     {dashboard && reconcilingBudget && <BudgetReconcileDialog dashboard={dashboard} onClose={() => setReconcilingBudget(false)} onSaved={(delta) => { setReconcilingBudget(false); setToast(delta ? `Available to assign reconciled by ${money(delta)}` : "Available to assign already matched"); void refresh(); }} />}
     {dashboard && fundingObligations && <FundObligationsDialog dashboard={dashboard} onClose={() => setFundingObligations(false)} onSaved={(count, amount) => { setFundingObligations(false); setToast(count ? `${money(amount)} allocated across ${count} ${count === 1 ? "category" : "categories"}` : "Selected obligations were already funded"); void refresh(); }} />}
+    {dashboard && obligationEditor && <ObligationEditDialog obligation={obligationEditor === "new" ? null : obligationEditor} dashboard={dashboard} onClose={() => setObligationEditor(null)} onSaved={message => { setObligationEditor(null); setToast(message); void refresh(); }} />}
     {editingTransaction && dashboard && <TransactionEditDialog transaction={editingTransaction} dashboard={dashboard} onClose={() => setEditingTransaction(null)} onSaved={(message) => { setEditingTransaction(null); setToast(message); void refresh(); }} />}
     {editingPayment && dashboard && <CardPaymentEditDialog payment={editingPayment} dashboard={dashboard} onClose={() => setEditingPayment(null)} onSaved={(message) => { setEditingPayment(null); setToast(message); void refresh(); }} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </main>;
+
+  async function updateObligationStatus(obligation: DashboardData["obligations"][number], active: boolean) {
+    setError("");
+    try {
+      const response = await fetch("/api/obligations", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: obligation.id, name: obligation.name, amount: obligation.amount, dueDate: obligation.dueDate, categoryId: obligation.categoryId, accountId: obligation.accountId, cadence: obligation.cadence, active }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? `Could not ${active ? "reactivate" : "deactivate"} obligation.`);
+      setToast(`Obligation ${active ? "reactivated" : "deactivated"}`); void refresh();
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not update obligation."); }
+  }
 }
 
 function Overview({ dashboard: data, navigate, onAction, onReconcileBudget, onFundObligations, viewCategory }: { dashboard: DashboardData; navigate: (destination: Destination) => void; onAction: (action: ActionType) => void; onReconcileBudget: () => void; onFundObligations: () => void; viewCategory: (category: string) => void }) {
   const overspent = data.categories.filter(c => c.available < 0);
+  const activeObligations = data.obligations.filter(obligation => obligation.active);
   const recentlyAllocated = categoriesAllocatedInLastDays(data.categories, data.allocations, today());
   return <>
     <div className="hero-grid"><article className="balance-card"><p className="eyebrow light">Ledger balance</p><h2>{money(data.ledgerBalance)}</h2><p className="balance-sub">Across {data.accounts.filter(account => account.type !== "credit_card").length} cash accounts · excludes card debt</p><div className="balance-footer"><span>Your recorded balances</span><button onClick={() => navigate("accounts")}>Accounts & reconcile →</button></div></article><article className="remaining-card"><p className="eyebrow">Available to assign</p><h2>{money(data.remainingToBudget)}</h2><p className="remaining-description">Current unassigned money · rolls forward indefinitely</p><div className="remaining-actions"><button className="text-button" onClick={() => onAction("allocation")}>Allocate money →</button><button className="text-button" onClick={onReconcileBudget}>Explain & reconcile →</button></div></article></div>
     <section className="quick-section"><div className="section-heading"><h2>Quick actions</h2></div><div className="quick-actions">{quickActions.map((action, index) => <button key={action} onClick={() => onAction(action)}><span className={"action-icon action-icon-" + action}>{["＋", "↗", "▣", "⇄", "▤"][index]}</span><strong>{actionLabels[action]}</strong></button>)}</div></section>
     <div className="analytics-grid"><article className="panel"><p className="eyebrow">Income · last 30 days</p><h3>{money(data.trailing30.income)}</h3><small>{data.trailing30.startDate} – {data.trailing30.endDate}</small></article><article className="panel"><p className="eyebrow">Spending · last 30 days</p><h3>{money(data.trailing30.spending)}</h3><small>Expenses only · excludes payments, refunds, and reconciliation</small></article></div>
     <div className="main-grid"><article className="panel"><div className="section-heading"><div><h2>Category balances</h2><p className="section-context">Allocated in the last 28 days</p></div><button className="text-link" onClick={() => navigate("categories")}>All categories →</button></div>{!data.categories.length && <p className="empty-state">Add categories to start planning your money.</p>}{recentlyAllocated.map(category => <div className="overview-row" key={category.id}><button className="text-link" onClick={() => viewCategory(category.name)}>{category.name}</button><span className={category.available < 0 ? "negative" : ""}>{money(category.available)}<small>{category.available < 0 ? "Overspent" : "Available"}</small></span></div>)}{!!data.categories.length && !recentlyAllocated.length && <p className="empty-state">No categories were allocated money in the last 28 days.</p>}</article>
-      <div className="right-stack"><article className="panel"><div className="section-heading"><h2>Needs attention</h2></div><button className="attention-link" onClick={() => navigate("review")}><span>Review inbox</span><strong>{data.reviews.length} open →</strong></button><button className="attention-link" onClick={() => navigate("categories")}><span>Overspent categories</span><strong>{overspent.length} →</strong></button></article><article className="panel"><div className="section-heading"><h2>Upcoming obligations</h2>{!!data.obligations.length && <button className="text-link" onClick={onFundObligations}>Fund upcoming →</button>}</div>{data.obligations.length ? [...data.obligations].sort((a, b) => a.dueDate.localeCompare(b.dueDate)).map(item => <div className="overview-row" key={item.id}><span>{item.name}<small>{item.dueDate} · {item.category}</small></span><strong>{money(item.amount)}</strong></div>) : <p className="empty-state">No obligations yet.</p>}</article></div></div>
+      <div className="right-stack"><article className="panel"><div className="section-heading"><h2>Needs attention</h2></div><button className="attention-link" onClick={() => navigate("review")}><span>Review inbox</span><strong>{data.reviews.length} open →</strong></button><button className="attention-link" onClick={() => navigate("categories")}><span>Overspent categories</span><strong>{overspent.length} →</strong></button></article><article className="panel"><div className="section-heading"><h2>Upcoming obligations</h2>{!!activeObligations.length && <button className="text-link" onClick={onFundObligations}>Fund upcoming →</button>}</div>{activeObligations.length ? [...activeObligations].sort((a, b) => a.dueDate.localeCompare(b.dueDate)).map(item => <div className="overview-row" key={item.id}><span>{item.name}<small>{item.dueDate} · {item.category}</small></span><strong>{money(item.amount)}</strong></div>) : <p className="empty-state">No active obligations yet.</p>}<button className="text-link" onClick={() => navigate("obligations")}>Manage obligations →</button></article></div></div>
     <article className="panel activity-panel"><div className="section-heading"><h2>Recent transactions</h2><button className="text-link" onClick={() => navigate("transactions")}>All transactions →</button></div>{data.activity.slice(0, 8).map(entry => <div className="overview-row" key={entry.id}><span>{entry.description}<small>{entry.date} · {entry.account} · {entry.category ?? kindLabel(entry.kind)}</small></span><strong className={signedAmount(entry) < 0 ? "negative" : ""}>{money(signedAmount(entry))}</strong></div>)}{!data.activity.length && <p className="empty-state">No transactions yet. Add one or import your Notion snapshot from Accounts.</p>}</article>
   </>;
 }

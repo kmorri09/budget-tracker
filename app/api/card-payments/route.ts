@@ -19,7 +19,7 @@ const paymentSchema = z.object({
   applications: z.array(applicationSchema).optional(),
 });
 const paymentUpdateSchema = paymentSchema.extend({ id: z.string().min(1), applications: z.array(applicationSchema) });
-const paymentDeleteSchema = z.object({ id: z.string().min(1) });
+const paymentDeleteSchema = z.object({ id: z.string().min(1), suppressProviderTransaction: z.boolean().optional().default(false) });
 
 const cents = (amount: number) => Math.round(amount * 100);
 
@@ -148,14 +148,15 @@ export async function DELETE(request: Request) {
   const existing = (await db.select().from(cardPayments).where(and(eq(cardPayments.id, parsed.data.id), eq(cardPayments.userId, user.id))).limit(1))[0];
   if (!existing) return NextResponse.json({ error: "Card payment not found" }, { status: 404 });
   const applications = await db.select().from(cardPaymentApplications).where(and(eq(cardPaymentApplications.paymentId, existing.id), eq(cardPaymentApplications.userId, user.id)));
-  const restoredTransactionId = existing.providerTransactionId ? randomUUID() : null;
+  const replacementTransactionId = existing.providerTransactionId ? randomUUID() : null;
   await db.transaction(async tx => {
     await tx.delete(cardPayments).where(and(eq(cardPayments.id, existing.id), eq(cardPayments.userId, user.id)));
-    if (existing.providerTransactionId && restoredTransactionId) {
-      await tx.insert(transactions).values({ id: restoredTransactionId, userId: user.id, accountId: existing.fromAccountId, categoryId: null, kind: "transfer_out", amountCents: existing.amountCents, effectiveDate: existing.effectiveDate, description: existing.description, status: "posted", source: "plaid", providerTransactionId: existing.providerTransactionId, userEdited: true, pending: false });
-      await tx.insert(reviewItems).values({ id: randomUUID(), userId: user.id, transactionId: restoredTransactionId, kind: "provider_transfer", title: `Review imported transfer: ${existing.description}`, details: "This bank withdrawal returned to Review because its linked card payment was deleted. Keep it as a transaction or record the correct card payment." });
+    if (existing.providerTransactionId && replacementTransactionId) {
+      const suppress = parsed.data.suppressProviderTransaction;
+      await tx.insert(transactions).values({ id: replacementTransactionId, userId: user.id, accountId: existing.fromAccountId, categoryId: null, kind: "transfer_out", amountCents: existing.amountCents, effectiveDate: existing.effectiveDate, description: existing.description, status: suppress ? "removed" : "posted", source: "plaid", providerTransactionId: existing.providerTransactionId, userEdited: true, pending: false, removedAt: suppress ? new Date() : null });
+      if (!suppress) await tx.insert(reviewItems).values({ id: randomUUID(), userId: user.id, transactionId: replacementTransactionId, kind: "provider_transfer", title: `Review imported transfer: ${existing.description}`, details: "This bank withdrawal returned to Review because its linked card payment was deleted. Keep it as a transaction or record the correct card payment." });
     }
-    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "delete", entityType: "card_payment", entityId: existing.id, beforeJson: JSON.stringify({ payment: existing, applications }), afterJson: JSON.stringify({ deleted: true, restoredTransactionId }) });
+    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "delete", entityType: "card_payment", entityId: existing.id, beforeJson: JSON.stringify({ payment: existing, applications }), afterJson: JSON.stringify({ deleted: true, replacementTransactionId, providerDisposition: parsed.data.suppressProviderTransaction ? "suppressed" : "review" }) });
   });
-  return NextResponse.json({ id: existing.id, restoredProviderTransaction: Boolean(restoredTransactionId), ok: true });
+  return NextResponse.json({ id: existing.id, restoredProviderTransaction: Boolean(replacementTransactionId && !parsed.data.suppressProviderTransaction), suppressedProviderTransaction: Boolean(replacementTransactionId && parsed.data.suppressProviderTransaction), ok: true });
 }
