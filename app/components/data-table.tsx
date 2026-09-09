@@ -29,6 +29,14 @@ export function SearchFilter({ label, options, value, onChange }: { label: strin
     </div></details>;
 }
 
+function AmountFilter({ label, min, max, onChange }: { label: string; min: string; max: string; onChange: (change: Pick<TableQuery, "min" | "max">) => void }) {
+  const details = useRef<HTMLDetailsElement>(null);
+  const active = min !== "" || max !== "";
+  return <details ref={details} className="filter-menu amount-filter" name="workspace-filters" onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>{label}{active && <span className="filter-count">1</span>} <span className="filter-chevron" aria-hidden="true" /></summary>
+    <div className="filter-popover amount-filter-popover"><div className="amount-filter-fields"><label>Minimum<input type="number" step="0.01" placeholder="No minimum" value={min} onChange={event => onChange({ min: event.target.value, max })} /></label><label>Maximum<input type="number" step="0.01" placeholder="No maximum" value={max} onChange={event => onChange({ min, max: event.target.value })} /></label></div><button type="button" className="text-link" onClick={() => onChange({ min: "", max: "" })}>Clear amount</button></div>
+  </details>;
+}
+
 function defaultQuery(dated: boolean, category?: string): TableQuery {
   const start = new Date(); start.setDate(start.getDate() - 29);
   const from = [start.getFullYear(), String(start.getMonth()+1).padStart(2, "0"), String(start.getDate()).padStart(2, "0")].join("-");
@@ -64,15 +72,14 @@ export default function DataTable({ title, rows, columns, facets, dated = false,
     </div>
     <div className="table-presets">
       {dated && <div className="segmented" aria-label="Date range">{[["30", "Last 30 days"], ["all", "All dates"], ["custom", "Custom dates"]].map(([key, label]) => <button key={key} aria-pressed={range === key} onClick={() => { setRange(key); update(key === "30" ? { from: defaultQuery(true).from, to: today() } : { from: "", to: "" }); }}>{label}</button>)}</div>}
+      <AmountFilter label={amountLabel} min={query.min} max={query.max} onChange={change => update(change)} />
       {facets.map(facet => <SearchFilter key={facet.key} label={facet.label} options={[...new Set(rows.map(row => String(row[facet.key])))].sort()} value={query.facets[facet.key] ?? []} onChange={value => update({ facets: { ...query.facets, [facet.key]: value } })} />)}
     </div>
     {range === "custom" && dated && <div className="table-advanced"><label>From<input type="date" value={query.from} onChange={e => update({ from: e.target.value })} /></label><label>Through<input type="date" value={query.to} onChange={e => update({ to: e.target.value })} /></label></div>}
     {extra && <div className="table-advanced">
-      <label>Minimum {amountLabel.toLowerCase()}<input type="number" step="0.01" placeholder="No minimum" value={query.min} onChange={e => update({ min: e.target.value })} /></label>
-      <label>Maximum {amountLabel.toLowerCase()}<input type="number" step="0.01" placeholder="No maximum" value={query.max} onChange={e => update({ max: e.target.value })} /></label>
       <div className="sort-options"><span>Sort by</span>{columns.map(c => <button key={c.key} aria-pressed={query.sort === c.key} onClick={() => sort(c.key)}>{c.label}{query.sort === c.key ? query.direction === "asc" ? " ↑" : " ↓" : ""}</button>)}</div>
     </div>}
-    <div className="active-filters">{Object.entries(query.facets).flatMap(([key, values]) => values.map(value => <button key={key+value} onClick={() => update({ facets: { ...query.facets, [key]: values.filter(v => v !== value) } })} aria-label={"Remove filter " + value}>{value} ×</button>))}</div>
+    <div className="active-filters">{Object.entries(query.facets).flatMap(([key, values]) => values.map(value => <button key={key+value} onClick={() => update({ facets: { ...query.facets, [key]: values.filter(v => v !== value) } })} aria-label={"Remove filter " + value}>{value} ×</button>))}{(query.min !== "" || query.max !== "") && <button onClick={() => update({ min: "", max: "" })} aria-label="Remove amount filter">{query.min !== "" ? `≥ ${query.min}` : ""}{query.min !== "" && query.max !== "" ? " · " : ""}{query.max !== "" ? `≤ ${query.max}` : ""} ×</button>}</div>
     <div className="table-summary" aria-live="polite"><span>{filtered.length} of {rows.length} {title.toLowerCase()} · {amountLabel}: <strong>{money(summaryAmount)}</strong></span><button className="text-link" onClick={() => { setRange("all"); update({ ...defaultQuery(false), sort: initialSort ?? (dated ? "date" : "name"), direction: initialSort ? initialDirection : dated ? "desc" : "asc" }); }}>Reset filters</button></div>
     {selection && eligibleFiltered.length > 0 && <div className="selection-toolbar"><span><strong>{selectedRows.length}</strong> selected</span><button type="button" className="text-link" onClick={toggleFiltered}>{allFilteredSelected ? "Clear filtered selection" : `Select all ${eligibleFiltered.length} filtered`}</button>{selectedRows.length > 0 && <button type="button" className="text-link" onClick={() => setSelected([])}>Clear all</button>}<button type="button" className="primary-button" disabled={!selectedRows.length} onClick={() => selection.onAction(selectedRows)}>{selection.actionLabel}</button></div>}
     {invalidRange && <p role="alert" className="form-error">The start or minimum must be no greater than the end or maximum.</p>}

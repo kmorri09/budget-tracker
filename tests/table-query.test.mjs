@@ -21,6 +21,10 @@ test('signed amount ranges and numeric sort are not lexical', () => {
   assert.deepEqual(queryRows(rows, { ...query, min: '-100', max: '-10', sort: 'amount', direction: 'asc' }, 'amount').map(r => r.id), ['b', 'a']);
   assert.equal(queryRows(rows, { ...query, min: '50', max: '-10' }, 'amount').length, 0);
 });
+test('amount bounds are independently inclusive', () => {
+  assert.deepEqual(queryRows(rows, { ...query, min: '-100', max: '-100' }, 'amount').map(r => r.id), ['b']);
+  assert.deepEqual(queryRows(rows, { ...query, min: '500' }, 'amount').map(r => r.id), ['c']);
+});
 test('query never mutates source and gracefully supports zero matches', () => {
   queryRows(rows, query, 'amount'); assert.equal(rows[0].id, 'a');
   assert.equal(queryRows(rows, { ...query, search: 'missing' }, 'amount').length, 0);
