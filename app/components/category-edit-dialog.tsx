@@ -21,7 +21,7 @@ export default function CategoryEditDialog({ category, onClose, onSaved }: { cat
       event.preventDefault(); setBusy(true); setError("");
       const values = Object.fromEntries(new FormData(event.currentTarget));
       try {
-        const response = await fetch("/api/categories", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: category.id, name: values.name, icon: values.icon, target: values.target }) });
+        const response = await fetch("/api/categories", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: category.id, name: values.name, icon: values.icon, target: values.target, active: values.active === "on" }) });
         const result = await response.json().catch(() => null);
         if (!response.ok) throw new Error(result?.error ?? "Could not update category.");
         onSaved();
@@ -30,8 +30,9 @@ export default function CategoryEditDialog({ category, onClose, onSaved }: { cat
       <fieldset disabled={busy}>
         <label>Category name<input name="name" defaultValue={category.name} required maxLength={80} autoFocus /></label>
         <div className="form-grid"><label>Icon (optional)<input name="icon" defaultValue={category.icon === "$" ? "" : category.icon} placeholder="e.g. 🏠" maxLength={4} /></label><label>Target amount<input name="target" type="number" min="0" step="0.01" defaultValue={category.target} required /></label></div>
+        <label className="toggle-field"><input name="active" type="checkbox" defaultChecked={category.active} /> Active and available for new activity</label>
       </fieldset>
-      <p className="field-help">Changing these details does not alter this category&apos;s allocations, spending, or rolling balance.</p>
+      <p className="field-help">Deactivating hides this category from new entries while preserving its allocations, spending, obligations, and rolling balance. You can reactivate it later.</p>
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="form-footer"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
     </form>

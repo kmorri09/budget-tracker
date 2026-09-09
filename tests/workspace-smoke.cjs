@@ -9,13 +9,16 @@ assert(['localhost', '127.0.0.1'].includes(new URL(base).hostname), 'Use a local
 const date = offset => { const d = new Date(); d.setDate(d.getDate() + offset); return [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'), String(d.getDate()).padStart(2,'0')].join('-'); };
 const fixture = {
   ledgerBalance: 1200, providerBalance: null, remainingToBudget: 250, allocationPercent: 50,
-  accounts: [{ id: 'a', name: 'Sample checking', institution: 'Test bank', type: 'checking', ledgerBalance: 1200, openingBalance: 0, providerBalance: null, providerBalanceAt: null, syncEnabled: false }, { id: 'b', name: 'Sample card', institution: 'Test bank', type: 'credit_card', ledgerBalance: -150, openingBalance: 0, providerBalance: null, providerBalanceAt: null, syncEnabled: false }],
-  categories: [{ id: 'c', name: 'Food', icon: '$', available: -20, target: 100, allocated: 100, spent: 120 }, { id: 'd', name: 'Travel', icon: '$', available: 200, target: 500, allocated: 300, spent: 100 }],
-  activity: Array.from({ length: 60 }, (_, i) => ({ id: 't'+i, description: 'Sample purchase '+i, date: date(-i), account: i%2 ? 'Sample card' : 'Sample checking', category: i%2 ? 'Travel' : 'Food', kind: 'expense', amount: i+1, source: 'manual', status: 'posted', pending: i===0 })),
-  allocations: [{ id: 'al', date: date(0), amount: 100, category: 'Food', note: 'Sample funding' }, { id: 'al2', date: date(-60), amount: -10, category: 'Travel', note: 'Sample move' }],
+  accounts: [{ id: 'a', name: 'Sample checking', institution: 'Test bank', type: 'checking', ledgerBalance: 1200, openingBalance: 0, providerBalance: null, providerBalanceAt: null, syncEnabled: false, isDefaultCash: true, active: true }, { id: 'b', name: 'Sample card', institution: 'Test bank', type: 'credit_card', ledgerBalance: -150, openingBalance: 0, providerBalance: null, providerBalanceAt: null, syncEnabled: false, isDefaultCash: false, active: true }],
+  categories: [{ id: 'c', name: 'Food', icon: '$', available: -20, target: 100, allocated: 100, spent: 120, active: true }, { id: 'd', name: 'Travel', icon: '$', available: 200, target: 500, allocated: 300, spent: 100, active: true }],
+  activity: Array.from({ length: 60 }, (_, i) => ({ id: 't'+i, description: 'Sample purchase '+i, date: date(-i), account: i%2 ? 'Sample card' : 'Sample checking', accountId: i%2 ? 'b' : 'a', category: i%2 ? 'Travel' : 'Food', categoryId: i%2 ? 'd' : 'c', kind: 'expense', amount: i+1, source: 'manual', status: 'posted', pending: i===0, paymentStatus: i%2 ? 'Unpaid' : 'Not applicable', remainingToPay: i%2 ? i+1 : 0 })),
+  allocations: [{ id: 'al', date: date(0), amount: 100, category: 'Food', categoryId: 'c', note: 'Sample funding' }, { id: 'al2', date: date(-60), amount: -10, category: 'Travel', categoryId: 'd', note: 'Sample move' }],
+  availableBreakdown: { income: 500, adjustments: 0, allocations: 250, available: 250 }, availableAdjustments: [], payments: [],
   reviews: [{ id: 'r', title: 'Sample import', kind: 'import_transaction', details: 'Fictitious review item' }],
   obligations: [], trailing30: { income: 500, spending: 200, startDate: date(-29), endDate: date(0) },
 };
+fixture.managedAccounts = fixture.accounts;
+fixture.managedCategories = fixture.categories;
 async function run() {
   fs.mkdirSync(path.join('.next', 'ui-smoke'), { recursive: true });
   const browser = await chromium.launch({ headless: true });
@@ -28,11 +31,13 @@ async function run() {
         const pathname = new URL(route.request().url()).pathname;
         if (pathname === '/api/auth/session') return route.fulfill({ json: { required: true, configured: true, user: { displayName: 'Sample owner' } } });
         if (pathname === '/api/dashboard') return route.fulfill({ json: fixture });
+        if (pathname === '/api/connections' && route.request().method() === 'GET') return route.fulfill({ json: { configured: false, connections: [] } });
         saved = { path: pathname, body: route.request().postDataJSON() };
         return route.fulfill({ json: { ok: true } });
       });
       await page.goto(base);
       await page.getByRole('heading', { name: 'Hello, Sample owner' }).waitFor();
+      await page.getByText('Available to assign', { exact: true }).first().waitFor();
       const nav = page.getByRole('navigation', { name: width > 700 ? 'Primary navigation' : 'Mobile navigation', exact: true });
       await nav.getByRole('button', { name: 'Transactions', exact: true }).click();
       const table = page.getByRole('region', { name: 'Transactions table', exact: true });
@@ -100,7 +105,7 @@ async function run() {
       await dialog.getByRole('button', { name: 'Save', exact: true }).click();
       await dialog.waitFor({ state: 'detached' });
       assert.equal(saved.body.accountId, 'Sample checking'); assert.equal(saved.body.date, date(0));
-      await page.getByRole('button', { name: 'Accounts and settings', exact: true }).click();
+      await nav.getByRole('button', { name: 'Accounts', exact: true }).click();
       await page.getByRole('heading', { name: 'Workspace settings', exact: true }).waitFor();
       await page.getByRole('button', { name: 'Reconcile balance', exact: true }).first().click();
       await page.getByRole('spinbutton').filter({ visible: true }).fill('250');
@@ -112,20 +117,21 @@ async function run() {
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No home overflow at '+width);
       await nav.getByRole('button', { name: 'Review', exact: false }).click();
       page.once('dialog', dialog => dialog.dismiss());
-      await page.getByRole('button', { name: 'Resolve all (1)', exact: true }).click();
+      await page.getByRole('button', { name: 'Mark all reviewed (1)', exact: true }).click();
       assert.notEqual(saved.path, '/api/reviews', 'Cancel does not resolve reviews');
       page.once('dialog', dialog => dialog.accept());
-      await page.getByRole('button', { name: 'Resolve all (1)', exact: true }).click();
+      await page.getByRole('button', { name: 'Mark all reviewed (1)', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Review updated' }).waitFor();
       assert.deepEqual(saved.body, { all: true, status: 'resolved' });
-      await page.getByRole('button', { name: '＋ Add', exact: true }).click();
+      await nav.getByRole('button', { name: 'Categories', exact: true }).click();
+      await page.getByRole('button', { name: '＋ Category', exact: true }).click();
       await page.getByRole('button', { name: 'Add category', exact: true }).click();
       await dialog.getByLabel('Category name', { exact: true }).fill('Sample category');
       await dialog.getByRole('button', { name: 'Save', exact: true }).click();
       await dialog.waitFor({ state: 'detached' });
       assert.equal(saved.path, '/api/categories');
-      await page.getByRole('button', { name: '＋ Add', exact: true }).click();
-      await page.getByRole('button', { name: 'Add account', exact: true }).click();
+      await nav.getByRole('button', { name: 'Accounts', exact: true }).click();
+      await page.getByRole('button', { name: '＋ Add account', exact: true }).click();
       await dialog.getByLabel('Account name', { exact: true }).fill('Sample savings');
       await dialog.getByLabel('Bank or provider', { exact: true }).fill('Sample bank');
       await dialog.getByLabel('Savings', { exact: true }).check();

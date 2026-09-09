@@ -28,9 +28,7 @@ export async function GET() {
 
   const accountById = new Map(accountRows.map((account) => [account.id, account]));
   const activeTransactionRows = transactionRows.filter((transaction) => transaction.status !== "removed");
-  const activeAccountRows = accountRows.filter((account) => account.active);
   const categoryById = new Map(categoryRows.map((category) => [category.id, category]));
-  const activeCategoryRows = categoryRows.filter((category) => category.active);
   const paymentAppliedByTransaction = new Map<string, number>();
   const paymentAppliedByPayment = new Map<string, number>();
   for (const application of paymentApplicationRows) {
@@ -44,12 +42,13 @@ export async function GET() {
     if (transaction.kind === "adjustment") return transaction.amountCents;
     return -transaction.amountCents;
   };
-  const ledgerByAccount = activeAccountRows.map((account) => ({
+  const accountLedgers = accountRows.map((account) => ({
     ...account,
     ledgerBalanceCents: account.openingBalanceCents
       + activeTransactionRows.filter((transaction) => transaction.accountId === account.id).reduce((sum, transaction) => sum + signedCashFor(transaction), 0)
       + paymentRows.reduce((sum, payment) => sum + (payment.fromAccountId === account.id ? -payment.amountCents : payment.toAccountId === account.id ? payment.amountCents : 0), 0),
   }));
+  const ledgerByAccount = accountLedgers.filter(account => account.active);
   const ledgerBalanceCents = ledgerByAccount.filter((account) => account.type !== "credit_card").reduce((sum, account) => sum + account.ledgerBalanceCents, 0);
   const cashAccounts = ledgerByAccount.filter((account) => account.type !== "credit_card");
   const providerCashRows = cashAccounts.filter((account) => account.providerBalanceCents !== null);
@@ -57,10 +56,11 @@ export async function GET() {
   const available = calculateAvailableToAssignCents(activeTransactionRows, allocationRows, budgetAdjustmentRows);
   const allocationBaseCents = available.incomeCents + available.adjustmentCents;
   const allocationPercent = allocationBaseCents > 0 ? Math.max(0, Math.min(100, Math.round((available.allocatedCents / allocationBaseCents) * 100))) : 0;
-  const categoryBalances = activeCategoryRows.map((category) => {
+  const managedCategories = categoryRows.map((category) => {
     const balance = calculateCategoryBalance(category.id, allocationRows, transactionRows);
-    return { id: category.id, name: category.name, icon: category.icon ?? "", target: centsToAmount(category.targetCents), allocated: centsToAmount(balance.allocatedCents), spent: centsToAmount(balance.spendingCents - balance.refundCents), available: centsToAmount(balance.availableCents) };
+    return { id: category.id, name: category.name, icon: category.icon ?? "", target: centsToAmount(category.targetCents), allocated: centsToAmount(balance.allocatedCents), spent: centsToAmount(balance.spendingCents - balance.refundCents), available: centsToAmount(balance.availableCents), active: category.active };
   });
+  const categoryBalances = managedCategories.filter(category => category.active);
   const cutoff = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
   const trailingRows = activeTransactionRows.filter((transaction) => transaction.effectiveDate >= isoDate(cutoff) && transaction.effectiveDate <= isoDate(new Date()));
   const trailingIncomeCents = trailingRows.filter((transaction) => transaction.kind === "income").reduce((sum, transaction) => sum + transaction.amountCents, 0);
@@ -76,6 +76,7 @@ export async function GET() {
   return NextResponse.json({
     user: { id: user.id, displayName: user.displayName, email: user.email },
     accounts: ledgerByAccount.map((account) => ({ id: account.id, name: account.name, institution: account.institution, type: account.type, syncEnabled: account.syncEnabled, isDefaultCash: account.isDefaultCash, active: account.active, openingBalance: centsToAmount(account.openingBalanceCents), providerBalance: account.providerBalanceCents === null ? null : centsToAmount(account.providerBalanceCents), providerBalanceAt: account.providerBalanceAt, ledgerBalance: centsToAmount(account.ledgerBalanceCents) })),
+    managedAccounts: accountLedgers.map((account) => ({ id: account.id, name: account.name, institution: account.institution, type: account.type, syncEnabled: account.syncEnabled, isDefaultCash: account.isDefaultCash, active: account.active, openingBalance: centsToAmount(account.openingBalanceCents), providerBalance: account.providerBalanceCents === null ? null : centsToAmount(account.providerBalanceCents), providerBalanceAt: account.providerBalanceAt, ledgerBalance: centsToAmount(account.ledgerBalanceCents) })),
     ledgerBalance: centsToAmount(ledgerBalanceCents),
     providerBalance: providerBalanceCents === null ? null : centsToAmount(providerBalanceCents),
     remainingToBudget: centsToAmount(available.availableCents),
@@ -84,7 +85,8 @@ export async function GET() {
     allocationPercent,
     trailing30: { income: centsToAmount(trailingIncomeCents), spending: centsToAmount(trailingSpendCents), startDate: isoDate(cutoff), endDate: isoDate(new Date()) },
     categories: categoryBalances,
-    allocations: allocationRows.map((row) => ({ id: row.id, date: row.effectiveDate, amount: centsToAmount(row.amountCents), note: row.note ?? "", category: categoryById.get(row.categoryId)?.name ?? "Uncategorized" })),
+    managedCategories,
+    allocations: allocationRows.map((row) => ({ id: row.id, date: row.effectiveDate, amount: centsToAmount(row.amountCents), note: row.note ?? "", category: categoryById.get(row.categoryId)?.name ?? "Uncategorized", categoryId: row.categoryId })),
     obligations: obligationRows.map((obligation) => ({ id: obligation.id, name: obligation.name, dueDate: obligation.dueDate, amount: centsToAmount(obligation.amountCents), category: categoryById.get(obligation.categoryId)?.name ?? "Uncategorized", categoryId: obligation.categoryId, account: accountById.get(obligation.accountId)?.name ?? "Account", accountId: obligation.accountId, cadence: obligation.cadence, active: obligation.active })),
     reviews: reviewRows.map((review) => ({ id: review.id, kind: review.kind, title: review.title, details: review.details, transaction: review.transactionId ? transactionById.get(review.transactionId) ? toEntry(transactionById.get(review.transactionId)!) : null : null })),
     payments: [

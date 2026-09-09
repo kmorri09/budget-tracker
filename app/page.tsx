@@ -11,6 +11,8 @@ import CardPaymentEditDialog from "./components/card-payment-edit-dialog";
 import BudgetReconcileDialog from "./components/budget-reconcile-dialog";
 import FundObligationsDialog from "./components/fund-obligations-dialog";
 import ObligationEditDialog from "./components/obligation-edit-dialog";
+import AllocationEditDialog from "./components/allocation-edit-dialog";
+import BudgetAdjustmentEditDialog from "./components/budget-adjustment-edit-dialog";
 import BankConnections from "./components/bank-connections";
 import { type ActionType, type DashboardData, kindLabel, money, signedAmount, today } from "../lib/workspace-types";
 import { categoriesAllocatedInLastDays } from "../lib/recent-allocations";
@@ -52,7 +54,9 @@ export default function Home() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [drilldown, setDrilldown] = useState<{ category?: string; key: number }>({ key: 0 });
-  const [editingCategory, setEditingCategory] = useState<DashboardData["categories"][number] | null>(null);
+  const [editingCategory, setEditingCategory] = useState<DashboardData["managedCategories"][number] | null>(null);
+  const [editingAllocation, setEditingAllocation] = useState<DashboardData["allocations"][number] | null>(null);
+  const [editingAdjustment, setEditingAdjustment] = useState<DashboardData["availableAdjustments"][number] | null>(null);
   const [reconcilingCategories, setReconcilingCategories] = useState(false);
   const [reconcilingCoverage, setReconcilingCoverage] = useState(false);
   const [reconcilingBudget, setReconcilingBudget] = useState(false);
@@ -136,19 +140,24 @@ export default function Home() {
           <DataTable title="Card payments" dated amountKey="amount" amountLabel="Payment amount" rows={dashboard.payments.map(payment => ({ id: payment.id, name: payment.description, date: payment.date, fromAccount: payment.fromAccount, toAccount: payment.toAccount, amount: payment.amount, applied: payment.applied, remaining: payment.remaining, status: payment.status, covered: payment.covered, editable: payment.editable ? 1 : 0 }))}
             columns={[{ key: "name", label: "Description" }, { key: "date", label: "Date" }, { key: "fromAccount", label: "From account" }, { key: "toAccount", label: "To card" }, { key: "amount", label: "Amount", money: true }, { key: "applied", label: "Applied to purchases", money: true, detail: true }, { key: "remaining", label: "Unapplied", money: true, detail: true }, { key: "status", label: "Status", detail: true }, { key: "covered", label: "Covered purchases", detail: true }]}
             facets={[{ key: "fromAccount", label: "From account" }, { key: "toAccount", label: "To card" }, { key: "status", label: "Status" }]}
-            rowActions={[{ label: "Edit", isEligible: row => Boolean(row.editable), onClick: row => { const payment = dashboard.payments.find(item => item.id === row.id); if (payment?.editable) setEditingPayment(payment); } }]} />
+            rowActions={[{ label: "Edit", isEligible: row => Boolean(row.editable), onClick: row => { const payment = dashboard.payments.find(item => item.id === row.id); if (payment?.editable) setEditingPayment(payment); } }, { label: "Edit transaction", isEligible: row => !row.editable, onClick: row => { const transaction = dashboard.activity.find(item => item.id === String(row.id).replace(/^legacy-/, "")); if (transaction) setEditingTransaction(transaction); } }]} />
         </section>
         <section hidden={destination !== "categories"} aria-label="Categories">
           <div className="view-heading"><p>Available to assign: <strong>{money(dashboard.remainingToBudget)}</strong></p><div className="section-actions"><button className="secondary-button" onClick={() => setReconcilingCategories(true)}>Reconcile balances</button><button className="secondary-button" onClick={() => openAction("category")}>＋ Category</button><button className="primary-button" onClick={() => openAction("allocation")}>Allocate money</button></div></div>
-          <p className="field-help">Use Edit to change a category&apos;s details, or View transactions to inspect its full history. Funding and spending totals below are lifetime amounts; Available is the current rolling balance.</p>
-          <DataTable title="Categories" amountKey="available" amountLabel="Available" rows={dashboard.categories.map(category => ({ id: category.id, name: category.name, available: category.available, allocated: category.allocated, spent: category.spent, target: category.target, status: category.available < 0 ? "Overspent" : category.available === 0 ? "Empty" : category.target > category.available ? "Below target" : category.target > 0 ? "Funded" : "Available" }))}
+          <p className="field-help">Use Edit to change details or deactivate a category. Inactive categories retain their full history and can be reactivated.</p>
+          <DataTable title="Categories" amountKey="available" amountLabel="Available" rows={dashboard.managedCategories.map(category => ({ id: category.id, name: category.name, available: category.available, allocated: category.allocated, spent: category.spent, target: category.target, status: !category.active ? "Inactive" : category.available < 0 ? "Overspent" : category.available === 0 ? "Empty" : category.target > category.available ? "Below target" : category.target > 0 ? "Funded" : "Available" }))}
             columns={[{ key: "name", label: "Category" }, { key: "available", label: "Available", money: true }, { key: "status", label: "Status" }, { key: "target", label: "Target", money: true, detail: true }, { key: "allocated", label: "Net funding", money: true, detail: true }, { key: "spent", label: "Net spending", money: true, detail: true }]} facets={[{ key: "status", label: "Status" }]}
-            rowActions={[{ label: "Edit", onClick: row => { const category = dashboard.categories.find(item => item.id === row.id); if (category) setEditingCategory(category); } }, { label: "View transactions", onClick: row => viewCategory(String(row.name)) }]} />
+            rowActions={[{ label: "Edit", onClick: row => { const category = dashboard.managedCategories.find(item => item.id === row.id); if (category) setEditingCategory(category); } }, { label: "Deactivate", isEligible: row => row.status !== "Inactive", onClick: row => { const category = dashboard.managedCategories.find(item => item.id === row.id); if (category) void updateCategoryStatus(category, false); } }, { label: "Reactivate", isEligible: row => row.status === "Inactive", onClick: row => { const category = dashboard.managedCategories.find(item => item.id === row.id); if (category) void updateCategoryStatus(category, true); } }, { label: "View transactions", onClick: row => viewCategory(String(row.name)) }]} />
         </section>
         <section hidden={destination !== "allocations"} aria-label="Allocations">
           <div className="view-heading"><p>Available to assign: <strong>{money(dashboard.remainingToBudget)}</strong></p><div className="section-actions"><button className="secondary-button" onClick={() => setFundingObligations(true)}>Fund upcoming obligations</button><button className="secondary-button" onClick={() => setReconcilingBudget(true)}>Reconcile available</button><button className="secondary-button" onClick={() => openAction("transfer")}>Move funds</button><button className="primary-button" onClick={() => openAction("allocation")}>＋ Allocate money</button></div></div>
-          <DataTable title="Allocations" dated amountKey="amount" amountLabel="Net funding" rows={dashboard.allocations.map(allocation => ({ id: allocation.id, name: allocation.note || "Allocation", date: allocation.date, category: allocation.category, categoryAvailable: dashboard.categories.find(category => category.name === allocation.category)?.available ?? 0, amount: allocation.amount, direction: allocation.amount < 0 ? "Removed" : "Added" }))}
-            columns={[{ key: "name", label: "Note" }, { key: "date", label: "Date" }, { key: "category", label: "Category" }, { key: "categoryAvailable", label: "Current available", money: true }, { key: "amount", label: "Amount", money: true }, { key: "direction", label: "Direction", detail: true }]} facets={[{ key: "category", label: "Category" }, { key: "direction", label: "Direction" }]} />
+          <DataTable title="Allocations" dated amountKey="amount" amountLabel="Net funding" rows={dashboard.allocations.map(allocation => ({ id: allocation.id, name: allocation.note || "Allocation", date: allocation.date, category: allocation.category, categoryAvailable: dashboard.managedCategories.find(category => category.id === allocation.categoryId)?.available ?? 0, amount: allocation.amount, direction: allocation.amount < 0 ? "Removed" : "Added" }))}
+            columns={[{ key: "name", label: "Note" }, { key: "date", label: "Date" }, { key: "category", label: "Category" }, { key: "categoryAvailable", label: "Current available", money: true }, { key: "amount", label: "Amount", money: true }, { key: "direction", label: "Direction", detail: true }]} facets={[{ key: "category", label: "Category" }, { key: "direction", label: "Direction" }]}
+            rowActions={[{ label: "Edit", onClick: row => { const allocation = dashboard.allocations.find(item => item.id === row.id); if (allocation) setEditingAllocation(allocation); } }]} />
+          <div className="subtable-heading"><div><h2>Available-to-assign adjustments</h2><p className="field-help">Manual corrections created by Reconcile available.</p></div></div>
+          <DataTable title="Available adjustments" dated amountKey="amount" amountLabel="Net adjustment" rows={dashboard.availableAdjustments.map(adjustment => ({ id: adjustment.id, name: adjustment.note, date: adjustment.date, amount: adjustment.amount, direction: adjustment.amount < 0 ? "Reduced" : "Increased" }))}
+            columns={[{ key: "name", label: "Reason" }, { key: "date", label: "Date" }, { key: "amount", label: "Amount", money: true }, { key: "direction", label: "Direction", detail: true }]} facets={[{ key: "direction", label: "Direction" }]}
+            rowActions={[{ label: "Edit", onClick: row => { const adjustment = dashboard.availableAdjustments.find(item => item.id === row.id); if (adjustment) setEditingAdjustment(adjustment); } }]} />
         </section>
         <section hidden={destination !== "obligations"} aria-label="Obligations">
           <div className="view-heading"><p>Inactive obligations remain available here but are excluded from automatic funding.</p><div className="section-actions"><button className="secondary-button" onClick={() => setFundingObligations(true)}>Fund upcoming</button><button className="primary-button" onClick={() => setObligationEditor("new")}>＋ Add obligation</button></div></div>
@@ -170,6 +179,8 @@ export default function Home() {
     {dashboard && reconcilingBudget && <BudgetReconcileDialog dashboard={dashboard} onClose={() => setReconcilingBudget(false)} onSaved={(delta) => { setReconcilingBudget(false); setToast(delta ? `Available to assign reconciled by ${money(delta)}` : "Available to assign already matched"); void refresh(); }} />}
     {dashboard && fundingObligations && <FundObligationsDialog dashboard={dashboard} onClose={() => setFundingObligations(false)} onSaved={(count, amount) => { setFundingObligations(false); setToast(count ? `${money(amount)} allocated across ${count} ${count === 1 ? "category" : "categories"}` : "Selected obligations were already funded"); void refresh(); }} />}
     {dashboard && obligationEditor && <ObligationEditDialog obligation={obligationEditor === "new" ? null : obligationEditor} dashboard={dashboard} onClose={() => setObligationEditor(null)} onSaved={message => { setObligationEditor(null); setToast(message); void refresh(); }} />}
+    {dashboard && editingAllocation && <AllocationEditDialog allocation={editingAllocation} dashboard={dashboard} onClose={() => setEditingAllocation(null)} onSaved={message => { setEditingAllocation(null); setToast(message); void refresh(); }} />}
+    {editingAdjustment && <BudgetAdjustmentEditDialog adjustment={editingAdjustment} onClose={() => setEditingAdjustment(null)} onSaved={message => { setEditingAdjustment(null); setToast(message); void refresh(); }} />}
     {editingTransaction && dashboard && <TransactionEditDialog transaction={editingTransaction} dashboard={dashboard} onClose={() => setEditingTransaction(null)} onSaved={(message) => { setEditingTransaction(null); setToast(message); void refresh(); }} />}
     {editingPayment && dashboard && <CardPaymentEditDialog payment={editingPayment} dashboard={dashboard} onClose={() => setEditingPayment(null)} onSaved={(message) => { setEditingPayment(null); setToast(message); void refresh(); }} />}
     {toast && <div className="toast" role="status">{toast}</div>}
@@ -183,6 +194,16 @@ export default function Home() {
       if (!response.ok) throw new Error(result?.error ?? `Could not ${active ? "reactivate" : "deactivate"} obligation.`);
       setToast(`Obligation ${active ? "reactivated" : "deactivated"}`); void refresh();
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not update obligation."); }
+  }
+
+  async function updateCategoryStatus(category: DashboardData["managedCategories"][number], active: boolean) {
+    setError("");
+    try {
+      const response = await fetch("/api/categories", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: category.id, name: category.name, icon: category.icon === "$" ? "" : category.icon, target: category.target, active }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? `Could not ${active ? "reactivate" : "deactivate"} category.`);
+      setToast(`Category ${active ? "reactivated" : "deactivated"}`); void refresh();
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not update category."); }
   }
 }
 
@@ -235,8 +256,8 @@ function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashbo
 function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData; onAction: (action: ActionType) => void; onChanged: (message?: string) => void }) {
   const [reconciling, setReconciling] = useState<string | null>(null), [editing, setEditing] = useState<string | null>(null), [balance, setBalance] = useState("");
   const [search, setSearch] = useState(""), [error, setError] = useState(""), [busy, setBusy] = useState(false);
-  const visible = dashboard.accounts.filter(account => (account.name + " " + account.institution + " " + account.type).toLowerCase().includes(search.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name));
-  async function removeAccount(account: DashboardData["accounts"][number]) {
+  const visible = dashboard.managedAccounts.filter(account => (account.name + " " + account.institution + " " + account.type + " " + (account.active ? "active" : "inactive")).toLowerCase().includes(search.toLowerCase())).sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name));
+  async function removeAccount(account: DashboardData["managedAccounts"][number]) {
     if (!window.confirm("Remove " + account.name + "? It will be archived from this workspace so its transaction history and audit trail remain intact.")) return;
     setBusy(true); setError("");
     try {
@@ -246,9 +267,18 @@ function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData
       onChanged("Account removed from this workspace");
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); }
   }
+  async function restoreAccount(account: DashboardData["managedAccounts"][number]) {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, active: true }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Could not restore account.");
+      onChanged("Account restored");
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); }
+  }
   return <>
     <div className="view-heading"><label className="table-search"><span className="sr-only">Search accounts</span><input type="search" placeholder="Find an account or bank…" value={search} onChange={event => setSearch(event.target.value)} /></label><button className="primary-button" onClick={() => onAction("account")}>＋ Add account</button></div>
-    <p className="field-help account-management-note">Edit account details without changing its ledger. Removing an account archives it rather than deleting its history.</p>
+    <p className="field-help account-management-note">Edit account details without changing its ledger. Removed accounts remain visible as inactive and can be restored.</p>
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="account-grid">{visible.map(account => {
       const target = account.type === "credit_card" ? -Math.abs(Number(balance)) : Number(balance);
@@ -258,7 +288,7 @@ function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData
           event.preventDefault(); setBusy(true); setError("");
           const values = Object.fromEntries(new FormData(event.currentTarget));
           try {
-            const response = await fetch("/api/accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, name: values.name, institution: values.institution, type: values.type, syncEnabled: values.syncEnabled === "on" }) });
+            const response = await fetch("/api/accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, name: values.name, institution: values.institution, type: values.type, active: account.active, syncEnabled: values.syncEnabled === "on" }) });
             const result = await response.json().catch(() => null);
             if (!response.ok) throw new Error(result?.error ?? "Could not update account.");
             setEditing(null); onChanged("Account details updated");
@@ -269,11 +299,11 @@ function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData
           <label>Bank or provider<input name="institution" defaultValue={account.institution} required maxLength={80} /></label>
           <label>Account type<select name="type" defaultValue={account.type}><option value="checking">Checking</option><option value="savings">Savings</option><option value="credit_card">Credit card</option></select></label>
           <label className="toggle-field"><input name="syncEnabled" type="checkbox" defaultChecked={account.syncEnabled} /> Enable automatic sync for this account</label>
-          <div className="section-actions"><button className="primary-button" disabled={busy}>Save changes</button><button className="secondary-button" type="button" disabled={busy} onClick={() => void removeAccount(account)}>Remove account</button></div>
+          <div className="section-actions"><button className="primary-button" disabled={busy}>Save changes</button>{account.active ? <button className="secondary-button" type="button" disabled={busy} onClick={() => void removeAccount(account)}>Remove account</button> : <button className="secondary-button" type="button" disabled={busy} onClick={() => void restoreAccount(account)}>Restore account</button>}</div>
         </form> : <>
-          <div className="account-card-heading"><div><div className="account-title-row"><h2>{account.name}</h2>{account.isDefaultCash && <span className="account-default-badge">Default income</span>}</div><p className="field-help">{account.institution.replace(/\s*·\s*credit card$/i, "").trim()} · {kindLabel(account.type)} · {account.syncEnabled ? "Sync enabled" : "Manual"}</p></div><button className="icon-button account-menu-button" type="button" aria-label={"Edit " + account.name} onClick={() => { setEditing(account.id); setReconciling(null); }}>✎</button></div>
+          <div className="account-card-heading"><div><div className="account-title-row"><h2>{account.name}</h2>{account.isDefaultCash && <span className="account-default-badge">Default income</span>}{!account.active && <span className="account-default-badge">Inactive</span>}</div><p className="field-help">{account.institution.replace(/\s*·\s*credit card$/i, "").trim()} · {kindLabel(account.type)} · {account.syncEnabled ? "Sync enabled" : "Manual"}</p></div><button className="icon-button account-menu-button" type="button" aria-label={"Edit " + account.name} onClick={() => { setEditing(account.id); setReconciling(null); }}>✎</button></div>
           <dl><div><dt>Ledger balance</dt><dd>{money(account.ledgerBalance)}</dd></div><div><dt>Last provider balance</dt><dd>{account.providerBalance === null ? "Not recorded" : money(account.providerBalance)}</dd></div></dl>{account.providerBalanceAt && <p className="field-help">Recorded {new Date(account.providerBalanceAt).toLocaleDateString()}</p>}
-          {reconciling === account.id ? <form className="inline-form" onSubmit={async event => {
+          {account.active && reconciling === account.id ? <form className="inline-form" onSubmit={async event => {
             event.preventDefault(); setBusy(true); setError("");
             try {
               const response = await fetch("/api/accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, providerBalance: balance }) });
@@ -281,11 +311,11 @@ function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData
               if (!response.ok) throw new Error(result?.error ?? "Could not reconcile account.");
               setReconciling(null); onChanged("Account reconciled");
             } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); }
-          }}><label>{account.type === "credit_card" ? "Amount owed today (positive)" : "Provider balance today"}<input type="number" step="0.01" required value={balance} onChange={event => setBalance(event.target.value)} autoFocus disabled={busy} /></label>{delta !== null && <p className="field-help">Creates a <strong>{money(delta)}</strong> ledger adjustment. No expense or payment is created.</p>}<div className="section-actions"><button className="primary-button" disabled={busy}>Force reconcile</button><button className="secondary-button" disabled={busy} type="button" onClick={() => setReconciling(null)}>Cancel</button></div></form> : <div className="account-card-actions"><button className="secondary-button" disabled={busy} onClick={() => { setReconciling(account.id); setBalance(""); }}>Reconcile balance</button>{account.type !== "credit_card" && !account.isDefaultCash && <button className="text-link" disabled={busy} onClick={async () => { setBusy(true); setError(""); try { const response = await fetch("/api/accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, isDefaultCash: true }) }); const result = await response.json().catch(() => null); if (!response.ok) throw new Error(result?.error ?? "Could not set the default income account."); onChanged("Default income account updated"); } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); } }}>Make default</button>}<button className="text-link" disabled={busy} onClick={() => { setEditing(account.id); setReconciling(null); }}>Edit details</button></div>}
+          }}><label>{account.type === "credit_card" ? "Amount owed today (positive)" : "Provider balance today"}<input type="number" step="0.01" required value={balance} onChange={event => setBalance(event.target.value)} autoFocus disabled={busy} /></label>{delta !== null && <p className="field-help">Creates a <strong>{money(delta)}</strong> ledger adjustment. No expense or payment is created.</p>}<div className="section-actions"><button className="primary-button" disabled={busy}>Force reconcile</button><button className="secondary-button" disabled={busy} type="button" onClick={() => setReconciling(null)}>Cancel</button></div></form> : <div className="account-card-actions">{account.active ? <><button className="secondary-button" disabled={busy} onClick={() => { setReconciling(account.id); setBalance(""); }}>Reconcile balance</button>{account.type !== "credit_card" && !account.isDefaultCash && <button className="text-link" disabled={busy} onClick={async () => { setBusy(true); setError(""); try { const response = await fetch("/api/accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, isDefaultCash: true }) }); const result = await response.json().catch(() => null); if (!response.ok) throw new Error(result?.error ?? "Could not set the default income account."); onChanged("Default income account updated"); } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); } }}>Make default</button>}</> : <button className="secondary-button" disabled={busy} onClick={() => void restoreAccount(account)}>Restore account</button>}<button className="text-link" disabled={busy} onClick={() => { setEditing(account.id); setReconciling(null); }}>Edit details</button></div>}
         </>}
       </article>;
     })}</div>
-    {!visible.length && <p className="empty-state">{dashboard.accounts.length ? "No matching accounts." : "Add your checking, savings, or credit card accounts to get started."}</p>}
+    {!visible.length && <p className="empty-state">{dashboard.managedAccounts.length ? "No matching accounts." : "Add your checking, savings, or credit card accounts to get started."}</p>}
     <section className="panel settings-panel"><h2>Workspace settings</h2><div className="settings-row"><div><strong>Import from Notion</strong><p className="field-help">Upload a private snapshot directly to this app. Preview before importing.</p></div><a className="secondary-button" href="/import">Import Notion</a></div><BankConnections dashboard={dashboard} onChanged={(message) => onChanged(message)} /><div className="settings-row"><span>Private session</span><button className="secondary-button" onClick={async () => { try { const response = await fetch("/api/auth/logout", { method: "POST" }); if (!response.ok) throw new Error(); window.location.assign("/login"); } catch { setError("Could not sign out. Please try again."); } }}>Sign out</button></div></section>
   </>;
 }

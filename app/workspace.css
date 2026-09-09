@@ -97,6 +97,9 @@
 .table-pagination > label { display: flex; align-items: center; gap: 8px; }
 .table-pagination select { min-height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 30px 0 10px; background: #fbfcfb; color: var(--ink); font: inherit; }
 .table-pagination > div { display: flex; gap: 8px; }
+.subtable-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 30px 0 12px; }
+.subtable-heading h2 { margin: 0; font: 600 22px Fraunces, Georgia, serif; }
+.subtable-heading p { margin: 4px 0 0; }
 .account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; align-items: start; }
 .account-management-note { margin: -6px 0 18px; }
 .account-card-heading, .account-edit-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }

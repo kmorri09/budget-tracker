@@ -9,7 +9,8 @@ export default function ObligationEditDialog({ obligation, dashboard, onClose, o
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const editing = Boolean(obligation);
-  const accounts = dashboard.accounts.filter(account => account.active !== false || account.id === obligation?.accountId);
+  const accounts = dashboard.managedAccounts.filter(account => account.active || account.id === obligation?.accountId);
+  const categories = dashboard.managedCategories.filter(category => category.active || category.id === obligation?.categoryId);
 
   useEffect(() => {
     const node = dialog.current, previousOverflow = document.body.style.overflow;
@@ -45,7 +46,7 @@ export default function ObligationEditDialog({ obligation, dashboard, onClose, o
       <fieldset disabled={busy}>
         <label>Name<input name="name" defaultValue={obligation?.name ?? ""} required maxLength={120} autoFocus /></label>
         <div className="form-grid"><label>Amount<input name="amount" type="number" min="0.01" step="0.01" defaultValue={obligation?.amount.toFixed(2) ?? ""} required /></label><label>Due date<input name="dueDate" type="date" defaultValue={obligation?.dueDate ?? today()} required /></label></div>
-        <div className="form-grid"><label>Category<select name="categoryId" defaultValue={obligation?.categoryId ?? ""} required><option value="" disabled>Choose a category</option>{dashboard.categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>Account<select name="accountId" defaultValue={obligation?.accountId ?? ""} required><option value="" disabled>Choose an account</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label></div>
+        <div className="form-grid"><label>Category<select name="categoryId" defaultValue={obligation?.categoryId ?? ""} required><option value="" disabled>Choose a category</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}{category.active ? "" : " (inactive)"}</option>)}</select></label><label>Account<select name="accountId" defaultValue={obligation?.accountId ?? ""} required><option value="" disabled>Choose an account</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}{account.active ? "" : " (inactive)"}</option>)}</select></label></div>
         <label>Cadence (optional)<input name="cadence" defaultValue={obligation?.cadence ?? ""} placeholder="e.g. Monthly, annual, one time" maxLength={40} /></label>
         <label className="toggle-field"><input name="active" type="checkbox" defaultChecked={obligation?.active ?? true} /> Active and eligible for funding</label>
       </fieldset>

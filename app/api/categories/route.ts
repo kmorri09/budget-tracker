@@ -6,7 +6,7 @@ import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
 import { auditEvents, categories } from "../../../lib/schema";
 
-const schema = z.object({ name: z.string().trim().min(1).max(80), icon: z.string().max(4).default(""), target: z.coerce.number().finite().nonnegative().default(0) });
+const schema = z.object({ name: z.string().trim().min(1).max(80), icon: z.string().max(4).default(""), target: z.coerce.number().finite().nonnegative().default(0), active: z.boolean().default(true) });
 const updateSchema = schema.extend({ id: z.string().min(1) });
 
 export async function GET() {
@@ -38,10 +38,10 @@ export async function PATCH(request: Request) {
   if (!existing) return NextResponse.json({ error: "Category not found" }, { status: 404 });
   const duplicate = (await db.select({ id: categories.id }).from(categories).where(and(eq(categories.userId, user.id), eq(categories.name, input.name))).limit(1))[0];
   if (duplicate && duplicate.id !== input.id) return NextResponse.json({ error: "A category with that name already exists" }, { status: 409 });
-  const after = { name: input.name, icon: input.icon, targetCents: Math.round(input.target * 100) };
+  const after = { name: input.name, icon: input.icon, targetCents: Math.round(input.target * 100), active: input.active };
   await db.transaction(async (tx) => {
     await tx.update(categories).set(after).where(and(eq(categories.id, input.id), eq(categories.userId, user.id)));
-    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "category", entityId: input.id, beforeJson: JSON.stringify({ name: existing.name, icon: existing.icon, targetCents: existing.targetCents }), afterJson: JSON.stringify(after) });
+    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "category", entityId: input.id, beforeJson: JSON.stringify({ name: existing.name, icon: existing.icon, targetCents: existing.targetCents, active: existing.active }), afterJson: JSON.stringify(after) });
   });
   return NextResponse.json({ id: input.id, ok: true });
 }

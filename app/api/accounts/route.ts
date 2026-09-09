@@ -70,7 +70,7 @@ export async function PATCH(request: Request) {
     await db.insert(transactions).values({ id: adjustmentId, userId: user.id, accountId: account.id, categoryId: null, kind: "adjustment", amountCents: reconciliationDelta, effectiveDate: new Date().toISOString().slice(0, 10), description: "Force reconciliation adjustment", status: "posted", source: "reconciliation", pending: false });
     await db.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "reconcile", entityType: "account", entityId: body.id, afterJson: JSON.stringify({ providerBalance, delta: reconciliationDelta / 100, adjustmentId }) });
   }
-  if (openingBalance !== undefined || body.name !== undefined || body.institution !== undefined || body.type !== undefined || body.syncEnabled !== undefined || body.isDefaultCash !== undefined) await getDatabase().insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "account", entityId: body.id, afterJson: JSON.stringify({ name: body.name, institution: body.institution, type: body.type, syncEnabled: body.syncEnabled, isDefaultCash: body.isDefaultCash, openingBalance }) });
+  if (openingBalance !== undefined || body.name !== undefined || body.institution !== undefined || body.type !== undefined || body.active !== undefined || body.syncEnabled !== undefined || body.isDefaultCash !== undefined) await getDatabase().insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "account", entityId: body.id, afterJson: JSON.stringify({ name: body.name, institution: body.institution, type: body.type, active: body.active, syncEnabled: body.syncEnabled, isDefaultCash: body.isDefaultCash, openingBalance }) });
   return NextResponse.json({ ok: true, delta: reconciliationDelta === undefined ? null : reconciliationDelta / 100 });
 }
 
@@ -84,8 +84,8 @@ export async function DELETE(request: Request) {
   if (!account) return NextResponse.json({ error: "Account not found" }, { status: 404 });
   if (!account.active) return NextResponse.json({ ok: true });
   // Preserve ledger history and audit references. Removing an active account means archiving it from the workspace.
-  await db.update(accounts).set({ active: false }).where(and(eq(accounts.id, body.id), eq(accounts.userId, user.id)));
-  await db.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "archive", entityType: "account", entityId: body.id, beforeJson: JSON.stringify({ name: account.name, institution: account.institution, type: account.type }), afterJson: JSON.stringify({ active: false }) });
+  await db.update(accounts).set({ active: false, isDefaultCash: false }).where(and(eq(accounts.id, body.id), eq(accounts.userId, user.id)));
+  await db.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "archive", entityType: "account", entityId: body.id, beforeJson: JSON.stringify({ name: account.name, institution: account.institution, type: account.type, isDefaultCash: account.isDefaultCash }), afterJson: JSON.stringify({ active: false, isDefaultCash: false }) });
   return NextResponse.json({ ok: true, archived: true });
 }
 
