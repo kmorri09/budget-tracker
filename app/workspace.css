@@ -99,6 +99,7 @@
 .table-empty h3 { color: var(--ink); }
 .table-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 18px; font-size: 12px; color: var(--muted); }
 .table-pagination > label { display: flex; align-items: center; gap: 8px; }
+.table-pagination > label input { min-height: 38px; width: 58px; }
 .table-pagination select { min-height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 30px 0 10px; background: #fbfcfb; color: var(--ink); font: inherit; }
 .table-pagination > div { display: flex; gap: 8px; }
 .subtable-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 30px 0 12px; }
@@ -139,7 +140,7 @@
 .provider-account-row strong, .provider-account-row small { display: block; }
 .provider-account-row small { color: var(--muted); font-size: 11px; margin-top: 3px; }
 .provider-map-label { display: grid; gap: 5px; min-width: min(220px, 48%); color: var(--muted); font-size: 11px; font-weight: 600; }
-.provider-map-label select { min-height: 38px; border: 1px solid #d4dfd7; border-radius: 8px; padding: 0 9px; background: #fbfcfb; color: var(--ink); font: inherit; }
+.provider-map-label input { min-height: 38px; border: 1px solid #d4dfd7; border-radius: 8px; padding: 0 9px; background: #fbfcfb; color: var(--ink); font: inherit; }
 .settings-panel { margin-top: 24px; }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid var(--line); padding: 18px 0; margin-top: 12px; font-size: 13px; }
 .settings-row p { margin-bottom: 0; }
@@ -159,7 +160,7 @@
 .entry-dialog form, .entry-dialog fieldset { display: grid; gap: 16px; }
 .entry-dialog fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .entry-dialog label { display: grid; gap: 6px; color: #52655a; font-size: 13px; font-weight: 600; }
-.entry-dialog select { min-height: 44px; width: 100%; border: 1px solid #d4dfd7; border-radius: 9px; padding: 0 12px; background: #fbfcfb; color: var(--ink); font: inherit; }
+.entry-dialog input[list] { min-height: 44px; width: 100%; border: 1px solid #d4dfd7; border-radius: 9px; padding: 0 12px; background: #fbfcfb; color: var(--ink); font: inherit; }
 .entry-dialog .toggle-field { display: flex; align-items: center; gap: 9px; min-height: 44px; }
 .entry-dialog .toggle-field input { width: 18px; min-height: 18px; height: 18px; accent-color: var(--green-dark); }
 .entry-dialog .type-options { display: flex; gap: 12px; flex-wrap: wrap; }
@@ -198,7 +199,7 @@
 .payment-allocation-controls .secondary-button { min-height: 44px; padding: 0 10px; white-space: nowrap; }
 .coverage-dialog { width: min(880px, calc(100% - 32px)); }
 .coverage-tools { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(150px, .55fr) minmax(150px, .55fr); gap: 10px; }
-.coverage-tools select { width: 100%; min-height: 44px; border: 1px solid #d4dfd7; border-radius: 9px; padding: 0 10px; background: #fbfcfb; color: var(--ink); font: inherit; }
+.coverage-tools input[list] { width: 100%; min-height: 44px; border: 1px solid #d4dfd7; border-radius: 9px; padding: 0 10px; background: #fbfcfb; color: var(--ink); font: inherit; }
 .coverage-selection { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 12px; border-radius: 9px; background: #f1f7f3; color: var(--muted); font-size: 12px; }
 .coverage-list { max-height: min(43vh, 470px); overflow-y: auto; border-top: 1px solid var(--line); }
 .coverage-row { display: grid !important; grid-template-columns: 24px minmax(0, 1fr) minmax(110px, auto); align-items: center; gap: 12px !important; min-height: 62px; padding: 9px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }

@@ -14,6 +14,7 @@ import ObligationEditDialog from "./components/obligation-edit-dialog";
 import AllocationEditDialog from "./components/allocation-edit-dialog";
 import BudgetAdjustmentEditDialog from "./components/budget-adjustment-edit-dialog";
 import BankConnections from "./components/bank-connections";
+import Typeahead from "./components/typeahead";
 import { type ActionType, type DashboardData, kindLabel, money, signedAmount, today } from "../lib/workspace-types";
 import { categoriesAllocatedInLastDays } from "../lib/recent-allocations";
 import "./workspace.css";
@@ -298,7 +299,7 @@ function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData
           <div className="account-edit-heading"><h2>Edit account</h2><button className="text-link" type="button" disabled={busy} onClick={() => setEditing(null)}>Cancel</button></div>
           <label>Account name<input name="name" defaultValue={account.name} required maxLength={80} autoFocus /></label>
           <label>Bank or provider<input name="institution" defaultValue={account.institution} required maxLength={80} /></label>
-          <label>Account type<select name="type" defaultValue={account.type}><option value="checking">Checking</option><option value="savings">Savings</option><option value="credit_card">Credit card</option></select></label>
+          <Typeahead label="Account type" name="type" options={[{ value: "checking", label: "Checking" }, { value: "savings", label: "Savings" }, { value: "credit_card", label: "Credit card" }]} initialValue={account.type} />
           <label className="toggle-field"><input name="syncEnabled" type="checkbox" defaultChecked={account.syncEnabled} /> Enable automatic sync for this account</label>
           <div className="section-actions"><button className="primary-button" disabled={busy}>Save changes</button>{account.active ? <button className="secondary-button" type="button" disabled={busy} onClick={() => void removeAccount(account)}>Remove account</button> : <button className="secondary-button" type="button" disabled={busy} onClick={() => void restoreAccount(account)}>Restore account</button>}</div>
         </form> : <>

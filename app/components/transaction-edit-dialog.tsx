@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { DashboardData } from "../../lib/workspace-types";
+import Typeahead from "./typeahead";
 
 const kindOptions = [
   ["expense", "Expense"],
@@ -65,9 +66,9 @@ export default function TransactionEditDialog({ transaction, dashboard, onClose,
       <fieldset disabled={busy}>
         <label>Description<input name="description" defaultValue={transaction.description} required maxLength={200} autoFocus /></label>
         <div className="form-grid"><label>Amount<input name="amount" type="number" min="0.01" step="0.01" defaultValue={transaction.amount.toFixed(2)} required /></label><label>Date<input name="date" type="date" defaultValue={transaction.date} required /></label></div>
-        <label>Account / payment method<select name="accountId" defaultValue={transaction.accountId} required>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}{account.active ? "" : " (inactive)"}</option>)}</select></label>
-        <div className="form-grid"><label>Type<select name="kind" defaultValue={transaction.kind}>{kindOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Category<select name="categoryId" defaultValue={transaction.categoryId ?? ""}><option value="">No category</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}{category.active ? "" : " (inactive)"}</option>)}</select></label></div>
-        <label>Status<select name="status" defaultValue={transaction.status}><option value="posted">Posted</option><option value="pending">Pending</option><option value="cleared">Cleared</option><option value="void">Void</option></select></label>
+        <Typeahead label="Account / payment method" name="accountId" options={accounts.map(account => ({ value: account.id, label: `${account.name}${account.active ? "" : " (inactive)"}` }))} initialValue={transaction.accountId} />
+        <div className="form-grid"><Typeahead label="Type" name="kind" options={kindOptions.map(([value, label]) => ({ value, label }))} initialValue={transaction.kind} /><Typeahead label="Category" name="categoryId" required={false} options={[{ value: "", label: "No category" }, ...categories.map(category => ({ value: category.id, label: `${category.name}${category.active ? "" : " (inactive)"}` }))]} initialValue={transaction.categoryId ?? ""} /></div>
+        <Typeahead label="Status" name="status" options={[{ value: "posted", label: "Posted" }, { value: "pending", label: "Pending" }, { value: "cleared", label: "Cleared" }, { value: "void", label: "Void" }]} initialValue={transaction.status} />
         <label className="toggle-field"><input name="pending" type="checkbox" defaultChecked={transaction.pending} /> Mark as pending</label>
       </fieldset>
       <p className="field-help">Source: {transaction.source.replaceAll("_", " ")}. Source and payment coverage history stay auditable; changing the account changes the payment method.</p>

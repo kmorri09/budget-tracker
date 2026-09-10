@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { Allocation, DashboardData } from "../../lib/workspace-types";
+import Typeahead from "./typeahead";
 
 export default function AllocationEditDialog({ allocation, dashboard, onClose, onSaved }: { allocation: Allocation; dashboard: DashboardData; onClose: () => void; onSaved: (message: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -41,7 +42,7 @@ export default function AllocationEditDialog({ allocation, dashboard, onClose, o
     }}>
       <fieldset disabled={busy}>
         <div className="form-grid"><label>Net amount<input name="amount" type="number" step="0.01" defaultValue={allocation.amount.toFixed(2)} required autoFocus /></label><label>Date<input name="date" type="date" defaultValue={allocation.date} required /></label></div>
-        <label>Category<select name="categoryId" defaultValue={allocation.categoryId} required>{categories.map(category => <option key={category.id} value={category.id}>{category.name}{category.active ? "" : " (inactive)"}</option>)}</select></label>
+        <Typeahead label="Category" name="categoryId" options={categories.map(category => ({ value: category.id, label: `${category.name}${category.active ? "" : " (inactive)"}` }))} initialValue={allocation.categoryId} />
         <label>Note<input name="note" defaultValue={allocation.note} maxLength={200} /></label>
       </fieldset>
       {error && <p className="form-error" role="alert">{error}</p>}

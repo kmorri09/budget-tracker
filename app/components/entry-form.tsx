@@ -2,13 +2,12 @@
 
 import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
 import { type ActionType, type DashboardData, money, today } from "../../lib/workspace-types";
+import Typeahead from "./typeahead";
 
 export const actionLabels: Record<ActionType, string> = { transaction: "Add transaction", income: "Add income", allocation: "Allocate money", transfer: "Move category funds", payment: "Record card payment", category: "Add category", account: "Add account" };
 
-// Native datalists support typing, keyboard selection, and the phone's own picker.
-function Suggestion({ label, name, options, initial = "", value, onChange }: { label: string; name: string; options: string[]; initial?: string; value?: string; onChange?: (value: string) => void }) {
-  const id = useId();
-  return <label>{label}<input name={name} list={id} {...(value === undefined ? { defaultValue: initial } : { value, onChange: event => onChange?.(event.target.value) })} placeholder="Type to find…" autoComplete="off" required onChange={event => { event.target.setCustomValidity(""); onChange?.(event.target.value); }} onBlur={event => event.target.setCustomValidity(options.includes(event.target.value) ? "" : "Choose an existing option from the list.")} /><datalist id={id}>{options.map(option => <option key={option} value={option} />)}</datalist></label>;
+function Suggestion({ label, name, options, initial = "", value, onChange, required = true }: { label: string; name: string; options: string[]; initial?: string; value?: string; onChange?: (value: string) => void; required?: boolean }) {
+  return <Typeahead label={label} name={name} options={options.map(option => ({ value: option, label: option }))} initialValue={initial} value={value} onChange={onChange} required={required} />;
 }
 
 export default function EntryForm({ action, dashboard, initialPaymentTransactionIds = [], initialPaymentImport = null, onClose, onSaved }: { action: ActionType; dashboard: DashboardData; initialPaymentTransactionIds?: string[]; initialPaymentImport?: DashboardData["activity"][number] | null; onClose: () => void; onSaved: (message?: string) => void }) {

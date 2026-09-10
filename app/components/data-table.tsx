@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { money, today } from "../../lib/workspace-types";
 import { queryRows, type TableQuery, type TableRow } from "../../lib/table-query";
+import Typeahead from "./typeahead";
 
 export type Column = { key: string; label: string; money?: boolean; detail?: boolean; truncate?: boolean };
 type RowAction = { label: string; onClick: (row: TableRow) => void; isEligible?: (row: TableRow) => boolean };
@@ -131,6 +132,6 @@ export default function DataTable({ title, rows, columns, facets, dated = false,
       </td>)}{rowActions.length > 0 && <td className="row-actions" data-label="Actions">{rowActions.filter(action => action.isEligible?.(row) ?? true).map(action => <button type="button" className="text-link" key={action.label} onClick={() => action.onClick(row)}>{action.label}<span className="sr-only"> {String(row[orderedColumns[0].key])}</span></button>)}</td>}<td className="row-toggle"><button className="text-link" aria-expanded={expanded === row.id} onClick={() => setExpanded(expanded === row.id ? null : row.id)}>{expanded === row.id ? "Less" : "Details"}</button></td></tr>)}</tbody>
     </table>
     {visible.length === 0 && <div className="table-empty"><h3>{rows.length ? "No matches" : "Nothing here yet"}</h3><p>{rows.length ? "Try changing your date range or clearing a filter." : "Use the add button above to create your first entry."}</p></div>}
-    <div className="table-pagination"><label>Rows per page<select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(0); }}><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label><span>Page {safePage + 1} of {pages}</span><div><button className="secondary-button" disabled={safePage === 0} onClick={() => setPage(safePage-1)}>Previous</button><button className="secondary-button" disabled={safePage + 1 >= pages} onClick={() => setPage(safePage+1)}>Next</button></div></div>
+    <div className="table-pagination"><Typeahead label="Rows per page" options={[{ value: "25", label: "25" }, { value: "50", label: "50" }, { value: "100", label: "100" }]} value={String(pageSize)} onChange={value => { setPageSize(Number(value)); setPage(0); }} required={false} /><span>Page {safePage + 1} of {pages}</span><div><button className="secondary-button" disabled={safePage === 0} onClick={() => setPage(safePage-1)}>Previous</button><button className="secondary-button" disabled={safePage + 1 >= pages} onClick={() => setPage(safePage+1)}>Next</button></div></div>
   </section>;
 }
