@@ -2,7 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
-import { accounts, allocations, budgetAdjustments, cardCoverageAdjustments, cardPaymentApplications, cardPayments, categories, obligations, reviewItems, transactions } from "../../../lib/schema";
+import { accounts, allocations, budgetAdjustments, cardCoverageAdjustments, cardPaymentApplications, cardPayments, categorizationRules, categories, obligations, reviewItems, transactions } from "../../../lib/schema";
 import { calculateCategoryBalance } from "../../../lib/category-balance";
 import { calculateAvailableToAssignCents } from "../../../lib/budget-balance";
 import { isObligationCovered, type ObligationCoverage } from "../../../lib/obligation-status";
@@ -14,9 +14,10 @@ export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const db = getDatabase();
-  const [accountRows, categoryRows, transactionRows, allocationRows, budgetAdjustmentRows, obligationRows, reviewRows, paymentRows, paymentApplicationRows, coverageAdjustmentRows] = await Promise.all([
+  const [accountRows, categoryRows, categoryRuleRows, transactionRows, allocationRows, budgetAdjustmentRows, obligationRows, reviewRows, paymentRows, paymentApplicationRows, coverageAdjustmentRows] = await Promise.all([
     db.select().from(accounts).where(eq(accounts.userId, user.id)),
     db.select().from(categories).where(eq(categories.userId, user.id)),
+    db.select().from(categorizationRules).where(eq(categorizationRules.userId, user.id)),
     db.select().from(transactions).where(eq(transactions.userId, user.id)).orderBy(desc(transactions.effectiveDate), desc(transactions.createdAt)),
     db.select().from(allocations).where(eq(allocations.userId, user.id)),
     db.select().from(budgetAdjustments).where(eq(budgetAdjustments.userId, user.id)),
@@ -92,6 +93,7 @@ export async function GET() {
     trailing30: { income: centsToAmount(trailingIncomeCents), spending: centsToAmount(trailingSpendCents), startDate: isoDate(cutoff), endDate: isoDate(new Date()) },
     categories: categoryBalances,
     managedCategories,
+    categorizationRules: categoryRuleRows.filter(rule => rule.active).map(rule => ({ id: rule.id, matchText: rule.matchText, categoryId: rule.categoryId, category: categoryById.get(rule.categoryId)?.name ?? "Removed category" })),
     allocations: allocationRows.map((row) => ({ id: row.id, date: row.effectiveDate, amount: centsToAmount(row.amountCents), note: row.note ?? "", category: categoryById.get(row.categoryId)?.name ?? "Uncategorized", categoryId: row.categoryId })),
     obligations: obligationRows.map((obligation) => { const covered = isObligationCovered(obligation, obligationCandidates, currentDate); const matchingCandidate = covered ? obligationCandidates.find(candidate => isObligationCovered(obligation, [candidate], currentDate)) : null; return { id: obligation.id, name: obligation.name, dueDate: obligation.dueDate, amount: centsToAmount(obligation.amountCents), category: categoryById.get(obligation.categoryId)?.name ?? "Uncategorized", categoryId: obligation.categoryId, account: accountById.get(obligation.accountId)?.name ?? "Account", accountId: obligation.accountId, cadence: obligation.cadence, active: obligation.active, covered, coveredBy: matchingCandidate?.description ?? null }; }),
     reviews: reviewRows.map((review) => ({ id: review.id, kind: review.kind, title: review.title, details: review.details, transaction: review.transactionId ? transactionById.get(review.transactionId) ? toEntry(transactionById.get(review.transactionId)!) : null : null })),

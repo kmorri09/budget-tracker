@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, lt, or } from "drizzle-orm";
 import type { Database } from "./db";
-import { accounts, auditEvents, cardPayments, providerAccounts, providerConnections, rawProviderTransactions, reviewItems, syncLocks, syncRuns, transactions } from "./schema";
+import { accounts, auditEvents, cardPayments, categorizationRules, categories, providerAccounts, providerConnections, rawProviderTransactions, reviewItems, syncLocks, syncRuns, transactions } from "./schema";
 import { accountType, findCardPaymentMatch, findLedgerDuplicate, mockProviderAccounts, syncCutoverDate, toNormalized, type CardPaymentMatchCandidate, type LedgerMatchCandidate, type NormalizedTransaction, type PlaidAccount, type PlaidTransaction } from "./bank-sync-core";
+import { findCategorizationRule } from "./categorization-rules";
 import { decryptProviderToken, encryptProviderToken, hasProviderEncryptionKey } from "./provider-crypto";
 
 const plaidEnvironment = () => {
@@ -112,13 +113,15 @@ export async function syncConnection(db: Database, userId: string, connectionId:
     const localByProvider = new Map(providerRows.filter(row => row.localAccountId && syncableIds.has(row.localAccountId)).map(row => [row.providerAccountId, row.localAccountId!]));
     const accountTypeByProvider = new Map(providerRows.map(row => [row.providerAccountId, row.type]));
     const cutoverDate = syncCutoverDate(connection.createdAt);
+    const activeCategoryIds = new Set((await db.select({ id: categories.id }).from(categories).where(and(eq(categories.userId, userId), eq(categories.active, true)))).map(category => category.id));
+    const categoryRuleRows = (await db.select().from(categorizationRules).where(and(eq(categorizationRules.userId, userId), eq(categorizationRules.active, true)))).filter(rule => activeCategoryIds.has(rule.categoryId));
     const ledgerRows = localIds.length ? await db.select().from(transactions).where(and(eq(transactions.userId, userId), inArray(transactions.accountId, localIds))) : [];
     const paymentRows = localIds.length ? await db.select().from(cardPayments).where(and(eq(cardPayments.userId, userId), or(inArray(cardPayments.fromAccountId, localIds), inArray(cardPayments.toAccountId, localIds)))) : [];
     const matchCandidates: LedgerMatchCandidate[] = ledgerRows.map(row => ({ id: row.id, accountId: row.accountId, amountCents: row.amountCents, kind: row.kind, effectiveDate: row.effectiveDate, description: row.description, source: row.source, status: row.status, providerTransactionId: row.providerTransactionId }));
     const paymentCandidates: CardPaymentMatchCandidate[] = paymentRows.map(row => ({ id: row.id, fromAccountId: row.fromAccountId, toAccountId: row.toAccountId, amountCents: row.amountCents, effectiveDate: row.effectiveDate, providerTransactionId: row.providerTransactionId, destinationProviderTransactionId: row.destinationProviderTransactionId }));
     const reservedMatchIds = new Set<string>();
     const reservedPaymentSides = new Set<string>();
-    let addedCount = 0; let modifiedCount = 0; let matchedCount = 0; let suppressedCount = 0;
+    let addedCount = 0; let modifiedCount = 0; let matchedCount = 0; let suppressedCount = 0; let categorizedCount = 0;
     const findMatch = (normalized: NormalizedTransaction, localAccountId: string, excludeId?: string) => findLedgerDuplicate(normalized, localAccountId, matchCandidates.filter(candidate => !reservedMatchIds.has(candidate.id)), excludeId);
     const findPayment = (normalized: NormalizedTransaction, localAccountId: string) => findCardPaymentMatch(normalized, localAccountId, paymentCandidates.filter(candidate => !reservedPaymentSides.has(`${candidate.id}:${normalized.kind === "transfer_out" ? "source" : "destination"}`)));
     const linkExistingLedgerEntry = async (candidate: LedgerMatchCandidate, normalized: NormalizedTransaction, duplicate?: typeof transactions.$inferSelect) => {
@@ -219,8 +222,13 @@ export async function syncConnection(db: Database, userId: string, connectionId:
         if (candidate) { await linkExistingLedgerEntry(candidate, normalized); continue; }
         if (normalized.date < cutoverDate) { suppressedCount++; continue; }
         const id = randomUUID();
-        await db.insert(transactions).values({ id, userId, accountId: localAccountId, categoryId: null, kind: normalized.kind, amountCents: normalized.amountCents, effectiveDate: normalized.date, description: normalized.description, status: normalized.pending ? "pending" : "posted", source: "plaid", providerTransactionId: normalized.providerTransactionId, pending: normalized.pending });
-        if (normalized.kind === "expense" || normalized.kind === "refund") await db.insert(reviewItems).values({ id: randomUUID(), userId, transactionId: id, kind: "bank_transaction", title: `Review imported ${normalized.kind === "refund" ? "refund" : "transaction"}: ${normalized.description}`, details: normalized.kind === "refund" ? "Assign the original spending category, or confirm this refund is already represented in your budget." : "Assign a category or confirm this imported activity is already represented in your budget." });
+        const categoryRule = normalized.kind === "expense" || normalized.kind === "refund" ? findCategorizationRule(normalized.description, categoryRuleRows) : null;
+        await db.insert(transactions).values({ id, userId, accountId: localAccountId, categoryId: categoryRule?.categoryId ?? null, kind: normalized.kind, amountCents: normalized.amountCents, effectiveDate: normalized.date, description: normalized.description, status: normalized.pending ? "pending" : "posted", source: "plaid", providerTransactionId: normalized.providerTransactionId, pending: normalized.pending });
+        if ((normalized.kind === "expense" || normalized.kind === "refund") && !categoryRule) await db.insert(reviewItems).values({ id: randomUUID(), userId, transactionId: id, kind: "bank_transaction", title: `Review imported ${normalized.kind === "refund" ? "refund" : "transaction"}: ${normalized.description}`, details: normalized.kind === "refund" ? "Assign the original spending category, or confirm this refund is already represented in your budget." : "Assign a category or confirm this imported activity is already represented in your budget." });
+        if (categoryRule) {
+          categorizedCount++;
+          await db.insert(auditEvents).values({ id: randomUUID(), userId, action: "auto_categorize", entityType: "provider_transaction", entityId: id, afterJson: JSON.stringify({ categoryRuleId: categoryRule.id, categoryId: categoryRule.categoryId, matchText: categoryRule.matchText, providerTransactionId: normalized.providerTransactionId }) });
+        }
         if (normalized.kind === "transfer_in" || normalized.kind === "transfer_out") await db.insert(reviewItems).values({ id: randomUUID(), userId, transactionId: id, kind: "provider_transfer", title: `Review imported transfer: ${normalized.description}`, details: normalized.kind === "transfer_out" ? "No existing card payment matched this withdrawal. If it paid an untracked card, keep it as a transaction; otherwise record the card payment and this import will be reconciled automatically." : "Confirm this transfer is not new spending and keep it as a transaction if no matching entry exists." });
         addedCount++;
       }
@@ -243,7 +251,7 @@ export async function syncConnection(db: Database, userId: string, connectionId:
     }
     await db.update(providerConnections).set({ cursor: nextCursor, status: "connected", lastSyncAt: now, lastError: null, updatedAt: now }).where(and(eq(providerConnections.id, connectionId), eq(providerConnections.userId, userId)));
     await db.update(syncRuns).set({ status: "succeeded", finishedAt: now, addedCount, modifiedCount, removedCount: removed.length }).where(and(eq(syncRuns.id, runId), eq(syncRuns.userId, userId)));
-    return { runId, added: addedCount, modified: modifiedCount, removed: removed.length, matched: matchedCount, suppressed: suppressedCount, cutoverDate, syncedAt: now.toISOString() };
+    return { runId, added: addedCount, modified: modifiedCount, removed: removed.length, matched: matchedCount, suppressed: suppressedCount, categorized: categorizedCount, cutoverDate, syncedAt: now.toISOString() };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Provider sync failed";
     const reauthRequired = error instanceof PlaidError && ["ITEM_LOGIN_REQUIRED", "ITEM_LOCKED", "ITEM_NOT_FOUND"].includes(error.code ?? "");

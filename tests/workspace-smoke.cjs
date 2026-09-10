@@ -15,6 +15,7 @@ const fixture = {
   allocations: [{ id: 'al', date: date(0), amount: 100, category: 'Food', categoryId: 'c', note: 'Sample funding' }, { id: 'al2', date: date(-60), amount: -10, category: 'Travel', categoryId: 'd', note: 'Sample move' }],
   availableBreakdown: { income: 500, adjustments: 0, allocations: 250, available: 250 }, availableAdjustments: [], payments: [],
   reviews: [{ id: 'r', title: 'Sample import', kind: 'import_transaction', details: 'Fictitious review item' }],
+  categorizationRules: [],
   obligations: [], trailing30: { income: 500, spending: 200, startDate: date(-29), endDate: date(0) },
 };
 fixture.managedAccounts = fixture.accounts;

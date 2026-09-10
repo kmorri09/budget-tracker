@@ -15,6 +15,7 @@ import AllocationEditDialog from "./components/allocation-edit-dialog";
 import BudgetAdjustmentEditDialog from "./components/budget-adjustment-edit-dialog";
 import BankConnections from "./components/bank-connections";
 import Typeahead from "./components/typeahead";
+import CategorizationRules from "./components/categorization-rules";
 import { type ActionType, type DashboardData, kindLabel, money, signedAmount, today } from "../lib/workspace-types";
 import { categoriesAllocatedInLastDays } from "../lib/recent-allocations";
 import "./workspace.css";
@@ -318,6 +319,6 @@ function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData
       </article>;
     })}</div>
     {!visible.length && <p className="empty-state">{dashboard.managedAccounts.length ? "No matching accounts." : "Add your checking, savings, or credit card accounts to get started."}</p>}
-    <section className="panel settings-panel"><h2>Workspace settings</h2><div className="settings-row"><div><strong>Import from Notion</strong><p className="field-help">Upload a private snapshot directly to this app. Preview before importing.</p></div><a className="secondary-button" href="/import">Import Notion</a></div><BankConnections dashboard={dashboard} onChanged={(message) => onChanged(message)} /><div className="settings-row"><span>Private session</span><button className="secondary-button" onClick={async () => { try { const response = await fetch("/api/auth/logout", { method: "POST" }); if (!response.ok) throw new Error(); window.location.assign("/login"); } catch { setError("Could not sign out. Please try again."); } }}>Sign out</button></div></section>
+    <section className="panel settings-panel"><h2>Workspace settings</h2><div className="settings-row"><div><strong>Import from Notion</strong><p className="field-help">Upload a private snapshot directly to this app. Preview before importing.</p></div><a className="secondary-button" href="/import">Import Notion</a></div><BankConnections dashboard={dashboard} onChanged={(message) => onChanged(message)} /><CategorizationRules dashboard={dashboard} onChanged={onChanged} /><div className="settings-row"><span>Private session</span><button className="secondary-button" onClick={async () => { try { const response = await fetch("/api/auth/logout", { method: "POST" }); if (!response.ok) throw new Error(); window.location.assign("/login"); } catch { setError("Could not sign out. Please try again."); } }}>Sign out</button></div></section>
   </>;
 }

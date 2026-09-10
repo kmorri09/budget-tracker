@@ -45,6 +45,8 @@ export const transactionUpdateSchema = z.object({
   description: z.string().trim().min(1).max(200),
   status: z.string().trim().min(1).max(40),
   pending: z.boolean(),
+  rememberCategory: z.boolean().optional().default(false),
+  categoryRuleMatch: z.string().trim().max(120).optional(),
 });
 
 export const allocationUpdateSchema = z.object({

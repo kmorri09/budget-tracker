@@ -112,6 +112,19 @@ export const categories = pgTable("categories", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({ userNameIndex: uniqueIndex("categories_user_name_idx").on(table.userId, table.name) }));
 
+// User-owned merchant rules categorize future provider imports. The normalized
+// match makes punctuation and capitalization differences harmless.
+export const categorizationRules = pgTable("categorization_rules", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  categoryId: text("category_id").notNull().references(() => categories.id, { onDelete: "cascade" }),
+  matchText: text("match_text").notNull(),
+  normalizedMatch: text("normalized_match").notNull(),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({ userMatchIndex: uniqueIndex("categorization_rules_user_match_idx").on(table.userId, table.normalizedMatch), userIndex: index("categorization_rules_user_idx").on(table.userId) }));
+
 export const transactions = pgTable("transactions", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

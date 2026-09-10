@@ -43,6 +43,19 @@ CREATE TABLE IF NOT EXISTS "categories" (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "categories_user_name_idx" ON "categories" ("user_id", "name");
 
+CREATE TABLE IF NOT EXISTS "categorization_rules" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "category_id" text NOT NULL REFERENCES "categories"("id") ON DELETE CASCADE,
+  "match_text" text NOT NULL,
+  "normalized_match" text NOT NULL,
+  "active" boolean DEFAULT true NOT NULL,
+  "created_at" timestamptz DEFAULT now() NOT NULL,
+  "updated_at" timestamptz DEFAULT now() NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "categorization_rules_user_match_idx" ON "categorization_rules" ("user_id", "normalized_match");
+CREATE INDEX IF NOT EXISTS "categorization_rules_user_idx" ON "categorization_rules" ("user_id");
+
 CREATE TABLE IF NOT EXISTS "transactions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,

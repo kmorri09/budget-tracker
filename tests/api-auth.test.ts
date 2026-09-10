@@ -9,6 +9,7 @@ import { DELETE as deleteEntry, PATCH as patchEntry, POST as postEntry } from ".
 import { DELETE as deleteObligation, PATCH as patchObligation, POST as postObligation } from "../app/api/obligations/route";
 import { GET as getDashboard } from "../app/api/dashboard/route";
 import { GET as getConnections } from "../app/api/connections/route";
+import { DELETE as deleteCategorizationRule } from "../app/api/categorization-rules/route";
 
 const jsonRequest = (method: string, body: unknown = {}) => new Request("http://localhost/api/test", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
@@ -41,6 +42,7 @@ test("all user-owned mutation routes reject unauthenticated requests", async () 
       ["card payments DELETE", deletePayment, "DELETE", { id: "payment" }],
       ["categories POST", postCategory, "POST", { name: "Food" }],
       ["categories PATCH", patchCategory, "PATCH", { id: "category", name: "Food" }],
+      ["categorization rules DELETE", deleteCategorizationRule, "DELETE", { id: "rule" }],
       ["entries POST", postEntry, "POST", { kind: "allocation", amount: -10, date: "2026-09-08", categoryId: "category", description: "Correction" }],
       ["entries PATCH", patchEntry, "PATCH", { id: "entry", kind: "expense", amount: 10, date: "2026-09-08", accountId: "cash", categoryId: "category", description: "Expense", status: "posted", pending: false }],
       ["entries DELETE", deleteEntry, "DELETE", { id: "entry" }],

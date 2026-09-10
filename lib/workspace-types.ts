@@ -5,6 +5,7 @@ export type CardPayment = { id: string; description: string; amount: number; dat
 export type Allocation = { id: string; date: string; amount: number; note: string; category: string; categoryId: string };
 export type BudgetAdjustment = { id: string; date: string; amount: number; note: string };
 export type Obligation = { id: string; name: string; dueDate: string; amount: number; category: string; categoryId: string; account: string; accountId: string; cadence: string | null; active: boolean; covered: boolean; coveredBy: string | null };
+export type CategorizationRule = { id: string; matchText: string; categoryId: string; category: string };
 export type DashboardData = {
   ledgerBalance: number; providerBalance: number | null; remainingToBudget: number;
   availableBreakdown: { income: number; adjustments: number; allocations: number; available: number };
@@ -13,6 +14,7 @@ export type DashboardData = {
   activity: Entry[]; allocations: Allocation[]; payments: CardPayment[];
   trailing30: { income: number; spending: number; startDate: string; endDate: string };
   reviews: { id: string; kind: string; title: string; details: string | null; transaction: Entry | null }[];
+  categorizationRules: CategorizationRule[];
   obligations: Obligation[];
 };
 export type ActionType = "transaction" | "income" | "allocation" | "transfer" | "payment" | "category" | "account";

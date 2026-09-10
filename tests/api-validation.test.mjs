@@ -66,6 +66,8 @@ test("transaction updates require an owned reference id shape and valid state fi
   assert.equal(transactionUpdateSchema.safeParse({ ...valid, kind: "unknown" }).success, false);
   assert.equal(transactionUpdateSchema.safeParse({ ...valid, categoryId: 7 }).success, false);
   assert.equal(transactionUpdateSchema.safeParse({ ...valid, pending: "false" }).success, false);
+  assert.equal(transactionUpdateSchema.parse({ ...valid, rememberCategory: true, categoryRuleMatch: " Spotify " }).categoryRuleMatch, "Spotify");
+  assert.equal(transactionUpdateSchema.safeParse({ ...valid, categoryRuleMatch: "x".repeat(121) }).success, false);
 });
 
 test("budget adjustments allow signed corrections and reject zero or blank reasons", () => {

@@ -141,6 +141,12 @@
 .provider-account-row small { color: var(--muted); font-size: 11px; margin-top: 3px; }
 .provider-map-label { display: grid; gap: 5px; min-width: min(220px, 48%); color: var(--muted); font-size: 11px; font-weight: 600; }
 .provider-map-label input { min-height: 38px; border: 1px solid #d4dfd7; border-radius: 8px; padding: 0 9px; background: #fbfcfb; color: var(--ink); font: inherit; }
+.categorization-rules { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 18px; }
+.categorization-rules > div:first-child > strong { font-size: 13px; }
+.categorization-rules > div:first-child > p { margin: 4px 0 10px; }
+.categorization-rule-list { display: grid; }
+.categorization-rule-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 58px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.categorization-rule-row small { display: block; margin-top: 4px; color: var(--muted); }
 .settings-panel { margin-top: 24px; }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid var(--line); padding: 18px 0; margin-top: 12px; font-size: 13px; }
 .settings-row p { margin-bottom: 0; }
@@ -155,7 +161,7 @@
 .review-item-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 .review-missing { color: var(--muted); font-style: italic; }
 .error-banner { background: #fff4ef; border: 1px solid #ebcabe; border-radius: 12px; padding: 16px; margin: 16px 0; font-size: 14px; }
-.entry-dialog { color: var(--ink); border: 1px solid var(--line); background: white; width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 40px); border-radius: 20px; padding: 24px; box-shadow: 0 16px 70px #19352630; }
+.entry-dialog { color: var(--ink); border: 1px solid var(--line); background: white; width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 40px); overflow-y: auto; border-radius: 20px; padding: 24px; box-shadow: 0 16px 70px #19352630; }
 .entry-dialog::backdrop { background: #152d2255; backdrop-filter: blur(3px); }
 .entry-dialog form, .entry-dialog fieldset { display: grid; gap: 16px; }
 .entry-dialog fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
@@ -163,6 +169,8 @@
 .entry-dialog input[list] { min-height: 44px; width: 100%; border: 1px solid #d4dfd7; border-radius: 9px; padding: 0 12px; background: #fbfcfb; color: var(--ink); font: inherit; }
 .entry-dialog .toggle-field { display: flex; align-items: center; gap: 9px; min-height: 44px; }
 .entry-dialog .toggle-field input { width: 18px; min-height: 18px; height: 18px; accent-color: var(--green-dark); }
+.rule-builder { display: grid; gap: 10px; padding: 12px; border: 1px solid #d7e4da; border-radius: 10px; background: #f4f8f5; }
+.rule-builder .field-help { margin: 0; }
 .entry-dialog .type-options { display: flex; gap: 12px; flex-wrap: wrap; }
 .entry-dialog .type-options legend { margin-bottom: 8px; font-size: 13px; }
 .entry-dialog .type-options label { display: flex; align-items: center; gap: 5px; min-height: 44px; font-size: 12px; }
