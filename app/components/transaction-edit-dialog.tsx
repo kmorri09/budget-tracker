@@ -58,7 +58,7 @@ export default function TransactionEditDialog({ transaction, dashboard, onClose,
         categoryId: String(values.categoryId ?? "") || null,
         description: String(values.description),
         status: String(values.status),
-        pending: values.pending === "on",
+        pending: String(values.status) === "pending",
         rememberCategory: values.rememberCategory === "on",
         categoryRuleMatch: String(values.categoryRuleMatch ?? ""),
       };
@@ -76,7 +76,6 @@ export default function TransactionEditDialog({ transaction, dashboard, onClose,
         <div className="form-grid"><Typeahead label="Type" name="kind" options={kindOptions.map(([value, label]) => ({ value, label }))} value={kind} onChange={setKind} /><Typeahead label="Category" name="categoryId" required={false} options={[{ value: "", label: "No category" }, ...categories.map(category => ({ value: category.id, label: `${category.name}${category.active ? "" : " (inactive)"}` }))]} value={categoryId} onChange={setCategoryId} /></div>
         {transaction.source === "plaid" && ["expense", "refund"].includes(kind) && <div className="rule-builder"><label className="toggle-field"><input name="rememberCategory" type="checkbox" checked={rememberCategory} onChange={event => setRememberCategory(event.target.checked)} disabled={!categoryId} /> Always use this category for matching Plaid imports</label>{rememberCategory && <><label>Description contains<input name="categoryRuleMatch" value={ruleMatch} onChange={event => setRuleMatch(event.target.value)} minLength={3} maxLength={120} required /></label><p className="field-help">This categorizes the current transaction and future matching expenses or refunds. It does not rewrite older transactions.</p></>}</div>}
         <Typeahead label="Status" name="status" options={[{ value: "posted", label: "Posted" }, { value: "pending", label: "Pending" }, { value: "cleared", label: "Cleared" }, { value: "void", label: "Void" }]} initialValue={transaction.status} />
-        <label className="toggle-field"><input name="pending" type="checkbox" defaultChecked={transaction.pending} /> Mark as pending</label>
       </fieldset>
       <p className="field-help">Source: {transaction.source.replaceAll("_", " ")}. Source and payment coverage history stay auditable; changing the account changes the payment method.</p>
       {error && <p className="form-error" role="alert">{error}</p>}
