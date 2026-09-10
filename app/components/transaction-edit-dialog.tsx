@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { DashboardData } from "../../lib/workspace-types";
 import Typeahead from "./typeahead";
+import { useConfirmDialog } from "./confirm-dialog";
 
 const kindOptions = [
   ["expense", "Expense"],
@@ -23,6 +24,7 @@ export default function TransactionEditDialog({ transaction, dashboard, onClose,
   const [categoryId, setCategoryId] = useState(transaction.categoryId ?? "");
   const [rememberCategory, setRememberCategory] = useState(false);
   const [ruleMatch, setRuleMatch] = useState(transaction.description);
+  const { confirm, dialog: confirmationDialog } = useConfirmDialog();
   const accounts = dashboard.managedAccounts.filter(account => account.active || account.id === transaction.accountId);
   const categories = dashboard.managedCategories.filter(category => category.active || category.id === transaction.categoryId);
 
@@ -33,7 +35,7 @@ export default function TransactionEditDialog({ transaction, dashboard, onClose,
   }, []);
 
   async function removeTransaction() {
-    if (!window.confirm(`Delete “${transaction.description}”? This will remove it from account and category balances. The deletion remains in the audit trail.`)) return;
+    if (!await confirm({ title: `Delete “${transaction.description}”?`, message: "This will remove it from account and category balances. The deletion remains in the audit trail.", confirmLabel: "Delete transaction", destructive: true })) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/entries", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: transaction.id }) });
@@ -81,5 +83,5 @@ export default function TransactionEditDialog({ transaction, dashboard, onClose,
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="form-footer"><button type="button" className="danger-button" disabled={busy} onClick={() => void removeTransaction()}>Delete transaction</button><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
     </form>
-  </dialog>;
+    {confirmationDialog}</dialog>;
 }

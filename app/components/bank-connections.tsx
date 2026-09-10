@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { DashboardData } from "../../lib/workspace-types";
 import { kindLabel, money } from "../../lib/workspace-types";
 import Typeahead from "./typeahead";
+import { useConfirmDialog } from "./confirm-dialog";
 
 type ProviderAccount = { id: string; providerAccountId: string; name: string; officialName: string | null; mask: string | null; type: string; subtype: string | null; localAccountId: string | null; currentBalance: number | null; availableBalance: number | null; balanceAt: string | null };
 type Connection = { id: string; provider: string; institutionName: string | null; status: string; lastSyncAt: string | null; lastError: string | null; accounts: ProviderAccount[] };
@@ -30,6 +31,7 @@ function loadPlaidScript() {
 
 export default function BankConnections({ dashboard, onChanged }: { dashboard: DashboardData; onChanged: (message?: string) => void }) {
   const [data, setData] = useState<ConnectionResponse | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const { confirm, dialog: confirmationDialog } = useConfirmDialog();
   const refresh = useCallback(async () => {
     const response = await fetch("/api/connections", { cache: "no-store" });
     const result = await response.json().catch(() => null);
@@ -99,7 +101,7 @@ export default function BankConnections({ dashboard, onChanged }: { dashboard: D
     finally { setBusy(false); }
   }
   async function disconnect(connection: Connection) {
-    if (!window.confirm(`Disconnect ${connection.institutionName ?? "this bank"}? Imported transactions remain in your budget, but future syncs stop.`)) return;
+    if (!await confirm({ title: `Disconnect ${connection.institutionName ?? "this bank"}?`, message: "Imported transactions remain in your budget, but future syncs stop.", confirmLabel: "Disconnect bank", destructive: true })) return;
     setBusy(true); setError("");
     try {
       const response = await fetch(`/api/connections/${connection.id}`, { method: "DELETE" });
@@ -131,5 +133,5 @@ export default function BankConnections({ dashboard, onChanged }: { dashboard: D
       {!connection.accounts.some(account => account.localAccountId) && <p className="field-help">Map at least one provider account before syncing transactions. Unmapped provider accounts remain read-only.</p>}
     </article>)}
     {data?.connections.length === 0 && <p className="empty-state">No bank connections yet. Manual account entries continue to work without Plaid.</p>}
-  </section>;
+    {confirmationDialog}</section>;
 }

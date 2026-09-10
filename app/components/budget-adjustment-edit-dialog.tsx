@@ -2,11 +2,13 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { BudgetAdjustment } from "../../lib/workspace-types";
+import { useConfirmDialog } from "./confirm-dialog";
 
 export default function BudgetAdjustmentEditDialog({ adjustment, onClose, onSaved }: { adjustment: BudgetAdjustment; onClose: () => void; onSaved: (message: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const { confirm, dialog: confirmationDialog } = useConfirmDialog();
 
   useEffect(() => {
     const node = dialog.current, previousOverflow = document.body.style.overflow;
@@ -15,7 +17,7 @@ export default function BudgetAdjustmentEditDialog({ adjustment, onClose, onSave
   }, []);
 
   async function remove() {
-    if (!window.confirm("Delete this available-to-assign adjustment? Your available balance will be recalculated immediately.")) return;
+    if (!await confirm({ title: "Delete this adjustment?", message: "Your available-to-assign balance will be recalculated immediately.", confirmLabel: "Delete adjustment", destructive: true })) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/budget/adjustments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: adjustment.id }) });
@@ -45,5 +47,5 @@ export default function BudgetAdjustmentEditDialog({ adjustment, onClose, onSave
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="form-footer"><button type="button" className="danger-button" disabled={busy} onClick={() => void remove()}>Delete adjustment</button><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
     </form>
-  </dialog>;
+    {confirmationDialog}</dialog>;
 }

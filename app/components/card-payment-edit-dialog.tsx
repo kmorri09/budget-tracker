@@ -3,12 +3,14 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { money, type DashboardData } from "../../lib/workspace-types";
 import Typeahead from "./typeahead";
+import { useConfirmDialog } from "./confirm-dialog";
 
 export default function CardPaymentEditDialog({ payment, dashboard, onClose, onSaved }: { payment: DashboardData["payments"][number]; dashboard: DashboardData; onClose: () => void; onSaved: (message: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const { confirm, dialog: confirmationDialog } = useConfirmDialog();
   const [amount, setAmount] = useState(payment.amount.toFixed(2));
   const [date, setDate] = useState(payment.date);
   const [toAccountId, setToAccountId] = useState(payment.toAccountId);
@@ -27,7 +29,7 @@ export default function CardPaymentEditDialog({ payment, dashboard, onClose, onS
 
   async function removePayment(suppressProviderTransaction = false) {
     const effect = payment.providerLinked ? suppressProviderTransaction ? "Its linked bank activity will also be ignored without letting Plaid import it again." : "Its linked bank activity will return to Review as transfers." : "Its purchase applications will be reversed and both account balances will be updated.";
-    if (!window.confirm(`Delete “${payment.description}”? ${effect}`)) return;
+    if (!await confirm({ title: `Delete “${payment.description}”?`, message: effect, confirmLabel: "Delete payment", destructive: true })) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/card-payments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: payment.id, suppressProviderTransaction }) });
@@ -65,5 +67,5 @@ export default function CardPaymentEditDialog({ payment, dashboard, onClose, onS
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="form-footer">{payment.providerLinked ? <><button type="button" className="danger-button" disabled={busy} onClick={() => void removePayment(true)}>Delete &amp; ignore bank activity</button><button type="button" className="text-link" disabled={busy} onClick={() => void removePayment(false)}>Delete; return activity to Review</button></> : <button type="button" className="danger-button" disabled={busy} onClick={() => void removePayment()}>Delete payment</button>}<button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || applied > (Number(amount) || 0)}>{busy ? "Saving…" : "Save changes"}</button></div>
     </form>
-  </dialog>;
+    {confirmationDialog}</dialog>;
 }

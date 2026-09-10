@@ -184,6 +184,9 @@
 .entry-dialog .type-options label { display: flex; align-items: center; gap: 5px; min-height: 44px; font-size: 12px; }
 .workspace .type-options input { width: 18px; min-height: 18px; height: 18px; }
 .entry-dialog .form-footer { display: flex; justify-content: flex-end; gap: 10px; }
+.confirm-dialog { width: min(520px, calc(100% - 32px)); }
+.confirm-dialog .confirm-message { margin: 0 0 8px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.confirm-dialog .form-footer .danger-button { margin-right: 0; }
 .workspace .danger-button { min-height: 44px; margin-right: auto; padding: 10px 14px; border: 1px solid #e2bdb8; border-radius: 9px; background: #fff7f5; color: #9f3d34; font: inherit; font-size: 13px; font-weight: 700; }
 .workspace .danger-button:hover { background: #fcece8; }
 .reconcile-dialog { width: min(680px, calc(100% - 32px)); }

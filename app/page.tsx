@@ -16,6 +16,7 @@ import BudgetAdjustmentEditDialog from "./components/budget-adjustment-edit-dial
 import BankConnections from "./components/bank-connections";
 import Typeahead from "./components/typeahead";
 import CategorizationRules from "./components/categorization-rules";
+import { useConfirmDialog } from "./components/confirm-dialog";
 import { type ActionType, type DashboardData, kindLabel, money, signedAmount, today } from "../lib/workspace-types";
 import { categoriesAllocatedInLastDays } from "../lib/recent-allocations";
 import "./workspace.css";
@@ -226,8 +227,9 @@ function Overview({ dashboard: data, navigate, onAction, onReconcileBudget, onFu
 
 function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashboard: DashboardData; onEdit: (transaction: DashboardData["activity"][number]) => void; onRecordPayment: (transaction: DashboardData["activity"][number]) => void; onChanged: () => void }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [search, setSearch] = useState("");
+  const { confirm, dialog: confirmationDialog } = useConfirmDialog();
   async function resolve(id?: string) {
-    if (!id && !window.confirm("Resolve all " + dashboard.reviews.length + " open review items? This does not change the underlying transactions.")) return;
+    if (!id && !await confirm({ title: `Resolve all ${dashboard.reviews.length} open review items?`, message: "This does not change the underlying transactions.", confirmLabel: "Resolve all" })) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/reviews", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(id ? { id } : { all: true }), status: "resolved" }) });
@@ -236,7 +238,7 @@ function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashbo
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); }
   }
   async function ignoreHistorical(id: string) {
-    if (!window.confirm("Ignore this Plaid activity because it is already represented by another record or in the account's starting or reconciled balance? It will be removed from the ledger and Plaid will not re-import it.")) return;
+    if (!await confirm({ title: "Ignore this Plaid activity?", message: "It will be removed from the ledger because it is already represented elsewhere, and Plaid will not re-import it.", confirmLabel: "Ignore activity", destructive: true })) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/reviews", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ignoreTransaction: true }) });
@@ -253,15 +255,16 @@ function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashbo
     const transaction = item.transaction;
     const title = transaction && (item.kind === "provider_transfer" || item.kind === "bank_transaction") ? `Review imported ${item.kind === "provider_transfer" ? "transfer" : transaction.kind === "refund" ? "refund" : "transaction"}: ${transaction.description}` : item.title;
     return <article className="review-item" key={item.id}><div className="review-item-content"><strong>{title}</strong><p>{item.details}</p>{transaction ? <dl className="review-facts"><div><dt>Description</dt><dd>{transaction.description}</dd></div><div><dt>Date</dt><dd>{transaction.date}</dd></div><div><dt>Amount</dt><dd className={signedAmount(transaction) < 0 ? "negative" : ""}>{money(signedAmount(transaction))}</dd></div><div><dt>Account</dt><dd>{transaction.account}</dd></div><div><dt>Type</dt><dd>{kindLabel(transaction.kind)}</dd></div><div><dt>Category</dt><dd>{transaction.category ?? "Uncategorized"}</dd></div><div><dt>Source / status</dt><dd>{kindLabel(transaction.source)} · {transaction.pending ? "Pending" : kindLabel(transaction.status)}</dd></div></dl> : <p className="review-missing">The linked transaction is no longer in the active ledger. You can safely mark this reminder reviewed.</p>}</div><div className="review-item-actions">{transaction && item.kind === "provider_transfer" && transaction.kind === "transfer_out" && <button className="primary-button" disabled={busy} onClick={() => onRecordPayment(transaction)}>Record card payment</button>}{transaction?.source === "plaid" && <button className="secondary-button" disabled={busy} onClick={() => void ignoreHistorical(item.id)}>Already represented — ignore</button>}{transaction && <button className="secondary-button" disabled={busy} onClick={() => onEdit(transaction)}>Edit transaction</button>}<button className="secondary-button" disabled={busy} onClick={() => void resolve(item.id)}>{item.kind === "provider_transfer" ? "Keep as transaction" : "Mark reviewed"}</button></div></article>;
-  })}{!visible.length && <p className="empty-state">{dashboard.reviews.length ? "No matching reviews." : "Nothing needs review right now."}</p>}</div>;
+  })}{!visible.length && <p className="empty-state">{dashboard.reviews.length ? "No matching reviews." : "Nothing needs review right now."}</p>}{confirmationDialog}</div>;
 }
 
 function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData; onAction: (action: ActionType) => void; onChanged: (message?: string) => void }) {
   const [reconciling, setReconciling] = useState<string | null>(null), [editing, setEditing] = useState<string | null>(null), [balance, setBalance] = useState("");
   const [search, setSearch] = useState(""), [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  const { confirm, dialog: confirmationDialog } = useConfirmDialog();
   const visible = dashboard.managedAccounts.filter(account => (account.name + " " + account.institution + " " + account.type + " " + (account.active ? "active" : "inactive")).toLowerCase().includes(search.toLowerCase())).sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name));
   async function removeAccount(account: DashboardData["managedAccounts"][number]) {
-    if (!window.confirm("Remove " + account.name + "? It will be archived from this workspace so its transaction history and audit trail remain intact.")) return;
+    if (!await confirm({ title: `Remove ${account.name}?`, message: "It will be archived from this workspace so its transaction history and audit trail remain intact.", confirmLabel: "Remove account", destructive: true })) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/accounts", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id }) });
@@ -318,7 +321,7 @@ function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData
         </>}
       </article>;
     })}</div>
-    {!visible.length && <p className="empty-state">{dashboard.managedAccounts.length ? "No matching accounts." : "Add your checking, savings, or credit card accounts to get started."}</p>}
+    {!visible.length && <p className="empty-state">{dashboard.managedAccounts.length ? "No matching accounts." : "Add your checking, savings, or credit card accounts to get started."}</p>}{confirmationDialog}
     <section className="panel settings-panel"><h2>Workspace settings</h2><div className="settings-row"><div><strong>Import from Notion</strong><p className="field-help">Upload a private snapshot directly to this app. Preview before importing.</p></div><a className="secondary-button" href="/import">Import Notion</a></div><BankConnections dashboard={dashboard} onChanged={(message) => onChanged(message)} /><CategorizationRules dashboard={dashboard} onChanged={onChanged} /><div className="settings-row"><span>Private session</span><button className="secondary-button" onClick={async () => { try { const response = await fetch("/api/auth/logout", { method: "POST" }); if (!response.ok) throw new Error(); window.location.assign("/login"); } catch { setError("Could not sign out. Please try again."); } }}>Sign out</button></div></section>
   </>;
 }

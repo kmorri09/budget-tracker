@@ -3,11 +3,13 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { Allocation, DashboardData } from "../../lib/workspace-types";
 import Typeahead from "./typeahead";
+import { useConfirmDialog } from "./confirm-dialog";
 
 export default function AllocationEditDialog({ allocation, dashboard, onClose, onSaved }: { allocation: Allocation; dashboard: DashboardData; onClose: () => void; onSaved: (message: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const { confirm, dialog: confirmationDialog } = useConfirmDialog();
   const categories = dashboard.managedCategories.filter(category => category.active || category.id === allocation.categoryId);
 
   useEffect(() => {
@@ -17,7 +19,7 @@ export default function AllocationEditDialog({ allocation, dashboard, onClose, o
   }, []);
 
   async function remove() {
-    if (!window.confirm(`Delete this ${allocation.amount < 0 ? "removal" : "allocation"} of ${Math.abs(allocation.amount).toLocaleString("en-US", { style: "currency", currency: "USD" })}? Category and available-to-assign balances will be recalculated.`)) return;
+    if (!await confirm({ title: `Delete this ${allocation.amount < 0 ? "removal" : "allocation"}?`, message: `${Math.abs(allocation.amount).toLocaleString("en-US", { style: "currency", currency: "USD" })} will be removed. Category and available-to-assign balances will be recalculated.`, confirmLabel: "Delete allocation", destructive: true })) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/allocations", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: allocation.id }) });
@@ -48,5 +50,5 @@ export default function AllocationEditDialog({ allocation, dashboard, onClose, o
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="form-footer"><button type="button" className="danger-button" disabled={busy} onClick={() => void remove()}>Delete allocation</button><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
     </form>
-  </dialog>;
+    {confirmationDialog}</dialog>;
 }

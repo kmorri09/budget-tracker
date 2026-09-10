@@ -3,12 +3,14 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { today, type DashboardData, type Obligation } from "../../lib/workspace-types";
 import Typeahead from "./typeahead";
+import { useConfirmDialog } from "./confirm-dialog";
 
 export default function ObligationEditDialog({ obligation, dashboard, onClose, onSaved }: { obligation: Obligation | null; dashboard: DashboardData; onClose: () => void; onSaved: (message: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const { confirm, dialog: confirmationDialog } = useConfirmDialog();
   const editing = Boolean(obligation);
   const accounts = dashboard.managedAccounts.filter(account => account.active || account.id === obligation?.accountId);
   const categories = dashboard.managedCategories.filter(category => category.active || category.id === obligation?.categoryId);
@@ -20,7 +22,7 @@ export default function ObligationEditDialog({ obligation, dashboard, onClose, o
   }, []);
 
   async function removeObligation() {
-    if (!obligation || !window.confirm(`Delete “${obligation.name}”? This removes it permanently. Existing allocations are not changed.`)) return;
+    if (!obligation || !await confirm({ title: `Delete “${obligation.name}”?`, message: "This removes it permanently. Existing allocations are not changed.", confirmLabel: "Delete obligation", destructive: true })) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/obligations", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: obligation.id }) });
@@ -54,5 +56,5 @@ export default function ObligationEditDialog({ obligation, dashboard, onClose, o
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="form-footer">{obligation && <button type="button" className="danger-button" disabled={busy} onClick={() => void removeObligation()}>Delete obligation</button>}<button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving…" : editing ? "Save changes" : "Add obligation"}</button></div>
     </form>
-  </dialog>;
+    {confirmationDialog}</dialog>;
 }
