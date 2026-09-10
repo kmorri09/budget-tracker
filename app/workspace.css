@@ -84,6 +84,10 @@
 .workspace-table .selection-column input { width: 18px; min-height: 18px; height: 18px; margin: 0; accent-color: var(--green-dark); }
 .workspace-table .table-actions-heading { width: 155px; }
 .workspace-table th button { width: 100%; min-height: 36px; text-align: left; padding: 0; border: 0; color: inherit; background: transparent; font-size: 11px; font-weight: 600; }
+.workspace-table th[draggable] { cursor: grab; }
+.workspace-table th[draggable]:active { cursor: grabbing; }
+.workspace-table th.column-dragging { opacity: .55; }
+.column-drag-handle { display: inline-block; margin-right: 5px; color: #89a096; font-size: 11px; letter-spacing: -2px; }
 .workspace-table td { border-bottom: 1px solid var(--line); padding: 16px 8px; vertical-align: top; overflow-wrap: anywhere; line-height: 1.5; }
 .workspace-table tbody tr:hover { background: #f7faf7; }
 .workspace-table .numeric { font-variant-numeric: tabular-nums; }
@@ -101,6 +105,8 @@
 .subtable-heading h2 { margin: 0; font: 600 22px Fraunces, Georgia, serif; }
 .subtable-heading p { margin: 4px 0 0; }
 .allocation-availability { margin: -4px 0 12px; padding: 10px 12px; border: 1px solid #dce9e1; border-radius: 9px; background: #f2f8f4; color: var(--green-dark); }
+.allocation-availability p { margin: 0; }
+.allocation-availability p + p { margin-top: 4px; }
 .account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; align-items: start; }
 .account-management-note { margin: -6px 0 18px; }
 .account-card-heading, .account-edit-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }

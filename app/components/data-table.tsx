@@ -7,7 +7,7 @@ import { queryRows, type TableQuery, type TableRow } from "../../lib/table-query
 export type Column = { key: string; label: string; money?: boolean; detail?: boolean; truncate?: boolean };
 type RowAction = { label: string; onClick: (row: TableRow) => void; isEligible?: (row: TableRow) => boolean };
 type Selection = { actionLabel: string; isEligible: (row: TableRow) => boolean; onAction: (rows: TableRow[]) => void };
-type Props = { title: string; rows: TableRow[]; columns: Column[]; facets: { key: string; label: string }[]; dated?: boolean; amountKey: string; amountLabel: string; onRow?: (row: TableRow) => void; rowActions?: RowAction[]; initialCategory?: string; initialSort?: string; initialDirection?: "asc" | "desc"; selection?: Selection };
+type Props = { title: string; rows: TableRow[]; columns: Column[]; facets: { key: string; label: string }[]; dated?: boolean; amountKey: string; amountLabel: string; onRow?: (row: TableRow) => void; rowActions?: RowAction[]; initialCategory?: string; initialFacet?: { key: string; value: string }; initialSort?: string; initialDirection?: "asc" | "desc"; selection?: Selection };
 
 export function SearchFilter({ label, options, value, onChange }: { label: string; options: string[]; value: string[]; onChange: (value: string[]) => void }) {
   const [search, setSearch] = useState("");
@@ -43,14 +43,43 @@ function defaultQuery(dated: boolean, category?: string): TableQuery {
   return { search: "", facets: category ? { category: [category] } : {}, from: dated && !category ? from : "", to: dated && !category ? today() : "", min: "", max: "", sort: dated ? "date" : "name", direction: dated ? "desc" : "asc" };
 }
 
-export default function DataTable({ title, rows, columns, facets, dated = false, amountKey, amountLabel, onRow, rowActions = [], initialCategory, initialSort, initialDirection = "asc", selection }: Props) {
-  const [query, setQuery] = useState<TableQuery>(() => ({ ...defaultQuery(dated, initialCategory), ...(initialSort ? { sort: initialSort, direction: initialDirection } : {}) }));
+export default function DataTable({ title, rows, columns, facets, dated = false, amountKey, amountLabel, onRow, rowActions = [], initialCategory, initialFacet, initialSort, initialDirection = "asc", selection }: Props) {
+  const columnStorageKey = `budget-tracker:table-columns:${title}`;
+  const [query, setQuery] = useState<TableQuery>(() => {
+    const base = defaultQuery(dated, initialCategory);
+    return { ...base, facets: initialFacet ? { ...base.facets, [initialFacet.key]: [initialFacet.value] } : base.facets, ...(initialSort ? { sort: initialSort, direction: initialDirection } : {}) };
+  });
+  const [orderedColumns, setOrderedColumns] = useState<Column[]>(columns);
+  const [columnsReady, setColumnsReady] = useState(false);
+  const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [range, setRange] = useState(dated && !initialCategory ? "30" : "all");
   const [extra, setExtra] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [pageSize, setPageSize] = useState(25);
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(columnStorageKey);
+      if (saved) {
+        const savedKeys = JSON.parse(saved) as unknown;
+        if (Array.isArray(savedKeys)) {
+          const byKey = new Map(columns.map(column => [column.key, column]));
+          const savedColumns = savedKeys.filter((key): key is string => typeof key === "string").map(key => byKey.get(key)).filter((column): column is Column => Boolean(column));
+          const missingColumns = columns.filter(column => !savedColumns.some(savedColumn => savedColumn.key === column.key));
+          if (savedColumns.length) setOrderedColumns([...savedColumns, ...missingColumns]);
+        }
+      }
+    } catch {
+      // Ignore unavailable or malformed browser storage and use the declared order.
+    } finally {
+      setColumnsReady(true);
+    }
+  }, [columnStorageKey]);
+  useEffect(() => {
+    if (!columnsReady) return;
+    try { window.localStorage.setItem(columnStorageKey, JSON.stringify(orderedColumns.map(column => column.key))); } catch { /* Storage may be disabled. */ }
+  }, [columnStorageKey, columnsReady, orderedColumns]);
   const update = (change: Partial<TableQuery>) => { setQuery(current => ({ ...current, ...change })); setPage(0); };
   const filtered = queryRows(rows, query, amountKey);
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize)), safePage = Math.min(page, pages - 1);
@@ -65,6 +94,19 @@ export default function DataTable({ title, rows, columns, facets, dated = false,
     const eligibleIds = new Set(eligibleFiltered.map(row => row.id));
     setSelected(current => allFilteredSelected ? current.filter(id => !eligibleIds.has(id)) : [...new Set([...current, ...eligibleIds])]);
   }
+  function dropColumn(targetKey: string) {
+    if (!draggedColumn || draggedColumn === targetKey) return;
+    setOrderedColumns(current => {
+      const fromIndex = current.findIndex(column => column.key === draggedColumn);
+      const targetIndex = current.findIndex(column => column.key === targetKey);
+      if (fromIndex < 0 || targetIndex < 0) return current;
+      const next = [...current];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+    setDraggedColumn(null);
+  }
   return <section className="data-panel" aria-label={title + " table"}>
     <div className="table-toolbar">
       <label className="table-search"><span className="sr-only">Search {title}</span><input type="search" placeholder={"Search " + title.toLowerCase() + "…"} value={query.search} onChange={e => update({ search: e.target.value })} /></label>
@@ -77,16 +119,16 @@ export default function DataTable({ title, rows, columns, facets, dated = false,
     </div>
     {range === "custom" && dated && <div className="table-advanced"><label>From<input type="date" value={query.from} onChange={e => update({ from: e.target.value })} /></label><label>Through<input type="date" value={query.to} onChange={e => update({ to: e.target.value })} /></label></div>}
     {extra && <div className="table-advanced">
-      <div className="sort-options"><span>Sort by</span>{columns.map(c => <button key={c.key} aria-pressed={query.sort === c.key} onClick={() => sort(c.key)}>{c.label}{query.sort === c.key ? query.direction === "asc" ? " ↑" : " ↓" : ""}</button>)}</div>
+      <div className="sort-options"><span>Sort by</span>{orderedColumns.map(c => <button key={c.key} aria-pressed={query.sort === c.key} onClick={() => sort(c.key)}>{c.label}{query.sort === c.key ? query.direction === "asc" ? " ↑" : " ↓" : ""}</button>)}</div>
     </div>}
     <div className="active-filters">{Object.entries(query.facets).flatMap(([key, values]) => values.map(value => <button key={key+value} onClick={() => update({ facets: { ...query.facets, [key]: values.filter(v => v !== value) } })} aria-label={"Remove filter " + value}>{value} ×</button>))}{(query.min !== "" || query.max !== "") && <button onClick={() => update({ min: "", max: "" })} aria-label="Remove amount filter">{query.min !== "" ? `≥ ${query.min}` : ""}{query.min !== "" && query.max !== "" ? " · " : ""}{query.max !== "" ? `≤ ${query.max}` : ""} ×</button>}</div>
     <div className="table-summary" aria-live="polite"><span>{filtered.length} of {rows.length} {title.toLowerCase()} · {amountLabel}: <strong>{money(summaryAmount)}</strong></span><button className="text-link" onClick={() => { setRange("all"); update({ ...defaultQuery(false), sort: initialSort ?? (dated ? "date" : "name"), direction: initialSort ? initialDirection : dated ? "desc" : "asc" }); }}>Reset filters</button></div>
     {selection && eligibleFiltered.length > 0 && <div className="selection-toolbar"><span><strong>{selectedRows.length}</strong> selected</span><button type="button" className="text-link" onClick={toggleFiltered}>{allFilteredSelected ? "Clear filtered selection" : `Select all ${eligibleFiltered.length} filtered`}</button>{selectedRows.length > 0 && <button type="button" className="text-link" onClick={() => setSelected([])}>Clear all</button>}<button type="button" className="primary-button" disabled={!selectedRows.length} onClick={() => selection.onAction(selectedRows)}>{selection.actionLabel}</button></div>}
     {invalidRange && <p role="alert" className="form-error">The start or minimum must be no greater than the end or maximum.</p>}
-    <table className="workspace-table"><caption className="sr-only">{title} — {filtered.length} matching rows</caption><thead><tr>{selection && <th className="selection-column"><label><span className="sr-only">Select all filtered eligible rows</span><input type="checkbox" checked={allFilteredSelected} onChange={toggleFiltered} disabled={!eligibleFiltered.length} /></label></th>}{columns.map(c => <th key={c.key} aria-sort={query.sort === c.key ? query.direction === "asc" ? "ascending" : "descending" : "none"}><button onClick={() => sort(c.key)}>{c.label} {query.sort === c.key ? query.direction === "asc" ? "↑" : "↓" : "↕"}</button></th>)}{rowActions.length > 0 && <th className="table-actions-heading">Actions</th>}<th><span className="sr-only">Details</span></th></tr></thead>
-      <tbody>{visible.map(row => <tr key={row.id} className={expanded === row.id ? "row-expanded" : ""}>{selection && <td className="selection-column" data-label="Select">{selection.isEligible(row) && <label><span className="sr-only">Select {String(row[columns[0].key])}</span><input type="checkbox" checked={selected.includes(row.id)} onChange={() => setSelected(current => current.includes(row.id) ? current.filter(id => id !== row.id) : [...current, row.id])} /></label>}</td>}{columns.map((c, index) => <td key={c.key} data-label={c.label} className={(index === 0 ? "row-title " : "") + (c.detail ? "row-detail " : "") + (c.money ? "numeric" : "")}>
+    <table className="workspace-table"><caption className="sr-only">{title} — {filtered.length} matching rows</caption><thead><tr>{selection && <th className="selection-column"><label><span className="sr-only">Select all filtered eligible rows</span><input type="checkbox" checked={allFilteredSelected} onChange={toggleFiltered} disabled={!eligibleFiltered.length} /></label></th>}{orderedColumns.map(c => <th key={c.key} draggable={orderedColumns.length > 1} onDragStart={() => setDraggedColumn(c.key)} onDragEnd={() => setDraggedColumn(null)} onDragOver={event => event.preventDefault()} onDrop={() => dropColumn(c.key)} className={draggedColumn === c.key ? "column-dragging" : ""} title={orderedColumns.length > 1 ? "Drag to reorder this column" : undefined} aria-sort={query.sort === c.key ? query.direction === "asc" ? "ascending" : "descending" : "none"}><span className="column-drag-handle" aria-hidden="true">↔</span><button onClick={() => sort(c.key)}>{c.label} {query.sort === c.key ? query.direction === "asc" ? "↑" : "↓" : "↕"}</button></th>)}{rowActions.length > 0 && <th className="table-actions-heading">Actions</th>}<th><span className="sr-only">Details</span></th></tr></thead>
+      <tbody>{visible.map(row => <tr key={row.id} className={expanded === row.id ? "row-expanded" : ""}>{selection && <td className="selection-column" data-label="Select">{selection.isEligible(row) && <label><span className="sr-only">Select {String(row[orderedColumns[0].key])}</span><input type="checkbox" checked={selected.includes(row.id)} onChange={() => setSelected(current => current.includes(row.id) ? current.filter(id => id !== row.id) : [...current, row.id])} /></label>}</td>}{orderedColumns.map((c, index) => <td key={c.key} data-label={c.label} className={(index === 0 ? "row-title " : "") + (c.detail ? "row-detail " : "") + (c.money ? "numeric" : "")}>
         {index === 0 && onRow ? <button className="text-link" onClick={() => onRow(row)}>{String(row[c.key])}</button> : c.money ? <span className={Number(row[c.key]) < 0 ? "negative" : ""}>{money(Number(row[c.key]))}</span> : (c.truncate || c.key === "covered") ? <span className="cell-truncate" title={String(row[c.key])}>{String(row[c.key])}</span> : String(row[c.key])}
-      </td>)}{rowActions.length > 0 && <td className="row-actions" data-label="Actions">{rowActions.filter(action => action.isEligible?.(row) ?? true).map(action => <button type="button" className="text-link" key={action.label} onClick={() => action.onClick(row)}>{action.label}<span className="sr-only"> {String(row[columns[0].key])}</span></button>)}</td>}<td className="row-toggle"><button className="text-link" aria-expanded={expanded === row.id} onClick={() => setExpanded(expanded === row.id ? null : row.id)}>{expanded === row.id ? "Less" : "Details"}</button></td></tr>)}</tbody>
+      </td>)}{rowActions.length > 0 && <td className="row-actions" data-label="Actions">{rowActions.filter(action => action.isEligible?.(row) ?? true).map(action => <button type="button" className="text-link" key={action.label} onClick={() => action.onClick(row)}>{action.label}<span className="sr-only"> {String(row[orderedColumns[0].key])}</span></button>)}</td>}<td className="row-toggle"><button className="text-link" aria-expanded={expanded === row.id} onClick={() => setExpanded(expanded === row.id ? null : row.id)}>{expanded === row.id ? "Less" : "Details"}</button></td></tr>)}</tbody>
     </table>
     {visible.length === 0 && <div className="table-empty"><h3>{rows.length ? "No matches" : "Nothing here yet"}</h3><p>{rows.length ? "Try changing your date range or clearing a filter." : "Use the add button above to create your first entry."}</p></div>}
     <div className="table-pagination"><label>Rows per page<select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(0); }}><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label><span>Page {safePage + 1} of {pages}</span><div><button className="secondary-button" disabled={safePage === 0} onClick={() => setPage(safePage-1)}>Previous</button><button className="secondary-button" disabled={safePage + 1 >= pages} onClick={() => setPage(safePage+1)}>Next</button></div></div>

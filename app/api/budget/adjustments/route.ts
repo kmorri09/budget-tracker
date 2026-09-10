@@ -1,23 +1,15 @@
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { getCurrentUser } from "../../../../lib/auth";
 import { getDatabase } from "../../../../lib/db";
 import { auditEvents, budgetAdjustments } from "../../../../lib/schema";
-
-const updateSchema = z.object({
-  id: z.string().min(1),
-  amount: z.coerce.number().finite().refine(value => value !== 0, "Amount cannot be zero"),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  note: z.string().trim().min(1).max(200),
-});
-const deleteSchema = z.object({ id: z.string().min(1) });
+import { budgetAdjustmentUpdateSchema, idSchema } from "../../../../lib/api-validation";
 
 export async function PATCH(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const parsed = updateSchema.safeParse(await request.json().catch(() => null));
+  const parsed = budgetAdjustmentUpdateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid adjustment" }, { status: 400 });
   const input = parsed.data;
   const db = getDatabase();
@@ -34,7 +26,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const parsed = deleteSchema.safeParse(await request.json().catch(() => null));
+  const parsed = idSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Adjustment id is required" }, { status: 400 });
   const db = getDatabase();
   const existing = (await db.select().from(budgetAdjustments).where(and(eq(budgetAdjustments.id, parsed.data.id), eq(budgetAdjustments.userId, user.id))).limit(1))[0];

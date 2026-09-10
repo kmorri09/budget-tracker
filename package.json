@@ -8,6 +8,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "test": "node --test tests/*.test.mjs && tsx --test tests/api-auth.test.ts",
+    "test:unit": "node --test tests/*.test.mjs",
+    "test:backend": "tsx --test tests/api-auth.test.ts",
     "start": "node scripts/start.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "node scripts/seed.mjs",

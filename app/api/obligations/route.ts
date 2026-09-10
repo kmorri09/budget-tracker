@@ -1,27 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
 import { accounts, auditEvents, categories, obligations } from "../../../lib/schema";
-
-const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Due date must use YYYY-MM-DD").refine(value => {
-  const date = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}, "Due date is invalid");
-
-const obligationSchema = z.object({
-  name: z.string().trim().min(1).max(120),
-  amount: z.coerce.number().positive().finite(),
-  dueDate: dateSchema,
-  categoryId: z.string().min(1),
-  accountId: z.string().min(1),
-  cadence: z.string().trim().max(40).optional().nullable().transform(value => value || null),
-  active: z.boolean().default(true),
-});
-const updateSchema = obligationSchema.extend({ id: z.string().min(1) });
-const deleteSchema = z.object({ id: z.string().min(1) });
+import { idSchema, obligationSchema, obligationUpdateSchema } from "../../../lib/api-validation";
 
 async function validateReferences(userId: string, accountId: string, categoryId: string) {
   const db = getDatabase();
@@ -55,7 +38,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const parsed = updateSchema.safeParse(await request.json().catch(() => null));
+  const parsed = obligationUpdateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid obligation" }, { status: 400 });
   const input = parsed.data;
   const db = getDatabase();
@@ -74,7 +57,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const parsed = deleteSchema.safeParse(await request.json().catch(() => null));
+  const parsed = idSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Obligation id is required" }, { status: 400 });
   const db = getDatabase();
   const existing = (await db.select().from(obligations).where(and(eq(obligations.id, parsed.data.id), eq(obligations.userId, user.id))).limit(1))[0];

@@ -1,25 +1,13 @@
 import { and, asc, eq, gte, inArray, lte, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
 import { CARD_PAYMENT_MATCH_DAYS } from "../../../lib/bank-sync-core";
 import { accounts, auditEvents, cardCoverageAdjustments, cardPaymentApplications, cardPayments, reviewItems, transactions } from "../../../lib/schema";
+import { paymentDeleteSchema, paymentSchema, paymentUpdateSchema } from "../../../lib/api-validation";
 
 export const runtime = "nodejs";
-
-const applicationSchema = z.object({ transactionId: z.string().min(1), amount: z.coerce.number().positive().finite() });
-const paymentSchema = z.object({
-  amount: z.coerce.number().positive().finite(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  fromAccountId: z.string().min(1),
-  toAccountId: z.string().min(1),
-  description: z.string().trim().min(1).max(200),
-  applications: z.array(applicationSchema).optional(),
-});
-const paymentUpdateSchema = paymentSchema.extend({ id: z.string().min(1), applications: z.array(applicationSchema) });
-const paymentDeleteSchema = z.object({ id: z.string().min(1), suppressProviderTransaction: z.boolean().optional().default(false) });
 
 const cents = (amount: number) => Math.round(amount * 100);
 

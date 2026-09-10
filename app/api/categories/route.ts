@@ -1,13 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
 import { auditEvents, categories } from "../../../lib/schema";
-
-const schema = z.object({ name: z.string().trim().min(1).max(80), icon: z.string().max(4).default(""), target: z.coerce.number().finite().nonnegative().default(0), active: z.boolean().default(true) });
-const updateSchema = schema.extend({ id: z.string().min(1) });
+import { categorySchema, categoryUpdateSchema } from "../../../lib/api-validation";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -18,7 +15,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const parsed = categorySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid category" }, { status: 400 });
   const input = parsed.data;
   const id = randomUUID();
@@ -30,7 +27,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const parsed = updateSchema.safeParse(await request.json().catch(() => null));
+  const parsed = categoryUpdateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid category" }, { status: 400 });
   const input = parsed.data;
   const db = getDatabase();

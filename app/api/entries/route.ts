@@ -1,36 +1,10 @@
 import { and, eq, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
 import { accounts, allocations, auditEvents, cardCoverageAdjustments, cardPaymentApplications, categories, reviewItems, transactions } from "../../../lib/schema";
-
-const entrySchema = z.object({
-  kind: z.enum(["transaction", "income", "allocation", "transfer", "payment"]),
-  amount: z.coerce.number().finite().refine(value => value !== 0, "Amount cannot be zero"),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  accountId: z.string().min(1).optional(),
-  categoryId: z.string().optional().nullable(),
-  fromCategoryId: z.string().optional().nullable(),
-  toCategoryId: z.string().optional().nullable(),
-  description: z.string().trim().min(1).max(200),
-}).superRefine((input, context) => {
-  if (input.kind !== "allocation" && input.amount <= 0) context.addIssue({ code: z.ZodIssueCode.custom, path: ["amount"], message: "Amount must be greater than zero" });
-});
-
-const transactionKindSchema = z.enum(["expense", "income", "refund", "card_payment", "transfer_in", "transfer_out", "adjustment"]);
-const transactionUpdateSchema = z.object({
-  id: z.string().min(1),
-  kind: transactionKindSchema,
-  amount: z.coerce.number().positive().finite(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  accountId: z.string().min(1),
-  categoryId: z.string().min(1).nullable(),
-  description: z.string().trim().min(1).max(200),
-  status: z.string().trim().min(1).max(40),
-  pending: z.boolean(),
-});
+import { entrySchema, idSchema, transactionUpdateSchema } from "../../../lib/api-validation";
 
 const cents = (amount: number) => Math.round(amount * 100);
 
@@ -120,12 +94,10 @@ export async function PATCH(request: Request) {
   return NextResponse.json({ id: input.id, ok: true });
 }
 
-const transactionDeleteSchema = z.object({ id: z.string().min(1) });
-
 export async function DELETE(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const parsed = transactionDeleteSchema.safeParse(await request.json().catch(() => null));
+  const parsed = idSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Transaction id is required" }, { status: 400 });
   const db = getDatabase();
   const existing = (await db.select().from(transactions).where(and(eq(transactions.id, parsed.data.id), eq(transactions.userId, user.id))).limit(1))[0];
