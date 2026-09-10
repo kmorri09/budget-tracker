@@ -100,6 +100,14 @@
 .table-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 18px; font-size: 12px; color: var(--muted); }
 .table-pagination > label { display: flex; align-items: center; gap: 8px; }
 .table-pagination > label input { min-height: 38px; width: 58px; }
+.typeahead-field { position: relative; min-width: 0; }
+.typeahead-control { position: relative; display: block; min-width: 0; }
+.typeahead-control > input { padding-right: 38px; }
+.typeahead-toggle { position: absolute; right: 3px; top: 3px; width: 34px; height: calc(100% - 6px); border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
+.typeahead-toggle:hover, .typeahead-toggle[aria-expanded=true] { background: #edf5ef; }
+.typeahead-options { position: absolute; left: 0; right: 0; top: calc(100% + 5px); z-index: 20; max-height: 260px; overflow-y: auto; padding: 5px; border: 1px solid #cbdcd0; border-radius: 9px; background: white; box-shadow: 0 10px 28px #23372a26; }
+.typeahead-options button { display: block; width: 100%; min-height: 38px; padding: 8px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); text-align: left; font: inherit; font-size: 13px; cursor: pointer; }
+.typeahead-options button:hover, .typeahead-options button.active { background: #edf5ef; color: var(--green-dark); }
 .table-pagination select { min-height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 30px 0 10px; background: #fbfcfb; color: var(--ink); font: inherit; }
 .table-pagination > div { display: flex; gap: 8px; }
 .subtable-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 30px 0 12px; }
@@ -140,7 +148,7 @@
 .provider-account-row strong, .provider-account-row small { display: block; }
 .provider-account-row small { color: var(--muted); font-size: 11px; margin-top: 3px; }
 .provider-map-label { display: grid; gap: 5px; min-width: min(220px, 48%); color: var(--muted); font-size: 11px; font-weight: 600; }
-.provider-map-label input { min-height: 38px; border: 1px solid #d4dfd7; border-radius: 8px; padding: 0 9px; background: #fbfcfb; color: var(--ink); font: inherit; }
+.provider-map-label .typeahead-control > input { min-height: 38px; border: 1px solid #d4dfd7; border-radius: 8px; padding: 0 36px 0 9px; background: #fbfcfb; color: var(--ink); font: inherit; }
 .categorization-rules { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 18px; }
 .categorization-rules > div:first-child > strong { font-size: 13px; }
 .categorization-rules > div:first-child > p { margin: 4px 0 10px; }
@@ -166,7 +174,7 @@
 .entry-dialog form, .entry-dialog fieldset { display: grid; gap: 16px; }
 .entry-dialog fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .entry-dialog label { display: grid; gap: 6px; color: #52655a; font-size: 13px; font-weight: 600; }
-.entry-dialog input[list] { min-height: 44px; width: 100%; border: 1px solid #d4dfd7; border-radius: 9px; padding: 0 12px; background: #fbfcfb; color: var(--ink); font: inherit; }
+.entry-dialog .typeahead-control > input { min-height: 44px; width: 100%; border: 1px solid #d4dfd7; border-radius: 9px; padding: 0 38px 0 12px; background: #fbfcfb; color: var(--ink); font: inherit; }
 .entry-dialog .toggle-field { display: flex; align-items: center; gap: 9px; min-height: 44px; }
 .entry-dialog .toggle-field input { width: 18px; min-height: 18px; height: 18px; accent-color: var(--green-dark); }
 .rule-builder { display: grid; gap: 10px; padding: 12px; border: 1px solid #d7e4da; border-radius: 10px; background: #f4f8f5; }
@@ -207,7 +215,7 @@
 .payment-allocation-controls .secondary-button { min-height: 44px; padding: 0 10px; white-space: nowrap; }
 .coverage-dialog { width: min(880px, calc(100% - 32px)); }
 .coverage-tools { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(150px, .55fr) minmax(150px, .55fr); gap: 10px; }
-.coverage-tools input[list] { width: 100%; min-height: 44px; border: 1px solid #d4dfd7; border-radius: 9px; padding: 0 10px; background: #fbfcfb; color: var(--ink); font: inherit; }
+.coverage-tools .typeahead-control > input { width: 100%; min-height: 44px; border: 1px solid #d4dfd7; border-radius: 9px; padding: 0 38px 0 10px; background: #fbfcfb; color: var(--ink); font: inherit; }
 .coverage-selection { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 12px; border-radius: 9px; background: #f1f7f3; color: var(--muted); font-size: 12px; }
 .coverage-list { max-height: min(43vh, 470px); overflow-y: auto; border-top: 1px solid var(--line); }
 .coverage-row { display: grid !important; grid-template-columns: 24px minmax(0, 1fr) minmax(110px, auto); align-items: center; gap: 12px !important; min-height: 62px; padding: 9px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
