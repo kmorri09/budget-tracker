@@ -4,7 +4,7 @@ export type Entry = { id: string; description: string; amount: number; kind: str
 export type CardPayment = { id: string; description: string; amount: number; date: string; fromAccount: string; fromAccountId: string; toAccount: string; toAccountId: string; applied: number; remaining: number; status: string; covered: string; applications: { transactionId: string; amount: number }[]; providerLinked: boolean; editable: boolean };
 export type Allocation = { id: string; date: string; amount: number; note: string; category: string; categoryId: string };
 export type BudgetAdjustment = { id: string; date: string; amount: number; note: string };
-export type Obligation = { id: string; name: string; dueDate: string; amount: number; category: string; categoryId: string; account: string; accountId: string; cadence: string | null; active: boolean };
+export type Obligation = { id: string; name: string; dueDate: string; amount: number; category: string; categoryId: string; account: string; accountId: string; cadence: string | null; active: boolean; covered: boolean; coveredBy: string | null };
 export type DashboardData = {
   ledgerBalance: number; providerBalance: number | null; remainingToBudget: number;
   availableBreakdown: { income: number; adjustments: number; allocations: number; available: number };

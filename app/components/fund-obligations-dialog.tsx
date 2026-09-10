@@ -18,13 +18,13 @@ export default function FundObligationsDialog({ dashboard, onClose, onSaved }: {
   const titleId = useId();
   const currentDate = today();
   const [scope, setScope] = useState(DEFAULT_SCOPE);
-  const inScope = (days: string) => dashboard.obligations.filter(obligation => obligation.active && (days === "all" || obligation.dueDate <= addDays(currentDate, Number(days)))).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const inScope = (days: string) => dashboard.obligations.filter(obligation => obligation.active && !obligation.covered && (days === "all" || obligation.dueDate <= addDays(currentDate, Number(days)))).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   const [selected, setSelected] = useState<string[]>(() => inScope(DEFAULT_SCOPE).map(obligation => obligation.id));
   const [date, setDate] = useState(currentDate);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const visible = inScope(scope);
-  const selectedObligations = dashboard.obligations.filter(obligation => obligation.active && selected.includes(obligation.id));
+  const selectedObligations = dashboard.obligations.filter(obligation => obligation.active && !obligation.covered && selected.includes(obligation.id));
   const funding = useMemo(() => calculateObligationFunding(
     selectedObligations.map(obligation => ({ id: obligation.id, categoryId: obligation.categoryId, name: obligation.name, amountCents: Math.round(obligation.amount * 100) })),
     dashboard.categories.map(category => ({ id: category.id, name: category.name, availableCents: Math.round(category.available * 100) })),

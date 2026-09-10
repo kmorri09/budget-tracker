@@ -5,6 +5,7 @@ import { getDatabase } from "../../../lib/db";
 import { accounts, allocations, budgetAdjustments, cardCoverageAdjustments, cardPaymentApplications, cardPayments, categories, obligations, reviewItems, transactions } from "../../../lib/schema";
 import { calculateCategoryBalance } from "../../../lib/category-balance";
 import { calculateAvailableToAssignCents } from "../../../lib/budget-balance";
+import { isObligationCovered, type ObligationCoverage } from "../../../lib/obligation-status";
 
 const centsToAmount = (cents: number) => Math.round(cents) / 100;
 const isoDate = (value: Date) => value.toISOString().slice(0, 10);
@@ -66,6 +67,11 @@ export async function GET() {
   const trailingIncomeCents = trailingRows.filter((transaction) => transaction.kind === "income").reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const trailingSpendCents = trailingRows.filter((transaction) => transaction.kind === "expense").reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const transactionById = new Map(activeTransactionRows.map(transaction => [transaction.id, transaction]));
+  const obligationCandidates: ObligationCoverage[] = [
+    ...activeTransactionRows.filter(transaction => transaction.kind === "expense" && transaction.status === "posted").map(transaction => ({ amountCents: transaction.amountCents, description: transaction.description, effectiveDate: transaction.effectiveDate, accountId: transaction.accountId })),
+    ...paymentRows.map(payment => ({ amountCents: payment.amountCents, description: payment.description, effectiveDate: payment.effectiveDate, fromAccountId: payment.fromAccountId, toAccountId: payment.toAccountId })),
+  ];
+  const currentDate = isoDate(new Date());
   const toEntry = (transaction: typeof transactionRows[number]) => {
     const account = accountById.get(transaction.accountId);
     const applied = Math.max(0, Math.min(transaction.amountCents, paymentAppliedByTransaction.get(transaction.id) ?? 0));
@@ -87,7 +93,7 @@ export async function GET() {
     categories: categoryBalances,
     managedCategories,
     allocations: allocationRows.map((row) => ({ id: row.id, date: row.effectiveDate, amount: centsToAmount(row.amountCents), note: row.note ?? "", category: categoryById.get(row.categoryId)?.name ?? "Uncategorized", categoryId: row.categoryId })),
-    obligations: obligationRows.map((obligation) => ({ id: obligation.id, name: obligation.name, dueDate: obligation.dueDate, amount: centsToAmount(obligation.amountCents), category: categoryById.get(obligation.categoryId)?.name ?? "Uncategorized", categoryId: obligation.categoryId, account: accountById.get(obligation.accountId)?.name ?? "Account", accountId: obligation.accountId, cadence: obligation.cadence, active: obligation.active })),
+    obligations: obligationRows.map((obligation) => { const covered = isObligationCovered(obligation, obligationCandidates, currentDate); const matchingCandidate = covered ? obligationCandidates.find(candidate => isObligationCovered(obligation, [candidate], currentDate)) : null; return { id: obligation.id, name: obligation.name, dueDate: obligation.dueDate, amount: centsToAmount(obligation.amountCents), category: categoryById.get(obligation.categoryId)?.name ?? "Uncategorized", categoryId: obligation.categoryId, account: accountById.get(obligation.accountId)?.name ?? "Account", accountId: obligation.accountId, cadence: obligation.cadence, active: obligation.active, covered, coveredBy: matchingCandidate?.description ?? null }; }),
     reviews: reviewRows.map((review) => ({ id: review.id, kind: review.kind, title: review.title, details: review.details, transaction: review.transactionId ? transactionById.get(review.transactionId) ? toEntry(transactionById.get(review.transactionId)!) : null : null })),
     payments: [
       ...paymentRows.map((payment) => {
