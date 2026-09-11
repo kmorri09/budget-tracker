@@ -32,6 +32,8 @@ const navigation = [
   { key: "accounts", label: "Accounts", icon: "▤" },
 ] as const;
 type Destination = typeof navigation[number]["key"];
+const mobilePrimaryNavigation = navigation.filter(item => (["home", "transactions", "categories", "review"] as Destination[]).includes(item.key));
+const mobileMoreNavigation = navigation.filter(item => !mobilePrimaryNavigation.includes(item));
 function NavigationIcon({ item }: { item: typeof navigation[number] }) {
   if (item.key === "payments") return <svg className="nav-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="2.75" y="5.25" width="18.5" height="13.5" rx="2.25" /><path d="M3 9.25h18" /><path d="M6.25 15h4" /></svg>;
   return item.icon;
@@ -52,6 +54,7 @@ export default function Home() {
   const [destination, setDestination] = useState<Destination>("home");
   const [action, setAction] = useState<ActionType | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [name, setName] = useState("Owner");
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
@@ -104,7 +107,20 @@ export default function Home() {
     return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
   }, [quickOpen]);
 
-  function navigate(next: Destination, categoryStatus?: string) { if (next === "categories") setCategoryFilter(current => ({ status: categoryStatus, key: current.key + 1 })); window.location.hash = next; setDestination(next); setQuickOpen(false); window.scrollTo({ top: 0 }); }
+  useEffect(() => {
+    if (!mobileMoreOpen) return;
+    document.querySelector<HTMLButtonElement>(".mobile-more-menu button")?.focus();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileMoreOpen(false);
+        document.querySelector<HTMLButtonElement>(".mobile-more-trigger")?.focus();
+      }
+    };
+    document.addEventListener("keydown", escape);
+    return () => document.removeEventListener("keydown", escape);
+  }, [mobileMoreOpen]);
+
+  function navigate(next: Destination, categoryStatus?: string) { if (next === "categories") setCategoryFilter(current => ({ status: categoryStatus, key: current.key + 1 })); window.location.hash = next; setDestination(next); setQuickOpen(false); setMobileMoreOpen(false); window.scrollTo({ top: 0 }); }
   function openAction(next: ActionType) { setQuickOpen(false); setPaymentImport(null); if (next !== "payment") setPaymentTransactionIds([]); setAction(next); }
   function viewCategory(category: string) { setDrilldown(current => ({ category, key: current.key + 1 })); navigate("transactions"); }
   function paySelected(rows: { id: string }[]) {
@@ -175,7 +191,8 @@ export default function Home() {
   <section hidden={destination !== "accounts"} aria-label="Accounts"><Accounts dashboard={dashboard} onAction={openAction} onChanged={(message) => { setToast(message ?? "Account updated"); void refresh(); }} /></section>
       </>}
     </div>
-    <nav className="mobile-nav" aria-label="Mobile navigation">{navigation.map(item => <button key={item.key} className={"mobile-nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true"><NavigationIcon item={item} /></span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</button>)}</nav>
+    {mobileMoreOpen && <div className="mobile-more-layer"><button className="mobile-more-dismiss" aria-label="Close more navigation" onClick={() => setMobileMoreOpen(false)} /><div id="mobile-more-menu" className="mobile-more-menu" role="menu" aria-label="More destinations">{mobileMoreNavigation.map(item => <button role="menuitem" key={item.key} className={destination === item.key ? "active" : ""} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true"><NavigationIcon item={item} /></span><strong>{item.label}</strong></button>)}</div></div>}
+    <nav className="mobile-nav" aria-label="Mobile navigation">{mobilePrimaryNavigation.map(item => <button key={item.key} className={"mobile-nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={() => navigate(item.key)}><span aria-hidden="true"><NavigationIcon item={item} /></span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</button>)}<button className={"mobile-nav-item mobile-more-trigger " + (mobileMoreNavigation.some(item => item.key === destination) ? "active" : "")} aria-current={mobileMoreNavigation.some(item => item.key === destination) ? "page" : undefined} aria-expanded={mobileMoreOpen} aria-controls="mobile-more-menu" aria-haspopup="menu" onClick={() => setMobileMoreOpen(open => !open)}><span aria-hidden="true">•••</span>More</button></nav>
     {dashboard && action && <EntryForm action={action} dashboard={dashboard} initialPaymentTransactionIds={paymentTransactionIds} initialPaymentImport={paymentImport} onClose={() => { setAction(null); setPaymentTransactionIds([]); setPaymentImport(null); }} onSaved={saved} />}
     {editingCategory && <CategoryEditDialog category={editingCategory} onClose={() => setEditingCategory(null)} onSaved={() => { setEditingCategory(null); setToast("Category details updated"); void refresh(); }} />}
     {dashboard && reconcilingCategories && <CategoryReconcileDialog categories={dashboard.categories} onClose={() => setReconcilingCategories(false)} onSaved={(count) => { setReconcilingCategories(false); setToast(count ? `${count} category ${count === 1 ? "balance" : "balances"} reconciled` : "Category balances already matched"); void refresh(); }} />}
@@ -251,7 +268,7 @@ function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashbo
     const transaction = item.transaction;
     return [item.title, item.details, transaction?.description, transaction?.date, transaction?.account, transaction?.category, transaction?.kind, transaction?.source, transaction?.amount].join(" ").toLowerCase().includes(search.toLowerCase());
   });
-  return <div className="panel"><div className="view-heading"><label className="table-search"><span className="sr-only">Search reviews</span><input type="search" placeholder="Search reviews…" value={search} onChange={event => setSearch(event.target.value)} /></label>{dashboard.reviews.length > 0 && <button className="secondary-button" disabled={busy} onClick={() => void resolve()}>Mark all reviewed ({dashboard.reviews.length})</button>}</div><p className="field-help">Inspect each transaction below. Use Edit transaction to correct its category or type; Mark reviewed only removes the reminder and does not change the transaction.</p>{error && <p className="form-error" role="alert">{error}</p>}{visible.map(item => {
+  return <div className="panel"><div className="view-heading review-toolbar"><label className="table-search"><span className="sr-only">Search reviews</span><input type="search" placeholder="Search reviews…" value={search} onChange={event => setSearch(event.target.value)} /></label>{dashboard.reviews.length > 0 && <button className="secondary-button" disabled={busy} onClick={() => void resolve()}>Mark all reviewed ({dashboard.reviews.length})</button>}</div><p className="field-help">Inspect each transaction below. Use Edit transaction to correct its category or type; Mark reviewed only removes the reminder and does not change the transaction.</p>{error && <p className="form-error" role="alert">{error}</p>}{visible.map(item => {
     const transaction = item.transaction;
     const title = transaction && (item.kind === "provider_transfer" || item.kind === "bank_transaction") ? `Review imported ${item.kind === "provider_transfer" ? "transfer" : transaction.kind === "refund" ? "refund" : "transaction"}: ${transaction.description}` : item.title;
     return <article className="review-item" key={item.id}><div className="review-item-content"><strong>{title}</strong><p>{item.details}</p>{transaction ? <dl className="review-facts"><div><dt>Description</dt><dd>{transaction.description}</dd></div><div><dt>Date</dt><dd>{transaction.date}</dd></div><div><dt>Amount</dt><dd className={signedAmount(transaction) < 0 ? "negative" : ""}>{money(signedAmount(transaction))}</dd></div><div><dt>Account</dt><dd>{transaction.account}</dd></div><div><dt>Type</dt><dd>{kindLabel(transaction.kind)}</dd></div><div><dt>Category</dt><dd>{transaction.category ?? "Uncategorized"}</dd></div><div><dt>Source / status</dt><dd>{kindLabel(transaction.source)} · {transaction.pending ? "Pending" : kindLabel(transaction.status)}</dd></div></dl> : <p className="review-missing">The linked transaction is no longer in the active ledger. You can safely mark this reminder reviewed.</p>}</div><div className="review-item-actions">{transaction && item.kind === "provider_transfer" && transaction.kind === "transfer_out" && <button className="primary-button" disabled={busy} onClick={() => onRecordPayment(transaction)}>Record card payment</button>}{transaction?.source === "plaid" && <button className="secondary-button" disabled={busy} onClick={() => void ignoreHistorical(item.id)}>Already represented — ignore</button>}{transaction && <button className="secondary-button" disabled={busy} onClick={() => onEdit(transaction)}>Edit transaction</button>}<button className="secondary-button" disabled={busy} onClick={() => void resolve(item.id)}>{item.kind === "provider_transfer" ? "Keep as transaction" : "Mark reviewed"}</button></div></article>;

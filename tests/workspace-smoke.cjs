@@ -20,6 +20,16 @@ const fixture = {
 };
 fixture.managedAccounts = fixture.accounts;
 fixture.managedCategories = fixture.categories;
+fixture.reviews[0].transaction = { ...fixture.activity[0], source: 'plaid' };
+async function navigateTo(page, nav, width, name) {
+  const moreDestinations = new Set(['Card payments', 'Allocations', 'Obligations', 'Accounts']);
+  if (width <= 700 && moreDestinations.has(name)) {
+    await nav.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menu', { name: 'More destinations', exact: true }).getByRole('menuitem', { name, exact: true }).click();
+    return;
+  }
+  await nav.getByRole('button', { name, exact: name !== 'Review' }).click();
+}
 async function run() {
   fs.mkdirSync(path.join('.next', 'ui-smoke'), { recursive: true });
   const browser = await chromium.launch({ headless: true });
@@ -40,7 +50,11 @@ async function run() {
       await page.getByRole('heading', { name: 'Hello, Sample owner' }).waitFor();
       await page.getByText('Available to assign', { exact: true }).first().waitFor();
       const nav = page.getByRole('navigation', { name: width > 700 ? 'Primary navigation' : 'Mobile navigation', exact: true });
-      await nav.getByRole('button', { name: 'Transactions', exact: true }).click();
+      if (width <= 700) {
+        assert.equal(await nav.getByRole('button').count(), 5, 'Mobile navigation keeps five comfortably sized destinations');
+        assert((await nav.getByRole('button').first().evaluate(element => element.getBoundingClientRect().width)) >= 60, 'Mobile navigation targets remain comfortably wide');
+      }
+      await navigateTo(page, nav, width, 'Transactions');
       const table = page.getByRole('region', { name: 'Transactions table', exact: true });
       await table.getByText('30 of 60 transactions', { exact: false }).waitFor();
       await table.getByRole('button', { name: 'All dates', exact: true }).click();
@@ -56,8 +70,10 @@ async function run() {
       await table.locator('summary').filter({ hasText: /^Account/ }).click();
       await table.getByText('30 of 60 transactions', { exact: false }).waitFor();
       await table.getByRole('button', { name: 'Filters & sort', exact: true }).click();
-      await table.getByLabel('Minimum net amount').fill('-10');
+      await table.locator('summary').filter({ hasText: /^Net amount/ }).click();
+      await table.getByLabel('Minimum', { exact: true }).fill('-10');
       await table.getByText('5 of 60 transactions', { exact: false }).waitFor();
+      await table.locator('summary').filter({ hasText: /^Net amount/ }).click();
       await table.locator('.sort-options').getByRole('button', { name: /^Amount/ }).click();
       if (width < 1050) {
         await table.getByRole('button', { name: 'Details', exact: true }).first().click();
@@ -66,8 +82,10 @@ async function run() {
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No horizontal overflow at '+width);
       await page.screenshot({ path: '.next/ui-smoke/transactions-'+width+'.png', fullPage: true });
       const dialog = page.getByRole('dialog');
-      await nav.getByRole('button', { name: 'Categories', exact: true }).click();
+      await navigateTo(page, nav, width, 'Categories');
       const categoryTable = page.getByRole('region', { name: 'Categories table', exact: true });
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No categories overflow at '+width);
+      await page.screenshot({ path: '.next/ui-smoke/categories-'+width+'.png', fullPage: true });
       await categoryTable.getByRole('button', { name: 'Edit Food', exact: true }).click();
       await dialog.getByLabel('Category name', { exact: true }).fill('Food and groceries');
       await dialog.getByLabel('Target amount', { exact: true }).fill('175');
@@ -82,7 +100,7 @@ async function run() {
       assert.equal(saved.path, '/api/categories/reconcile'); assert.deepEqual(saved.body.balances, [{ id: 'c', available: 75.94 }]);
       await categoryTable.getByRole('button', { name: 'View transactions Food', exact: true }).click();
       await table.getByText('30 of 60 transactions', { exact: false }).waitFor();
-      await nav.getByRole('button', { name: 'Allocations', exact: true }).click();
+      await navigateTo(page, nav, width, 'Allocations');
       const allocations = page.getByRole('region', { name: 'Allocations table', exact: true });
       await allocations.getByText('1 of 2 allocations', { exact: false }).waitFor();
       await allocations.getByRole('button', { name: 'All dates', exact: true }).click();
@@ -96,42 +114,54 @@ async function run() {
       await dialog.getByRole('button', { name: 'Save', exact: true }).click();
       await dialog.waitFor({ state: 'detached' });
       assert.equal(saved.body.kind, 'allocation'); assert.equal(saved.body.categoryId, 'Food');
-      await nav.getByRole('button', { name: 'Transactions', exact: true }).click();
+      await navigateTo(page, nav, width, 'Transactions');
       await page.getByRole('button', { name: '＋ Add transaction', exact: true }).click();
       await dialog.getByLabel('Amount', { exact: true }).fill('12.50');
       await dialog.getByLabel('Account', { exact: true }).fill('Sample checking');
       await dialog.getByLabel('Description', { exact: true }).fill('Sample entry');
       await dialog.getByLabel('Category', { exact: true }).fill('Food');
+      await dialog.getByRole('option', { name: 'Food', exact: true }).click();
       await page.screenshot({ path: '.next/ui-smoke/form-'+width+'.png' });
       await dialog.getByRole('button', { name: 'Save', exact: true }).click();
       await dialog.waitFor({ state: 'detached' });
       assert.equal(saved.body.accountId, 'Sample checking'); assert.equal(saved.body.date, date(0));
-      await nav.getByRole('button', { name: 'Accounts', exact: true }).click();
+      await navigateTo(page, nav, width, 'Accounts');
       await page.getByRole('heading', { name: 'Workspace settings', exact: true }).waitFor();
       await page.getByRole('button', { name: 'Reconcile balance', exact: true }).first().click();
       await page.getByRole('spinbutton').filter({ visible: true }).fill('250');
       await page.getByRole('button', { name: 'Force reconcile', exact: true }).waitFor();
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No accounts overflow at '+width);
       await page.screenshot({ path: '.next/ui-smoke/accounts-'+width+'.png', fullPage: true });
-      await nav.getByRole('button', { name: 'Home', exact: true }).click();
+      await navigateTo(page, nav, width, 'Home');
       await page.screenshot({ path: '.next/ui-smoke/home-'+width+'.png', fullPage: true });
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No home overflow at '+width);
-      await nav.getByRole('button', { name: 'Review', exact: false }).click();
-      page.once('dialog', dialog => dialog.dismiss());
+      await navigateTo(page, nav, width, 'Review');
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No review overflow at '+width);
+      if (width <= 700) {
+        const reviewItem = page.locator('.review-item').first();
+        const itemBox = await reviewItem.evaluate(element => { const rect = element.getBoundingClientRect(); return { left: rect.left, right: rect.right }; });
+        const actionsFit = await reviewItem.locator('.review-item-actions > button').evaluateAll((buttons, box) => buttons.every(button => {
+          const rect = button.getBoundingClientRect();
+          return rect.left >= box.left && rect.right <= box.right;
+        }), itemBox);
+        assert(actionsFit, 'Review actions stay inside their card');
+      }
+      await page.screenshot({ path: '.next/ui-smoke/review-'+width+'.png', fullPage: true });
       await page.getByRole('button', { name: 'Mark all reviewed (1)', exact: true }).click();
+      await dialog.locator('.secondary-button').getByText('Cancel', { exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
       assert.notEqual(saved.path, '/api/reviews', 'Cancel does not resolve reviews');
-      page.once('dialog', dialog => dialog.accept());
       await page.getByRole('button', { name: 'Mark all reviewed (1)', exact: true }).click();
+      await dialog.getByRole('button', { name: 'Resolve all', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Review updated' }).waitFor();
       assert.deepEqual(saved.body, { all: true, status: 'resolved' });
-      await nav.getByRole('button', { name: 'Categories', exact: true }).click();
+      await navigateTo(page, nav, width, 'Categories');
       await page.getByRole('button', { name: '＋ Category', exact: true }).click();
-      await page.getByRole('button', { name: 'Add category', exact: true }).click();
       await dialog.getByLabel('Category name', { exact: true }).fill('Sample category');
       await dialog.getByRole('button', { name: 'Save', exact: true }).click();
       await dialog.waitFor({ state: 'detached' });
       assert.equal(saved.path, '/api/categories');
-      await nav.getByRole('button', { name: 'Accounts', exact: true }).click();
+      await navigateTo(page, nav, width, 'Accounts');
       await page.getByRole('button', { name: '＋ Add account', exact: true }).click();
       await dialog.getByLabel('Account name', { exact: true }).fill('Sample savings');
       await dialog.getByLabel('Bank or provider', { exact: true }).fill('Sample bank');
