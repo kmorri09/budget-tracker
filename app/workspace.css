@@ -1,5 +1,5 @@
 /* Workspace-only styles keep the sign-in and import screens independent. */
-.workspace { --muted: #617169; }
+.workspace { --muted: #617169; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .workspace [hidden] { display: none !important; }
 .workspace .content-wrap { width: calc(100% - 236px); max-width: 1660px; padding: 32px clamp(20px, 3vw, 48px) 64px; }
 .workspace .sidebar { width: 236px; }
@@ -307,7 +307,7 @@
   .view-heading { align-items: stretch; }
   .view-heading .section-actions { width: 100%; }
   .view-heading .section-actions > button { flex: 1; padding: 0 12px; }
-  .workspace input { font-size: 16px; }
+  .workspace input, .workspace select, .workspace textarea, .entry-dialog .typeahead-control > input { font-size: 16px; }
   .data-panel { min-width: 0; padding: 10px; }
   .table-toolbar { gap: 8px; }
   .table-toolbar > button { font-size: 12px; padding: 0 10px; }
@@ -325,8 +325,11 @@
   .table-pagination { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
   .table-pagination > div { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .table-pagination > div > button { width: 100%; }
-  .entry-dialog { width: calc(100% - 16px); padding: 20px 18px; max-height: calc(100dvh - 16px); }
+  .entry-dialog { width: calc(100vw - 16px); max-width: calc(100vw - 16px); margin: auto; padding: 20px 18px; max-height: calc(100dvh - 16px); }
   .entry-dialog .form-grid { grid-template-columns: 1fr; }
+  .entry-dialog .form-footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .entry-dialog .form-footer > button { width: 100%; min-width: 0; margin: 0; padding: 8px 10px; white-space: normal; line-height: 1.3; }
+  .entry-dialog .form-footer > .danger-button { grid-column: 1 / -1; }
   .reconcile-tools, .reconcile-category { grid-template-columns: 1fr; }
   .reconcile-category { gap: 8px !important; }
   .reconcile-input small { text-align: left; }

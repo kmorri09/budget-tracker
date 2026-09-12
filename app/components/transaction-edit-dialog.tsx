@@ -75,7 +75,7 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
       } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not update entry."); } finally { setBusy(false); }
     }}>
       <fieldset disabled={busy}>
-        <label>Description<input name="description" defaultValue={transaction.description} required maxLength={200} autoFocus /></label>
+        <label>Description<input name="description" defaultValue={transaction.description} required maxLength={200} /></label>
         <div className="form-grid"><label>Amount<input name="amount" type="number" min="0.01" step="0.01" defaultValue={transaction.amount.toFixed(2)} required /></label><label>Date<input name="date" type="date" defaultValue={transaction.date} required /></label></div>
         <Typeahead label="Account / payment method" name="accountId" options={accounts.map(account => ({ value: account.id, label: `${account.name}${account.active ? "" : " (inactive)"}` }))} initialValue={transaction.accountId} />
         <div className="form-grid"><Typeahead label="Type" name="kind" options={kindOptions.map(([value, label]) => ({ value, label }))} value={kind} onChange={setKind} />{categoryApplies && <Typeahead label="Category" name="categoryId" required={false} options={[{ value: "", label: "No category" }, ...categories.map(category => ({ value: category.id, label: `${category.name}${category.active ? "" : " (inactive)"}` }))]} value={categoryId} onChange={setCategoryId} />}</div>

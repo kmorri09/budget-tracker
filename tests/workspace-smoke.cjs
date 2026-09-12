@@ -145,6 +145,36 @@ async function run() {
           return rect.left >= box.left && rect.right <= box.right;
         }), itemBox);
         assert(actionsFit, 'Review actions stay inside their card');
+
+        await reviewItem.getByRole('button', { name: 'Edit transaction', exact: true }).click();
+        const transactionEditor = page.getByRole('dialog', { name: 'Edit transaction', exact: true });
+        await transactionEditor.getByLabel('Always use this category for matching Plaid imports', { exact: true }).check();
+        const editorGeometry = await transactionEditor.evaluate(element => {
+          const rect = element.getBoundingClientRect();
+          const controls = [...element.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), select, textarea')]
+            .filter(control => control.getClientRects().length)
+            .map(control => Number.parseFloat(getComputedStyle(control).fontSize));
+          const buttons = [...element.querySelectorAll('.form-footer > button')].map(button => {
+            const box = button.getBoundingClientRect();
+            return { left: box.left, right: box.right };
+          });
+          return {
+            left: rect.left,
+            right: rect.right,
+            scrollWidth: element.scrollWidth,
+            clientWidth: element.clientWidth,
+            controls,
+            buttons,
+          };
+        });
+        assert(editorGeometry.left >= -1 && editorGeometry.right <= width + 1, 'Transaction editor stays inside the mobile viewport');
+        assert(editorGeometry.scrollWidth <= editorGeometry.clientWidth + 1, 'Transaction editor has no horizontal overflow');
+        assert(editorGeometry.controls.every(fontSize => fontSize >= 16), 'Transaction editor controls do not trigger iOS input zoom');
+        assert(editorGeometry.buttons.every(button => button.left >= editorGeometry.left - 1 && button.right <= editorGeometry.right + 1), 'Transaction editor actions stay inside the dialog');
+        await transactionEditor.locator('.form-footer').scrollIntoViewIfNeeded();
+        await page.screenshot({ path: '.next/ui-smoke/transaction-editor-'+width+'.png' });
+        await transactionEditor.getByRole('button', { name: 'Close transaction editor', exact: true }).click();
+        await transactionEditor.waitFor({ state: 'detached' });
       }
       await page.screenshot({ path: '.next/ui-smoke/review-'+width+'.png', fullPage: true });
       await page.getByRole('button', { name: 'Mark all reviewed (1)', exact: true }).click();
