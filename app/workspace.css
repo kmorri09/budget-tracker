@@ -172,6 +172,11 @@
 .review-facts dd { margin: 3px 0 0; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .review-item-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 .review-missing { color: var(--muted); font-style: italic; }
+.review-suggestion, .category-suggestion { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; padding: 11px 12px; border: 1px solid #cfe0d4; border-radius: 10px; background: #f1f7f3; }
+.review-suggestion > div, .category-suggestion > div { min-width: 0; }
+.workspace .review-suggestion p, .workspace .category-suggestion p { margin: 3px 0 0; color: var(--muted); }
+.suggestion-confidence { flex: 0 0 auto; padding: 3px 7px; border-radius: 999px; background: #dcece2; color: var(--green-dark); font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.suggestion-confidence.medium { background: #eef1e7; color: #65704c; }
 .error-banner { background: #fff4ef; border: 1px solid #ebcabe; border-radius: 12px; padding: 16px; margin: 16px 0; font-size: 14px; }
 .entry-dialog { color: var(--ink); border: 1px solid var(--line); background: white; width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 40px); overflow-y: auto; border-radius: 20px; padding: 24px; box-shadow: 0 16px 70px #19352630; }
 .entry-dialog::backdrop { background: #152d2255; backdrop-filter: blur(3px); }

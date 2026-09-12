@@ -2,9 +2,10 @@ import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
-import { accounts, allocations, budgetAdjustments, cardCoverageAdjustments, cardPaymentApplications, cardPayments, categorizationRules, categories, obligations, reviewItems, transactions } from "../../../lib/schema";
+import { accounts, allocations, budgetAdjustments, cardCoverageAdjustments, cardPaymentApplications, cardPayments, categorizationRules, categories, obligations, rawProviderTransactions, reviewItems, transactions } from "../../../lib/schema";
 import { calculateCategoryBalance } from "../../../lib/category-balance";
 import { calculateAvailableToAssignCents } from "../../../lib/budget-balance";
+import { suggestCategory, type ProviderCategory } from "../../../lib/category-suggestions";
 import { isObligationCovered, type ObligationCoverage } from "../../../lib/obligation-status";
 
 const centsToAmount = (cents: number) => Math.round(cents) / 100;
@@ -14,7 +15,7 @@ export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const db = getDatabase();
-  const [accountRows, categoryRows, categoryRuleRows, transactionRows, allocationRows, budgetAdjustmentRows, obligationRows, reviewRows, paymentRows, paymentApplicationRows, coverageAdjustmentRows] = await Promise.all([
+  const [accountRows, categoryRows, categoryRuleRows, transactionRows, allocationRows, budgetAdjustmentRows, obligationRows, reviewRows, paymentRows, paymentApplicationRows, coverageAdjustmentRows, rawProviderRows] = await Promise.all([
     db.select().from(accounts).where(eq(accounts.userId, user.id)),
     db.select().from(categories).where(eq(categories.userId, user.id)),
     db.select().from(categorizationRules).where(eq(categorizationRules.userId, user.id)),
@@ -26,6 +27,7 @@ export async function GET() {
     db.select().from(cardPayments).where(eq(cardPayments.userId, user.id)),
     db.select().from(cardPaymentApplications).where(eq(cardPaymentApplications.userId, user.id)),
     db.select().from(cardCoverageAdjustments).where(eq(cardCoverageAdjustments.userId, user.id)),
+    db.select({ providerTransactionId: rawProviderTransactions.providerTransactionId, rawJson: rawProviderTransactions.rawJson }).from(rawProviderTransactions).where(eq(rawProviderTransactions.userId, user.id)),
   ]);
 
   const accountById = new Map(accountRows.map((account) => [account.id, account]));
@@ -68,6 +70,14 @@ export async function GET() {
   const trailingIncomeCents = trailingRows.filter((transaction) => transaction.kind === "income").reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const trailingSpendCents = trailingRows.filter((transaction) => transaction.kind === "expense").reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const transactionById = new Map(activeTransactionRows.map(transaction => [transaction.id, transaction]));
+  const providerCategoryByTransactionId = new Map<string, ProviderCategory>();
+  for (const raw of rawProviderRows) {
+    try {
+      const category = (JSON.parse(raw.rawJson) as { personal_finance_category?: { primary?: string | null; detailed?: string | null; confidence_level?: string | null } | null }).personal_finance_category;
+      if (category) providerCategoryByTransactionId.set(raw.providerTransactionId, { primary: category.primary, detailed: category.detailed, confidenceLevel: category.confidence_level });
+    } catch { /* A malformed archived provider payload should not block the dashboard. */ }
+  }
+  const suggestionHistory = activeTransactionRows.map(transaction => ({ id: transaction.id, description: transaction.description, categoryId: transaction.categoryId, accountId: transaction.accountId }));
   const obligationCandidates: ObligationCoverage[] = [
     ...activeTransactionRows.filter(transaction => transaction.kind === "expense" && transaction.status === "posted").map(transaction => ({ amountCents: transaction.amountCents, description: transaction.description, effectiveDate: transaction.effectiveDate, accountId: transaction.accountId })),
     ...paymentRows.map(payment => ({ amountCents: payment.amountCents, description: payment.description, effectiveDate: payment.effectiveDate, fromAccountId: payment.fromAccountId, toAccountId: payment.toAccountId })),
@@ -96,7 +106,15 @@ export async function GET() {
     categorizationRules: categoryRuleRows.filter(rule => rule.active).map(rule => ({ id: rule.id, matchText: rule.matchText, categoryId: rule.categoryId, category: categoryById.get(rule.categoryId)?.name ?? "Removed category" })),
     allocations: allocationRows.map((row) => ({ id: row.id, date: row.effectiveDate, amount: centsToAmount(row.amountCents), note: row.note ?? "", category: categoryById.get(row.categoryId)?.name ?? "Uncategorized", categoryId: row.categoryId })),
     obligations: obligationRows.map((obligation) => { const covered = isObligationCovered(obligation, obligationCandidates, currentDate); const matchingCandidate = covered ? obligationCandidates.find(candidate => isObligationCovered(obligation, [candidate], currentDate)) : null; return { id: obligation.id, name: obligation.name, dueDate: obligation.dueDate, amount: centsToAmount(obligation.amountCents), category: categoryById.get(obligation.categoryId)?.name ?? "Uncategorized", categoryId: obligation.categoryId, account: accountById.get(obligation.accountId)?.name ?? "Account", accountId: obligation.accountId, cadence: obligation.cadence, active: obligation.active, covered, coveredBy: matchingCandidate?.description ?? null }; }),
-    reviews: reviewRows.map((review) => ({ id: review.id, kind: review.kind, title: review.title, details: review.details, transaction: review.transactionId ? transactionById.get(review.transactionId) ? toEntry(transactionById.get(review.transactionId)!) : null : null })),
+    reviews: reviewRows.map((review) => {
+      const transactionRow = review.transactionId ? transactionById.get(review.transactionId) : null;
+      const transaction = transactionRow ? toEntry(transactionRow) : null;
+      const providerCategory = transactionRow?.providerTransactionId ? providerCategoryByTransactionId.get(transactionRow.providerTransactionId) : null;
+      const suggestion = transactionRow && !transactionRow.categoryId && ["expense", "refund"].includes(transactionRow.kind)
+        ? suggestCategory({ description: transactionRow.description, accountId: transactionRow.accountId, categories: categoryRows, history: suggestionHistory.filter(item => item.id !== transactionRow.id), providerCategory })
+        : null;
+      return { id: review.id, kind: review.kind, title: review.title, details: review.details, transaction, suggestion };
+    }),
     payments: [
       ...paymentRows.map((payment) => {
       const applied = paymentAppliedByPayment.get(payment.id) ?? 0;

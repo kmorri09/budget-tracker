@@ -1,3 +1,5 @@
+import type { CategorySuggestion } from "./category-suggestions";
+
 export type Account = { id: string; name: string; institution: string; type: string; syncEnabled: boolean; isDefaultCash: boolean; active: boolean; openingBalance: number; providerBalance: number | null; providerBalanceAt: string | null; ledgerBalance: number };
 export type Category = { id: string; name: string; icon: string; available: number; target: number; allocated: number; spent: number; active: boolean };
 export type Entry = { id: string; description: string; amount: number; kind: string; source: string; status: string; pending: boolean; date: string; category: string | null; categoryId: string | null; account: string; accountId: string; paymentStatus: string; remainingToPay: number };
@@ -13,7 +15,7 @@ export type DashboardData = {
   allocationPercent: number; accounts: Account[]; managedAccounts: Account[]; categories: Category[]; managedCategories: Category[];
   activity: Entry[]; allocations: Allocation[]; payments: CardPayment[];
   trailing30: { income: number; spending: number; startDate: string; endDate: string };
-  reviews: { id: string; kind: string; title: string; details: string | null; transaction: Entry | null }[];
+  reviews: { id: string; kind: string; title: string; details: string | null; transaction: Entry | null; suggestion: CategorySuggestion | null }[];
   categorizationRules: CategorizationRule[];
   obligations: Obligation[];
 };

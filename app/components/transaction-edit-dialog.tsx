@@ -15,13 +15,13 @@ const kindOptions = [
   ["adjustment", "Reconciliation adjustment"],
 ] as const;
 
-export default function TransactionEditDialog({ transaction, dashboard, onClose, onSaved }: { transaction: DashboardData["activity"][number]; dashboard: DashboardData; onClose: () => void; onSaved: (message: string) => void }) {
+export default function TransactionEditDialog({ transaction, categorySuggestion, dashboard, onClose, onSaved }: { transaction: DashboardData["activity"][number]; categorySuggestion?: DashboardData["reviews"][number]["suggestion"]; dashboard: DashboardData; onClose: () => void; onSaved: (message: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [kind, setKind] = useState(transaction.kind);
-  const [categoryId, setCategoryId] = useState(transaction.categoryId ?? "");
+  const [categoryId, setCategoryId] = useState(transaction.categoryId ?? categorySuggestion?.categoryId ?? "");
   const [rememberCategory, setRememberCategory] = useState(false);
   const [ruleMatch, setRuleMatch] = useState(transaction.description);
   const { confirm, dialog: confirmationDialog } = useConfirmDialog();
@@ -76,6 +76,7 @@ export default function TransactionEditDialog({ transaction, dashboard, onClose,
         <div className="form-grid"><label>Amount<input name="amount" type="number" min="0.01" step="0.01" defaultValue={transaction.amount.toFixed(2)} required /></label><label>Date<input name="date" type="date" defaultValue={transaction.date} required /></label></div>
         <Typeahead label="Account / payment method" name="accountId" options={accounts.map(account => ({ value: account.id, label: `${account.name}${account.active ? "" : " (inactive)"}` }))} initialValue={transaction.accountId} />
         <div className="form-grid"><Typeahead label="Type" name="kind" options={kindOptions.map(([value, label]) => ({ value, label }))} value={kind} onChange={setKind} /><Typeahead label="Category" name="categoryId" required={false} options={[{ value: "", label: "No category" }, ...categories.map(category => ({ value: category.id, label: `${category.name}${category.active ? "" : " (inactive)"}` }))]} value={categoryId} onChange={setCategoryId} /></div>
+        {categorySuggestion && !transaction.categoryId && <div className="category-suggestion"><span className={`suggestion-confidence ${categorySuggestion.confidence}`}>{categorySuggestion.confidence} confidence</span><div><strong>{categorySuggestion.category} was preselected</strong><p>{categorySuggestion.reason} Nothing changes until you save.</p></div></div>}
         {transaction.source === "plaid" && ["expense", "refund"].includes(kind) && <div className="rule-builder"><label className="toggle-field"><input name="rememberCategory" type="checkbox" checked={rememberCategory} onChange={event => setRememberCategory(event.target.checked)} disabled={!categoryId} /> Always use this category for matching Plaid imports</label>{rememberCategory && <><label>Description contains<input name="categoryRuleMatch" value={ruleMatch} onChange={event => setRuleMatch(event.target.value)} minLength={3} maxLength={120} required /></label><p className="field-help">This categorizes the current transaction and future matching expenses or refunds. It does not rewrite older transactions.</p></>}</div>}
         <Typeahead label="Status" name="status" options={[{ value: "posted", label: "Posted" }, { value: "pending", label: "Pending" }, { value: "cleared", label: "Cleared" }, { value: "void", label: "Void" }]} initialValue={transaction.status} />
       </fieldset>
