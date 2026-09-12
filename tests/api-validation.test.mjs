@@ -70,6 +70,17 @@ test("transaction updates require an owned reference id shape and valid state fi
   assert.equal(transactionUpdateSchema.safeParse({ ...valid, categoryRuleMatch: "x".repeat(121) }).success, false);
 });
 
+test("non-budget ledger entries cannot retain spending categories or category rules", () => {
+  const shared = { id: "tx", amount: "10", date: "2026-09-08", accountId: "cash", categoryId: "food", description: "Cash from Steph", status: "posted", pending: false, rememberCategory: true, categoryRuleMatch: "Cash from Steph" };
+  for (const kind of ["income", "transfer_in", "transfer_out", "card_payment", "adjustment"]) {
+    const parsed = transactionUpdateSchema.parse({ ...shared, kind });
+    assert.equal(parsed.categoryId, null, `${kind} category should be cleared`);
+    assert.equal(parsed.rememberCategory, false, `${kind} rule should be disabled`);
+    assert.equal(parsed.categoryRuleMatch, "", `${kind} rule text should be cleared`);
+  }
+  assert.equal(transactionUpdateSchema.parse({ ...shared, kind: "refund" }).categoryId, "food");
+});
+
 test("budget adjustments allow signed corrections and reject zero or blank reasons", () => {
   assert.equal(budgetAdjustmentUpdateSchema.parse({ id: "adj", amount: "-20.50", date: "2026-09-08", note: "Correction" }).amount, -20.5);
   assert.equal(budgetAdjustmentUpdateSchema.safeParse({ id: "adj", amount: 0, date: "2026-09-08", note: "Correction" }).success, false);

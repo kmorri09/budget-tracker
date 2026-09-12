@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { DashboardData } from "../../lib/workspace-types";
 import Typeahead from "./typeahead";
 import { useConfirmDialog } from "./confirm-dialog";
+import { ledgerEntryNoun, supportsBudgetCategory } from "../../lib/ledger-entry-types";
 
 const kindOptions = [
   ["expense", "Expense"],
@@ -27,6 +28,8 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
   const { confirm, dialog: confirmationDialog } = useConfirmDialog();
   const accounts = dashboard.managedAccounts.filter(account => account.active || account.id === transaction.accountId);
   const categories = dashboard.managedCategories.filter(category => category.active || category.id === transaction.categoryId);
+  const categoryApplies = supportsBudgetCategory(kind);
+  const entryNoun = ledgerEntryNoun(kind);
 
   useEffect(() => {
     const node = dialog.current, previousOverflow = document.body.style.overflow;
@@ -35,19 +38,19 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
   }, []);
 
   async function removeTransaction() {
-    if (!await confirm({ title: `Delete “${transaction.description}”?`, message: "This will remove it from account and category balances. The deletion remains in the audit trail.", confirmLabel: "Delete transaction", destructive: true })) return;
+    if (!await confirm({ title: `Delete “${transaction.description}”?`, message: "This will remove it from account and budget balances. The deletion remains in the audit trail.", confirmLabel: `Delete ${entryNoun}`, destructive: true })) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/entries", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: transaction.id }) });
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error ?? "Could not delete transaction.");
-      onSaved("Transaction deleted");
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not delete transaction."); } finally { setBusy(false); }
+      onSaved(`${entryNoun[0].toUpperCase()}${entryNoun.slice(1)} deleted`);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : `Could not delete ${entryNoun}.`); } finally { setBusy(false); }
   }
 
   return <dialog ref={dialog} className="entry-dialog" aria-labelledby={titleId} onCancel={event => { if (busy) event.preventDefault(); else onClose(); }}>
-    <div className="modal-top"><div><p className="eyebrow">Manual control</p><h2 id={titleId}>Edit transaction</h2></div><button type="button" className="close-button" aria-label="Close transaction editor" disabled={busy} onClick={onClose}>×</button></div>
-    <p className="field-help">Change the imported or manual record directly. Account is also the payment method used for this transaction.</p>
+    <div className="modal-top"><div><p className="eyebrow">Manual control</p><h2 id={titleId}>Edit {entryNoun}</h2></div><button type="button" className="close-button" aria-label={`Close ${entryNoun} editor`} disabled={busy} onClick={onClose}>×</button></div>
+    <p className="field-help">Change this imported or manual ledger entry directly. Account is where the entry occurred.</p>
     <form onSubmit={async event => {
       event.preventDefault(); setBusy(true); setError("");
       const values = Object.fromEntries(new FormData(event.currentTarget));
@@ -57,32 +60,32 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
         amount: String(values.amount),
         date: String(values.date),
         accountId: String(values.accountId),
-        categoryId: String(values.categoryId ?? "") || null,
+        categoryId: supportsBudgetCategory(String(values.kind)) ? String(values.categoryId ?? "") || null : null,
         description: String(values.description),
         status: String(values.status),
         pending: String(values.status) === "pending",
-        rememberCategory: values.rememberCategory === "on",
+        rememberCategory: supportsBudgetCategory(String(values.kind)) && values.rememberCategory === "on",
         categoryRuleMatch: String(values.categoryRuleMatch ?? ""),
       };
       try {
         const response = await fetch("/api/entries", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const result = await response.json().catch(() => null);
         if (!response.ok) throw new Error(result?.error ?? "Could not update transaction.");
-        onSaved(result?.ruleSaved ? `Transaction updated; future Plaid imports containing “${ruleMatch.trim()}” will use this category` : "Transaction updated");
-      } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not update transaction."); } finally { setBusy(false); }
+        onSaved(result?.ruleSaved ? `Entry updated; future Plaid imports containing “${ruleMatch.trim()}” will use this category` : "Entry updated");
+      } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not update entry."); } finally { setBusy(false); }
     }}>
       <fieldset disabled={busy}>
         <label>Description<input name="description" defaultValue={transaction.description} required maxLength={200} autoFocus /></label>
         <div className="form-grid"><label>Amount<input name="amount" type="number" min="0.01" step="0.01" defaultValue={transaction.amount.toFixed(2)} required /></label><label>Date<input name="date" type="date" defaultValue={transaction.date} required /></label></div>
         <Typeahead label="Account / payment method" name="accountId" options={accounts.map(account => ({ value: account.id, label: `${account.name}${account.active ? "" : " (inactive)"}` }))} initialValue={transaction.accountId} />
-        <div className="form-grid"><Typeahead label="Type" name="kind" options={kindOptions.map(([value, label]) => ({ value, label }))} value={kind} onChange={setKind} /><Typeahead label="Category" name="categoryId" required={false} options={[{ value: "", label: "No category" }, ...categories.map(category => ({ value: category.id, label: `${category.name}${category.active ? "" : " (inactive)"}` }))]} value={categoryId} onChange={setCategoryId} /></div>
-        {categorySuggestion && !transaction.categoryId && <div className="category-suggestion"><span className={`suggestion-confidence ${categorySuggestion.confidence}`}>{categorySuggestion.confidence} confidence</span><div><strong>{categorySuggestion.category} was preselected</strong><p>{categorySuggestion.reason} Nothing changes until you save.</p></div></div>}
+        <div className="form-grid"><Typeahead label="Type" name="kind" options={kindOptions.map(([value, label]) => ({ value, label }))} value={kind} onChange={setKind} />{categoryApplies && <Typeahead label="Category" name="categoryId" required={false} options={[{ value: "", label: "No category" }, ...categories.map(category => ({ value: category.id, label: `${category.name}${category.active ? "" : " (inactive)"}` }))]} value={categoryId} onChange={setCategoryId} />}</div>
+        {categoryApplies && categorySuggestion && !transaction.categoryId && <div className="category-suggestion"><span className={`suggestion-confidence ${categorySuggestion.confidence}`}>{categorySuggestion.confidence} confidence</span><div><strong>{categorySuggestion.category} was preselected</strong><p>{categorySuggestion.reason} Nothing changes until you save.</p></div></div>}
         {transaction.source === "plaid" && ["expense", "refund"].includes(kind) && <div className="rule-builder"><label className="toggle-field"><input name="rememberCategory" type="checkbox" checked={rememberCategory} onChange={event => setRememberCategory(event.target.checked)} disabled={!categoryId} /> Always use this category for matching Plaid imports</label>{rememberCategory && <><label>Description contains<input name="categoryRuleMatch" value={ruleMatch} onChange={event => setRuleMatch(event.target.value)} minLength={3} maxLength={120} required /></label><p className="field-help">This categorizes the current transaction and future matching expenses or refunds. It does not rewrite older transactions.</p></>}</div>}
         <Typeahead label="Status" name="status" options={[{ value: "posted", label: "Posted" }, { value: "pending", label: "Pending" }, { value: "cleared", label: "Cleared" }, { value: "void", label: "Void" }]} initialValue={transaction.status} />
       </fieldset>
       <p className="field-help">Source: {transaction.source.replaceAll("_", " ")}. Source and payment coverage history stay auditable; changing the account changes the payment method.</p>
       {error && <p className="form-error" role="alert">{error}</p>}
-      <div className="form-footer"><button type="button" className="danger-button" disabled={busy} onClick={() => void removeTransaction()}>Delete transaction</button><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
+      <div className="form-footer"><button type="button" className="danger-button" disabled={busy} onClick={() => void removeTransaction()}>Delete {entryNoun}</button><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
     </form>
     {confirmationDialog}</dialog>;
 }

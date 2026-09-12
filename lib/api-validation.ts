@@ -47,7 +47,7 @@ export const transactionUpdateSchema = z.object({
   pending: z.boolean(),
   rememberCategory: z.boolean().optional().default(false),
   categoryRuleMatch: z.string().trim().max(120).optional(),
-});
+}).transform(input => input.kind === "expense" || input.kind === "refund" ? input : { ...input, categoryId: null, rememberCategory: false, categoryRuleMatch: "" });
 
 export const allocationUpdateSchema = z.object({
   id: z.string().min(1),
