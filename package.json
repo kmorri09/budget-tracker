@@ -8,8 +8,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "test": "node --test tests/*.test.mjs && tsx --test tests/api-auth.test.ts",
-    "test:unit": "node --test tests/*.test.mjs",
+    "test": "tsx --test tests/*.test.mjs tests/api-auth.test.ts",
+    "test:unit": "tsx --test tests/*.test.mjs",
     "test:backend": "tsx --test tests/api-auth.test.ts",
     "start": "node scripts/start.mjs",
     "db:migrate": "node scripts/migrate.mjs",
@@ -30,6 +30,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "drizzle-kit": "^0.31.10",
+    "tsx": "^4.23.13",
     "typescript": "^5.0.0"
   }
 }
