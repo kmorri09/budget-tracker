@@ -14,6 +14,12 @@ export function SearchFilter({ label, options, value, onChange }: { label: strin
   const [search, setSearch] = useState("");
   const id = useId();
   const details = useRef<HTMLDetailsElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const filteredOptions = options.filter(option => option.toLowerCase().includes(search.toLowerCase()));
+  const focusOption = (index: number) => {
+    details.current?.querySelectorAll<HTMLInputElement>('.filter-options input[type="checkbox"]')[index]?.focus();
+  };
+  const toggleOption = (option: string) => onChange(value.includes(option) ? value.filter(x => x !== option) : [...value, option]);
   useEffect(() => {
     const closeOnOutsideClick = (event: PointerEvent) => {
       if (details.current?.open && !details.current.contains(event.target as Node)) details.current.open = false;
@@ -21,12 +27,27 @@ export function SearchFilter({ label, options, value, onChange }: { label: strin
     document.addEventListener("pointerdown", closeOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
   }, []);
-  return <details ref={details} className="filter-menu" name="workspace-filters" onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>{label}{value.length > 0 && <span className="filter-count">{value.length}</span>} <span className="filter-chevron" aria-hidden="true" /></summary>
-    <div className="filter-popover"><input aria-label={"Search " + label} type="search" placeholder={"Find " + label.toLowerCase()} value={search} onChange={e => setSearch(e.target.value)} />
+  return <details ref={details} className="filter-menu" name="workspace-filters" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>{label}{value.length > 0 && <span className="filter-count">{value.length}</span>} <span className="filter-chevron" aria-hidden="true" /></summary>
+    <div className="filter-popover"><input ref={searchInput} aria-label={"Search " + label} type="search" placeholder={"Find " + label.toLowerCase()} value={search} onChange={e => setSearch(e.target.value)} onKeyDown={event => {
+      if (filteredOptions.length === 0) return;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        focusOption(event.key === "ArrowDown" ? 0 : filteredOptions.length - 1);
+      }
+    }} />
       <button type="button" className="text-link" onClick={() => onChange([])}>Clear {label.toLowerCase()}</button>
-      <div className="filter-options">{options.filter(option => option.toLowerCase().includes(search.toLowerCase())).map((option, i) =>
-        <label key={option} htmlFor={id + i}><input id={id + i} type="checkbox" checked={value.includes(option)} onChange={() => onChange(value.includes(option) ? value.filter(x => x !== option) : [...value, option])} />{option || "Unspecified"}</label>)}
-      {options.filter(option => option.toLowerCase().includes(search.toLowerCase())).length === 0 && <p>No matches</p>}</div>
+      <div className="filter-options">{filteredOptions.map((option, i) =>
+        <label key={option} htmlFor={id + i}><input id={id + i} type="checkbox" checked={value.includes(option)} onChange={() => toggleOption(option)} onKeyDown={event => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            if (event.key === "ArrowUp" && i === 0) searchInput.current?.focus();
+            else focusOption(Math.max(0, Math.min(filteredOptions.length - 1, i + (event.key === "ArrowDown" ? 1 : -1))));
+          } else if (event.key === "Enter") {
+            event.preventDefault();
+            toggleOption(option);
+          }
+        }} />{option || "Unspecified"}</label>)}
+      {filteredOptions.length === 0 && <p>No matches</p>}</div>
     </div></details>;
 }
 
