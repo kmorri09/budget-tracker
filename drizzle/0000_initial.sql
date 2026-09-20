@@ -155,6 +155,18 @@ CREATE TABLE IF NOT EXISTS "obligations" (
 );
 CREATE INDEX IF NOT EXISTS "obligations_user_due_idx" ON "obligations" ("user_id", "due_date");
 
+CREATE TABLE IF NOT EXISTS "obligation_match_decisions" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "obligation_id" text NOT NULL REFERENCES "obligations"("id") ON DELETE CASCADE,
+  "candidate_type" text NOT NULL,
+  "candidate_id" text NOT NULL,
+  "status" text NOT NULL,
+  "created_at" timestamptz DEFAULT now() NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "obligation_match_decisions_unique_idx" ON "obligation_match_decisions" ("obligation_id", "candidate_type", "candidate_id");
+CREATE INDEX IF NOT EXISTS "obligation_match_decisions_user_idx" ON "obligation_match_decisions" ("user_id");
+
 CREATE TABLE IF NOT EXISTS "review_items" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,

@@ -224,6 +224,19 @@ export const obligations = pgTable("obligations", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({ userDueDateIndex: index("obligations_user_due_idx").on(table.userId, table.dueDate) }));
 
+export const obligationMatchDecisions = pgTable("obligation_match_decisions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  obligationId: text("obligation_id").notNull().references(() => obligations.id, { onDelete: "cascade" }),
+  candidateType: text("candidate_type").notNull(),
+  candidateId: text("candidate_id").notNull(),
+  status: text("status").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  uniqueDecision: uniqueIndex("obligation_match_decisions_unique_idx").on(table.obligationId, table.candidateType, table.candidateId),
+  userIndex: index("obligation_match_decisions_user_idx").on(table.userId),
+}));
+
 export const reviewItems = pgTable("review_items", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

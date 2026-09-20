@@ -251,6 +251,10 @@
 .funding-preview > div:last-child { border-bottom: 0; }
 .funding-preview small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; font-weight: 400; }
 .form-warning { margin: 10px 0; padding: 10px 12px; border: 1px solid #e6ceb0; border-radius: 9px; background: #fff8ef; color: #805b28; font-size: 12px; line-height: 1.5; }
+.obligation-suggestion, .obligation-observation { margin: 10px 0; padding: 10px 12px; border: 1px solid #d5e5d8; border-radius: 9px; background: #f3f8f4; color: var(--ink); font-size: 12px; line-height: 1.5; }
+.obligation-dismissed { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; }
+.planning-through { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.planning-through input { min-height: 36px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); font: inherit; }
 @media (max-width: 1200px) {
   .workspace .content-wrap { margin-left: 205px; width: calc(100% - 205px); padding-left: 22px; padding-right: 22px; }
   .workspace .sidebar { width: 205px; }

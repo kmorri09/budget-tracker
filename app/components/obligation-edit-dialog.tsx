@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { today, type DashboardData, type Obligation } from "../../lib/workspace-types";
+import { money, today, type DashboardData, type Obligation } from "../../lib/workspace-types";
 import Typeahead from "./typeahead";
 import { useConfirmDialog } from "./confirm-dialog";
 
@@ -32,9 +32,23 @@ export default function ObligationEditDialog({ obligation, dashboard, onClose, o
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not delete obligation."); } finally { setBusy(false); }
   }
 
+  async function restoreMatch(candidate: Obligation["dismissedMatches"][number]) {
+    if (!obligation) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/obligations/matches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ obligationId: obligation.id, candidateType: candidate.type, candidateId: candidate.id, status: "confirmed" }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Could not restore charge match.");
+      onSaved("Charge matched to obligation");
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not restore charge match."); } finally { setBusy(false); }
+  }
+
   return <dialog ref={dialog} className="entry-dialog" aria-labelledby={titleId} onCancel={event => { if (busy) event.preventDefault(); else onClose(); }}>
     <div className="modal-top"><div><p className="eyebrow">Upcoming planning</p><h2 id={titleId}>{editing ? "Edit obligation" : "Add obligation"}</h2></div><button type="button" className="close-button" aria-label="Close obligation editor" disabled={busy} onClick={onClose}>×</button></div>
-    <p className="field-help">Obligations are planning reminders. They do not create transactions or move money until you use Fund upcoming obligations.</p>
+    <p className="field-help">Obligations plan future charges. Matched posted withdrawals update the expected date and amount; funding allocates money but does not create a transaction.</p>
+    {obligation?.lastCharge && <p className="obligation-observation">Last matched withdrawal: <strong>{obligation.lastCharge.description} · {money(obligation.lastCharge.amount)} on {obligation.lastCharge.date}</strong> ({obligation.lastCharge.confidence}). The next expected charge is <strong>{money(obligation.expectedAmount)} around {obligation.nextChargeDate}</strong>{obligation.previousCharge ? `; previous charge: ${money(obligation.previousCharge.amount)} on ${obligation.previousCharge.date}` : ""}.</p>}
+    {obligation?.suggestion && <p className="obligation-observation">Possible match: <strong>{obligation.suggestion.description}</strong> on {obligation.suggestion.date} for {money(obligation.suggestion.amount)}. Confirm or dismiss it from the Obligations list.</p>}
+    {!!obligation?.dismissedMatches.length && <div className="obligation-observation"><strong>Dismissed charges</strong>{obligation.dismissedMatches.map(candidate => <div className="obligation-dismissed" key={candidate.type + candidate.id}><span>{candidate.description} · {candidate.date} · {money(candidate.amount)}</span><button type="button" className="text-link" disabled={busy} onClick={() => void restoreMatch(candidate)}>Match this charge</button></div>)}</div>}
     <form onSubmit={async event => {
       event.preventDefault(); setBusy(true); setError("");
       const values = Object.fromEntries(new FormData(event.currentTarget));

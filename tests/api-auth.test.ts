@@ -7,6 +7,7 @@ import { DELETE as deletePayment, PATCH as patchPayment, POST as postPayment } f
 import { GET as getCategories, PATCH as patchCategory, POST as postCategory } from "../app/api/categories/route";
 import { DELETE as deleteEntry, PATCH as patchEntry, POST as postEntry } from "../app/api/entries/route";
 import { DELETE as deleteObligation, PATCH as patchObligation, POST as postObligation } from "../app/api/obligations/route";
+import { POST as decideObligationMatch } from "../app/api/obligations/matches/route";
 import { GET as getDashboard } from "../app/api/dashboard/route";
 import { GET as getConnections } from "../app/api/connections/route";
 import { DELETE as deleteCategorizationRule } from "../app/api/categorization-rules/route";
@@ -49,6 +50,7 @@ test("all user-owned mutation routes reject unauthenticated requests", async () 
       ["obligations POST", postObligation, "POST", { name: "Rent", amount: 100, dueDate: "2026-09-15", accountId: "cash", categoryId: "rent" }],
       ["obligations PATCH", patchObligation, "PATCH", { id: "obligation", name: "Rent", amount: 100, dueDate: "2026-09-15", accountId: "cash", categoryId: "rent" }],
       ["obligations DELETE", deleteObligation, "DELETE", { id: "obligation" }],
+      ["obligation match POST", decideObligationMatch, "POST", { obligationId: "obligation", candidateType: "transaction", candidateId: "transaction", status: "confirmed" }],
     ];
     for (const [label, handler, method, body] of cases) await assertUnauthorized(handler, method, body).catch(error => { throw new Error(`${label}: ${error instanceof Error ? error.message : error}`); });
   } finally {
