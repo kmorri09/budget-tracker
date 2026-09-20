@@ -79,7 +79,7 @@ export default function DataTable({ title, rows, columns, facets, dated = false,
   const [range, setRange] = useState(dated && !initialCategory ? "30" : "all");
   const [extra, setExtra] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(50);
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(columnStorageKey);

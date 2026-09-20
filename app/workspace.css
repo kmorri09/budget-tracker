@@ -104,7 +104,7 @@
 .table-empty h3 { color: var(--ink); }
 .table-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 18px; font-size: 12px; color: var(--muted); }
 .table-pagination > label { display: flex; align-items: center; gap: 8px; }
-.table-pagination > label input { min-height: 38px; width: 58px; }
+.table-pagination > label input { min-height: 38px; width: 96px; }
 .typeahead-field { position: relative; min-width: 0; }
 .typeahead-control { position: relative; display: block; min-width: 0; }
 .typeahead-control > input { padding-right: 38px; }
