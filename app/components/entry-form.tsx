@@ -10,7 +10,7 @@ function Suggestion({ label, name, options, initial = "", value, onChange, requi
   return <Typeahead label={label} name={name} options={options.map(option => ({ value: option, label: option }))} initialValue={initial} value={value} onChange={onChange} required={required} />;
 }
 
-export default function EntryForm({ action, dashboard, initialPaymentTransactionIds = [], initialPaymentImport = null, onClose, onSaved }: { action: ActionType; dashboard: DashboardData; initialPaymentTransactionIds?: string[]; initialPaymentImport?: DashboardData["activity"][number] | null; onClose: () => void; onSaved: (message?: string) => void }) {
+export default function EntryForm({ action, dashboard, initialPaymentTransactionIds = [], initialPaymentAmountsCents, initialPaymentImport = null, onClose, onSaved }: { action: ActionType; dashboard: DashboardData; initialPaymentTransactionIds?: string[]; initialPaymentAmountsCents?: Record<string, number> | null; initialPaymentImport?: DashboardData["activity"][number] | null; onClose: () => void; onSaved: (message?: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const categoryNames = dashboard.categories.map(c => c.name);
@@ -22,8 +22,8 @@ export default function EntryForm({ action, dashboard, initialPaymentTransaction
   const descriptor = initialPaymentImport?.description.toLowerCase() ?? "";
   const inferredCard = dashboard.accounts.find(account => account.type === "credit_card" && (["amex", "american express"].some(value => descriptor.includes(value) && `${account.name} ${account.institution}`.toLowerCase().includes(value)) || ["wells fargo", "chase", "capital one", "discover", "citi"].some(value => descriptor.includes(value) && `${account.name} ${account.institution}`.toLowerCase().includes(value))))?.name;
   const initialPaymentCard = initialPaymentEntries[0]?.account ?? inferredCard ?? (creditCardNames.length === 1 ? creditCardNames[0] : "");
-  const initialApplications = Object.fromEntries(initialPaymentEntries.map(entry => [entry.id, entry.remainingToPay.toFixed(2)]));
-  const initialPaymentAmount = initialPaymentImport?.amount ?? initialPaymentEntries.reduce((sum, entry) => sum + entry.remainingToPay, 0);
+  const initialApplications = Object.fromEntries(initialPaymentEntries.map(entry => [entry.id, ((initialPaymentAmountsCents?.[entry.id] ?? Math.round(entry.remainingToPay * 100)) / 100).toFixed(2)]));
+  const initialPaymentAmount = initialPaymentImport?.amount ?? Object.values(initialApplications).reduce((sum, amount) => sum + Number(amount), 0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [manualPayment, setManualPayment] = useState(initialPaymentEntries.length > 0);

@@ -10,6 +10,7 @@ import TransactionEditDialog from "./components/transaction-edit-dialog";
 import CardPaymentEditDialog from "./components/card-payment-edit-dialog";
 import BudgetReconcileDialog from "./components/budget-reconcile-dialog";
 import FundObligationsDialog from "./components/fund-obligations-dialog";
+import SuggestCardPaymentDialog from "./components/suggest-card-payment-dialog";
 import ObligationEditDialog from "./components/obligation-edit-dialog";
 import ObligationMatchDialog from "./components/obligation-match-dialog";
 import AllocationEditDialog from "./components/allocation-edit-dialog";
@@ -20,6 +21,7 @@ import CategorizationRules from "./components/categorization-rules";
 import { useConfirmDialog } from "./components/confirm-dialog";
 import { type ActionType, type DashboardData, kindLabel, money, signedAmount, today } from "../lib/workspace-types";
 import { categoriesAllocatedInLastDays } from "../lib/recent-allocations";
+import type { CardPaymentSuggestion } from "../lib/card-payment-suggestions";
 import { importedReviewDetails, importedReviewTitle, ledgerEntryNoun, supportsBudgetCategory } from "../lib/ledger-entry-types";
 import "./workspace.css";
 
@@ -78,6 +80,8 @@ export default function Home() {
   const [matchReview, setMatchReview] = useState<DashboardData["obligations"][number] | null>(null);
   const [planningThrough, setPlanningThrough] = useState(() => dateInDays(14));
   const [paymentTransactionIds, setPaymentTransactionIds] = useState<string[]>([]);
+  const [paymentAmountsCents, setPaymentAmountsCents] = useState<Record<string, number> | null>(null);
+  const [suggestingCardPayment, setSuggestingCardPayment] = useState(false);
   const [paymentImport, setPaymentImport] = useState<DashboardData["activity"][number] | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<{ transaction: DashboardData["activity"][number]; suggestion: DashboardData["reviews"][number]["suggestion"] } | null>(null);
   const [editingPayment, setEditingPayment] = useState<DashboardData["payments"][number] | null>(null);
@@ -134,16 +138,23 @@ export default function Home() {
     event.preventDefault();
     navigate(next);
   }
-  function openAction(next: ActionType) { setQuickOpen(false); setPaymentImport(null); if (next !== "payment") setPaymentTransactionIds([]); setAction(next); }
+  function openAction(next: ActionType) { setQuickOpen(false); setPaymentImport(null); setPaymentAmountsCents(null); if (next !== "payment") setPaymentTransactionIds([]); setAction(next); }
   function viewCategory(category: string) { setDrilldown(current => ({ category, key: current.key + 1 })); navigate("transactions"); }
   function paySelected(rows: { id: string }[]) {
     const entries = rows.map(row => dashboard?.activity.find(entry => entry.id === row.id)).filter((entry): entry is DashboardData["activity"][number] => Boolean(entry));
     if (new Set(entries.map(entry => entry.accountId)).size !== 1) { setToast("Choose unpaid purchases from one credit card at a time"); return; }
-    setPaymentImport(null); setPaymentTransactionIds(entries.map(entry => entry.id)); setAction("payment");
+    setPaymentImport(null); setPaymentAmountsCents(null); setPaymentTransactionIds(entries.map(entry => entry.id)); setAction("payment");
   }
-  function recordImportedPayment(transaction: DashboardData["activity"][number]) { setPaymentTransactionIds([]); setPaymentImport(transaction); setAction("payment"); }
+  function chooseSuggestedPayment(suggestion: CardPaymentSuggestion) {
+    setSuggestingCardPayment(false);
+    setPaymentImport(null);
+    setPaymentTransactionIds(suggestion.applications.map(application => application.transactionId));
+    setPaymentAmountsCents(Object.fromEntries(suggestion.applications.map(application => [application.transactionId, application.amountCents])));
+    setAction("payment");
+  }
+  function recordImportedPayment(transaction: DashboardData["activity"][number]) { setPaymentTransactionIds([]); setPaymentAmountsCents(null); setPaymentImport(transaction); setAction("payment"); }
   function editTransaction(transaction: DashboardData["activity"][number], suggestion: DashboardData["reviews"][number]["suggestion"] = null) { setEditingTransaction({ transaction, suggestion }); }
-  function saved(message?: string) { setAction(null); setPaymentTransactionIds([]); setPaymentImport(null); setToast(message ?? "Saved to your budget"); void refresh(); }
+  function saved(message?: string) { setAction(null); setPaymentTransactionIds([]); setPaymentAmountsCents(null); setPaymentImport(null); setToast(message ?? "Saved to your budget"); void refresh(); }
   const title = destination === "home" ? "Hello, " + name : navigation.find(item => item.key === destination)!.label;
   const planningWindow = dashboard?.obligations.filter(item => item.active && !item.covered && item.nextChargeDate <= planningThrough) ?? [];
 
@@ -168,7 +179,7 @@ export default function Home() {
             columns={[{ key: "name", label: "Description" }, { key: "date", label: "Date" }, { key: "amount", label: "Amount", money: true }, { key: "category", label: "Category" }, { key: "account", label: "Account", detail: true }, { key: "type", label: "Type", detail: true }, { key: "paymentStatus", label: "Card coverage", detail: true }, { key: "status", label: "Status", detail: true }, { key: "source", label: "Source", detail: true }]}
             facets={[{ key: "category", label: "Category" }, { key: "account", label: "Account" }, { key: "type", label: "Type" }, { key: "paymentStatus", label: "Card coverage" }, { key: "status", label: "Status" }, { key: "source", label: "Source" }]}
             rowActions={[{ label: "Edit", onClick: row => { const transaction = dashboard.activity.find(entry => entry.id === row.id); if (transaction) editTransaction(transaction); } }]}
-            selection={{ actionLabel: "Create card payment", isEligible: row => row.type === "Expense" && row.paymentStatus !== "Paid" && row.paymentStatus !== "Not applicable" && Number(row.remainingToPay) > 0, onAction: paySelected }} />
+            selection={{ actionLabel: "Create card payment", isEligible: row => row.type === "Expense" && row.paymentStatus !== "Paid" && row.paymentStatus !== "Not applicable" && Number(row.remainingToPay) > 0, onAction: paySelected, suggestionAction: { label: "Suggest card payment", onAction: () => setSuggestingCardPayment(true) } }} />
         </section>
         <section hidden={destination !== "payments"} aria-label="Card payments">
           <div className="view-heading"><p>Each payment moves cash to a card and is applied to its oldest unpaid purchases.</p><div className="section-actions"><button className="primary-button" onClick={() => openAction("payment")}>＋ Record card payment</button></div></div>
@@ -208,7 +219,8 @@ export default function Home() {
     </div>
     {mobileMoreOpen && <div className="mobile-more-layer"><button className="mobile-more-dismiss" aria-label="Close more navigation" onClick={() => setMobileMoreOpen(false)} /><div id="mobile-more-menu" className="mobile-more-menu" role="menu" aria-label="More destinations">{mobileMoreNavigation.map(item => <a role="menuitem" key={item.key} href={`/#${item.key}`} className={destination === item.key ? "active" : ""} aria-current={destination === item.key ? "page" : undefined} onClick={event => followNavigation(event, item.key)}><span aria-hidden="true"><NavigationIcon item={item} /></span><strong>{item.label}</strong></a>)}</div></div>}
     <nav className="mobile-nav" aria-label="Mobile navigation">{mobilePrimaryNavigation.map(item => <a key={item.key} href={`/#${item.key}`} className={"mobile-nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={event => followNavigation(event, item.key)}><span aria-hidden="true"><NavigationIcon item={item} /></span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</a>)}<button className={"mobile-nav-item mobile-more-trigger " + (mobileMoreNavigation.some(item => item.key === destination) ? "active" : "")} aria-current={mobileMoreNavigation.some(item => item.key === destination) ? "page" : undefined} aria-expanded={mobileMoreOpen} aria-controls="mobile-more-menu" aria-haspopup="menu" onClick={() => setMobileMoreOpen(open => !open)}><span aria-hidden="true">•••</span>More</button></nav>
-    {dashboard && action && <EntryForm action={action} dashboard={dashboard} initialPaymentTransactionIds={paymentTransactionIds} initialPaymentImport={paymentImport} onClose={() => { setAction(null); setPaymentTransactionIds([]); setPaymentImport(null); }} onSaved={saved} />}
+    {dashboard && suggestingCardPayment && <SuggestCardPaymentDialog dashboard={dashboard} onClose={() => setSuggestingCardPayment(false)} onChoose={chooseSuggestedPayment} />}
+    {dashboard && action && <EntryForm action={action} dashboard={dashboard} initialPaymentTransactionIds={paymentTransactionIds} initialPaymentAmountsCents={paymentAmountsCents} initialPaymentImport={paymentImport} onClose={() => { setAction(null); setPaymentTransactionIds([]); setPaymentAmountsCents(null); setPaymentImport(null); }} onSaved={saved} />}
     {editingCategory && <CategoryEditDialog category={editingCategory} onClose={() => setEditingCategory(null)} onSaved={() => { setEditingCategory(null); setToast("Category details updated"); void refresh(); }} />}
     {dashboard && reconcilingCategories && <CategoryReconcileDialog categories={dashboard.categories} onClose={() => setReconcilingCategories(false)} onSaved={(count) => { setReconcilingCategories(false); setToast(count ? `${count} category ${count === 1 ? "balance" : "balances"} reconciled` : "Category balances already matched"); void refresh(); }} />}
     {dashboard && reconcilingCoverage && <CardCoverageReconcileDialog dashboard={dashboard} onClose={() => setReconcilingCoverage(false)} onSaved={(count, state) => { setReconcilingCoverage(false); setToast(count ? `${count} card ${count === 1 ? "purchase" : "purchases"} marked ${state}` : `Selected purchases were already ${state}`); void refresh(); }} />}
