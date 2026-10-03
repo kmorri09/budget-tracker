@@ -23,8 +23,12 @@ export class SyncBusyError extends Error { constructor() { super("A sync is alre
 async function plaidRequest<T>(path: string, body: Record<string, unknown>) {
   if (!hasPlaidCredentials()) throw new Error("Plaid is not configured. Add PLAID_CLIENT_ID and PLAID_SECRET to enable live connections.");
   const response = await fetch(`${plaidBaseUrl()}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_id: process.env.PLAID_CLIENT_ID, secret: process.env.PLAID_SECRET, ...body }), cache: "no-store", signal: AbortSignal.timeout(20_000) });
-  const payload = await response.json().catch(() => null) as (T & { error_code?: string; error_message?: string }) | null;
-  if (!response.ok || !payload) throw new PlaidError(payload?.error_message ?? `Plaid request failed (${response.status})`, payload?.error_code);
+  const payload = await response.json().catch(() => null) as (T & { error_code?: string; error_message?: string; request_id?: string }) | null;
+  if (!response.ok || !payload) {
+    const detail = payload?.error_message ?? "Request failed";
+    const requestId = payload?.request_id ? `; request_id ${payload.request_id}` : "";
+    throw new PlaidError(`Plaid ${path}: ${detail} (${response.status}${requestId})`, payload?.error_code);
+  }
   return payload;
 }
 

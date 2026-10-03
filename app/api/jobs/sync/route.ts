@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { getDatabase } from "../../../../lib/db";
@@ -20,14 +20,16 @@ export async function POST(request: Request) {
   if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!process.env.DATABASE_URL) return NextResponse.json({ error: "Database is not configured" }, { status: 503 });
   const db = getDatabase();
-  const connections = await db.select({ id: providerConnections.id, userId: providerConnections.userId }).from(providerConnections).where(and(eq(providerConnections.status, "connected"), inArray(providerConnections.provider, ["plaid", "mock"])));
-  const results: Array<{ connectionId: string; ok: boolean; added?: number; modified?: number; matched?: number; suppressed?: number; error?: string }> = [];
+  // Keep retrying connections after ordinary sync failures. Only disconnected
+  // connections and those requiring user reauthentication need to be skipped.
+  const connections = await db.select({ id: providerConnections.id, userId: providerConnections.userId, institutionName: providerConnections.institutionName }).from(providerConnections).where(and(inArray(providerConnections.status, ["connected", "error"]), inArray(providerConnections.provider, ["plaid", "mock"])));
+  const results: Array<{ connectionId: string; institutionName: string | null; ok: boolean; added?: number; modified?: number; matched?: number; suppressed?: number; error?: string }> = [];
   for (const connection of connections) {
     try {
       const result = await syncConnection(db, connection.userId, connection.id, { onlyEnabled: true });
-      results.push({ connectionId: connection.id, ok: true, added: result.added, modified: result.modified, matched: result.matched, suppressed: result.suppressed });
+      results.push({ connectionId: connection.id, institutionName: connection.institutionName, ok: true, added: result.added, modified: result.modified, matched: result.matched, suppressed: result.suppressed });
     } catch (error) {
-      results.push({ connectionId: connection.id, ok: false, error: error instanceof Error ? error.message : "Sync failed" });
+      results.push({ connectionId: connection.id, institutionName: connection.institutionName, ok: false, error: error instanceof Error ? error.message : "Sync failed" });
     }
   }
   return NextResponse.json({ ok: results.every(result => result.ok), attempted: results.length, results }, { status: results.every(result => result.ok) ? 200 : 207 });

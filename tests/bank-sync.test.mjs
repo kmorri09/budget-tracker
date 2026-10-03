@@ -2,6 +2,33 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { accountType, findCardPaymentMatch, findLedgerDuplicate, inferTransactionKind, mockProviderAccounts, syncCutoverDate, toNormalized } from "../lib/bank-sync-core.ts";
 import { decryptProviderToken, encryptProviderToken } from "../lib/provider-crypto.ts";
+import { PlaidError, plaidRequest } from "../lib/bank-sync.ts";
+
+test("Plaid failures identify the endpoint and request without logging credentials", async () => {
+  const previousFetch = globalThis.fetch;
+  const previousClientId = process.env.PLAID_CLIENT_ID;
+  const previousSecret = process.env.PLAID_SECRET;
+  process.env.PLAID_CLIENT_ID = "test-client";
+  process.env.PLAID_SECRET = "test-secret";
+  globalThis.fetch = async () => new Response(JSON.stringify({ error_code: "INTERNAL_SERVER_ERROR", error_message: "Temporary provider error", request_id: "request-123" }), { status: 502 });
+  try {
+    await assert.rejects(plaidRequest("/transactions/sync", { access_token: "test-access-token" }), error => {
+      assert(error instanceof PlaidError);
+      assert.equal(error.code, "INTERNAL_SERVER_ERROR");
+      assert.match(error.message, /Plaid \/transactions\/sync: Temporary provider error \(502; request_id request-123\)/);
+      assert.doesNotMatch(error.message, /test-client|test-secret|test-access-token/);
+      return true;
+    });
+    globalThis.fetch = async () => new Response("Bad Gateway", { status: 502 });
+    await assert.rejects(plaidRequest("/accounts/get", { access_token: "test-access-token" }), /Plaid \/accounts\/get: Request failed \(502\)/);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousClientId === undefined) delete process.env.PLAID_CLIENT_ID;
+    else process.env.PLAID_CLIENT_ID = previousClientId;
+    if (previousSecret === undefined) delete process.env.PLAID_SECRET;
+    else process.env.PLAID_SECRET = previousSecret;
+  }
+});
 
 test("provider tokens round-trip through authenticated encryption", () => {
   const previous = process.env.PLAID_TOKEN_ENCRYPTION_KEY;
