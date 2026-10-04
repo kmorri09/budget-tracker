@@ -121,7 +121,7 @@ export async function DELETE(request: Request) {
     await tx.delete(cardPaymentApplications).where(and(eq(cardPaymentApplications.transactionId, existing.id), eq(cardPaymentApplications.userId, user.id)));
     await tx.delete(cardCoverageAdjustments).where(and(eq(cardCoverageAdjustments.transactionId, existing.id), eq(cardCoverageAdjustments.userId, user.id)));
     await tx.delete(reviewItems).where(and(eq(reviewItems.transactionId, existing.id), eq(reviewItems.userId, user.id)));
-    await tx.update(transactions).set({ status: "removed", removedAt: new Date(), updatedAt: new Date() }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, user.id)));
+    await tx.update(transactions).set({ status: "removed", pending: false, userEdited: true, removedAt: new Date(), updatedAt: new Date() }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, user.id)));
     await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "delete", entityType: "transaction", entityId: existing.id, beforeJson: JSON.stringify(existing), afterJson: JSON.stringify({ status: "removed" }) });
   });
   return NextResponse.json({ id: existing.id, ok: true });

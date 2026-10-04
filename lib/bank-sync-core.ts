@@ -9,6 +9,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const CARD_PAYMENT_MATCH_DAYS = 5;
 export const LEDGER_MATCH_DAYS = 5;
 
+export function preserveRemovedTransaction(
+  transaction: { status: string; effectiveDate: string },
+  cutoverDate: string,
+  explicitlyRemoved: boolean,
+) {
+  return transaction.status === "removed" && (explicitlyRemoved || transaction.effectiveDate < cutoverDate);
+}
+
 function cashDirection(kind: string) {
   if (["income", "refund", "transfer_in"].includes(kind)) return "in";
   if (["expense", "card_payment", "transfer_out"].includes(kind)) return "out";

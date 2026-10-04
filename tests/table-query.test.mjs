@@ -29,6 +29,19 @@ test('query never mutates source and gracefully supports zero matches', () => {
   queryRows(rows, query, 'amount'); assert.equal(rows[0].id, 'a');
   assert.equal(queryRows(rows, { ...query, search: 'missing' }, 'amount').length, 0);
 });
+test('rules can be searched, category-filtered and sorted without an amount column', () => {
+  const rules = [
+    { id: 'r1', name: 'Better H', category: 'Dining' },
+    { id: 'r2', name: 'H-E-B', category: 'Groceries' },
+    { id: 'r3', name: 'Merit Coffee', category: 'Dining' },
+    { id: 'r4', name: 'Michi Japanese Deli', category: 'Dining' },
+  ];
+  const byName = { ...query, sort: 'name', direction: 'asc' };
+  assert.deepEqual(queryRows(rules, byName).map(row => row.id), ['r1', 'r2', 'r3', 'r4']);
+  assert.deepEqual(queryRows(rules, { ...byName, search: ' M ', facets: { category: ['Dining'] } }).map(row => row.id), ['r3', 'r4']);
+  assert.deepEqual(queryRows(rules, { ...byName, facets: { category: ['Groceries'] } }).map(row => row.id), ['r2']);
+  assert.equal(queryRows(rules, { ...byName, search: 'missing' }).length, 0);
+});
 test('ledger display preserves reconciliation signs and transfer direction', () => {
   for (const [kind, amount, expected] of [['adjustment', -20, -20], ['adjustment', 20, 20], ['income', 50, 50], ['expense', 50, -50], ['card_payment', 50, -50], ['refund', 50, 50], ['transfer_in', 50, 50], ['transfer_out', 50, -50]]) {
     assert.equal(signedAmount({ kind, amount }), expected);

@@ -1,8 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { accountType, findCardPaymentMatch, findLedgerDuplicate, inferTransactionKind, mockProviderAccounts, syncCutoverDate, toNormalized } from "../lib/bank-sync-core.ts";
+import { accountType, findCardPaymentMatch, findLedgerDuplicate, inferTransactionKind, mockProviderAccounts, preserveRemovedTransaction, syncCutoverDate, toNormalized } from "../lib/bank-sync-core.ts";
 import { decryptProviderToken, encryptProviderToken } from "../lib/provider-crypto.ts";
 import { PlaidError, plaidRequest } from "../lib/bank-sync.ts";
+
+test("a provider modification cannot reactivate an explicitly deleted expense after cutover", () => {
+  assert.equal(preserveRemovedTransaction({ status: "removed", effectiveDate: "2026-09-14" }, "2026-09-01", true), true);
+  assert.equal(preserveRemovedTransaction({ status: "posted", effectiveDate: "2026-09-14" }, "2026-09-01", true), false);
+});
+
+test("bank removals can be restored by the provider while historical exclusions stay removed", () => {
+  assert.equal(preserveRemovedTransaction({ status: "removed", effectiveDate: "2026-09-14" }, "2026-09-01", false), false);
+  assert.equal(preserveRemovedTransaction({ status: "removed", effectiveDate: "2026-08-30" }, "2026-09-01", false), true);
+});
 
 test("Plaid failures identify the endpoint and request without logging credentials", async () => {
   const previousFetch = globalThis.fetch;

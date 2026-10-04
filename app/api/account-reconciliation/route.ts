@@ -3,8 +3,9 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
 import { calculateAccountLedgerCents, transactionBalanceEffectCents } from "../../../lib/account-ledger";
+import { linkedBankDifferences, nearbyPaymentBankActivity, possibleLedgerDuplicates, type PaymentEvidence, type ReconciliationBankActivity } from "../../../lib/account-reconciliation";
 import { toNormalized, type PlaidTransaction } from "../../../lib/bank-sync-core";
-import { accounts, auditEvents, cardPayments, providerAccounts, providerConnections, rawProviderTransactions, transactions } from "../../../lib/schema";
+import { accounts, auditEvents, cardPaymentApplications, cardPayments, providerAccounts, providerConnections, rawProviderTransactions, transactions } from "../../../lib/schema";
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
@@ -24,6 +25,14 @@ export async function GET(request: Request) {
   ]);
 
   const connectionIds = [...new Set(mappedProviderAccounts.map(row => row.connectionId))];
+  const paymentIds = paymentRows.map(row => row.id);
+  const [accountNames, paymentApplications] = paymentIds.length ? await Promise.all([
+    db.select({ id: accounts.id, name: accounts.name }).from(accounts).where(and(eq(accounts.userId, user.id), inArray(accounts.id, [...new Set(paymentRows.flatMap(row => [row.fromAccountId, row.toAccountId]))]))),
+    db.select({ paymentId: cardPaymentApplications.paymentId, id: transactions.id, date: transactions.effectiveDate, description: transactions.description, amountCents: cardPaymentApplications.amountCents })
+      .from(cardPaymentApplications).innerJoin(transactions, eq(transactions.id, cardPaymentApplications.transactionId))
+      .where(and(eq(cardPaymentApplications.userId, user.id), eq(transactions.userId, user.id), inArray(cardPaymentApplications.paymentId, paymentIds))),
+  ]) : [[], []];
+  const nameByAccountId = new Map(accountNames.map(row => [row.id, row.name]));
   const providerAccountScope = or(...mappedProviderAccounts.map(row => and(eq(rawProviderTransactions.connectionId, row.connectionId), eq(rawProviderTransactions.providerAccountId, row.providerAccountId))));
   const [rawRows, connections] = await Promise.all([
     providerAccountScope
@@ -33,15 +42,20 @@ export async function GET(request: Request) {
       ? db.select({ id: providerConnections.id, provider: providerConnections.provider, institutionName: providerConnections.institutionName, status: providerConnections.status, lastSyncAt: providerConnections.lastSyncAt }).from(providerConnections).where(and(eq(providerConnections.userId, user.id), inArray(providerConnections.id, connectionIds)))
       : Promise.resolve([]),
   ]);
-  const removedLedgerIds = ledgerRows.filter(row => row.status === "removed").map(row => row.id);
-  const providerRemovalAudits = removedLedgerIds.length
-    ? await db.select({ entityId: auditEvents.entityId, afterJson: auditEvents.afterJson, createdAt: auditEvents.createdAt }).from(auditEvents).where(and(eq(auditEvents.userId, user.id), eq(auditEvents.action, "remove"), eq(auditEvents.entityType, "provider_transaction"), inArray(auditEvents.entityId, removedLedgerIds)))
+  const providerRemovalAudits = rawRows.length
+    ? await db.select({ beforeJson: auditEvents.beforeJson, afterJson: auditEvents.afterJson, createdAt: auditEvents.createdAt }).from(auditEvents).where(and(eq(auditEvents.userId, user.id), or(
+      and(eq(auditEvents.action, "remove"), eq(auditEvents.entityType, "provider_transaction")),
+      and(eq(auditEvents.action, "unlink"), eq(auditEvents.entityType, "card_payment")),
+    )))
     : [];
+  const savedProviderIds = new Set(rawRows.map(row => row.providerTransactionId));
   const removedProviderAt = new Map<string, Date>();
   for (const audit of providerRemovalAudits) {
     try {
-      const providerTransactionId = (JSON.parse(audit.afterJson ?? "{}") as { providerTransactionId?: string }).providerTransactionId;
-      if (providerTransactionId && (!removedProviderAt.has(providerTransactionId) || removedProviderAt.get(providerTransactionId)!.getTime() < audit.createdAt.getTime())) removedProviderAt.set(providerTransactionId, audit.createdAt);
+      const after = JSON.parse(audit.afterJson ?? "{}") as { providerTransactionId?: string | null };
+      const before = JSON.parse(audit.beforeJson ?? "{}") as { providerTransactionId?: string | null };
+      const providerTransactionId = after.providerTransactionId ?? before.providerTransactionId;
+      if (providerTransactionId && savedProviderIds.has(providerTransactionId) && (!removedProviderAt.has(providerTransactionId) || removedProviderAt.get(providerTransactionId)!.getTime() < audit.createdAt.getTime())) removedProviderAt.set(providerTransactionId, audit.createdAt);
     } catch { /* Ignore malformed historical audit details. */ }
   }
 
@@ -84,8 +98,10 @@ export async function GET(request: Request) {
       status: row.status,
       pending: row.pending,
       source: row.source,
+      providerTransactionId: row.providerTransactionId,
       linkedToBank: Boolean(row.providerTransactionId),
       excluded: row.status === "removed",
+      paymentEvidence: null as PaymentEvidence | null,
     })),
     ...paymentRows.map(payment => {
       const fromAccount = payment.fromAccountId === account.id;
@@ -99,13 +115,23 @@ export async function GET(request: Request) {
         status: "posted",
         pending: false,
         source: "card_payment",
+        providerTransactionId: fromAccount ? payment.providerTransactionId : payment.destinationProviderTransactionId,
         linkedToBank: fromAccount ? Boolean(payment.providerTransactionId) : Boolean(payment.destinationProviderTransactionId),
         excluded: false,
+        paymentEvidence: {
+          fromAccountName: nameByAccountId.get(payment.fromAccountId) ?? "Cash account",
+          toAccountName: nameByAccountId.get(payment.toAccountId) ?? "Credit card",
+          bankSide: fromAccount ? "withdrawal" : "credit",
+          otherSideLinkedToBank: Boolean(fromAccount ? payment.destinationProviderTransactionId : payment.providerTransactionId),
+          appliedCents: paymentApplications.filter(row => row.paymentId === payment.id).reduce((sum, row) => sum + row.amountCents, 0),
+          purchases: paymentApplications.filter(row => row.paymentId === payment.id).map(({ id, date, description, amountCents }) => ({ id, date, description, amountCents })),
+          nearbyBankActivity: [],
+        } as PaymentEvidence,
       };
     }),
   ].sort((left, right) => right.date.localeCompare(left.date));
 
-  const bankActivity: { id: string; date: string; description: string; kind: string; amountCents: number; signedCents: number; pending: boolean; removedByProvider: boolean; linkedToApp: boolean }[] = [];
+  const bankActivity: ReconciliationBankActivity[] = [];
   let malformedProviderRows = 0;
   const typeByProviderAccount = new Map(mappedProviderAccounts.map(row => [`${row.connectionId}:${row.providerAccountId}`, row.type]));
   for (const row of rawRows) {
@@ -127,6 +153,10 @@ export async function GET(request: Request) {
     }
   }
   bankActivity.sort((left, right) => right.date.localeCompare(left.date));
+  const supersededProviderIds = new Set(rawRows.flatMap(row => row.pendingTransactionId ? [row.pendingTransactionId] : []));
+  for (const entry of ledgerEntries) if (entry.paymentEvidence) {
+    entry.paymentEvidence.nearbyBankActivity = nearbyPaymentBankActivity(entry, bankActivity, supersededProviderIds);
+  }
 
   const ledgerBalanceCents = calculateAccountLedgerCents(account.id, account.openingBalanceCents, ledgerRows, paymentRows);
   const ledgerTransactionCents = ledgerRows.filter(row => row.status !== "removed").reduce((sum, row) => sum + transactionBalanceEffectCents(row.kind, row.amountCents), 0);
@@ -140,6 +170,8 @@ export async function GET(request: Request) {
     connections: connections.map(row => ({ provider: row.provider, institutionName: row.institutionName, status: row.status, lastSyncAt: row.lastSyncAt })),
     bankActivity,
     ledgerEntries,
+    possibleDuplicates: possibleLedgerDuplicates(ledgerEntries),
+    linkedBankDifferences: linkedBankDifferences(ledgerEntries, bankActivity, new Map(rawRows.filter(row => row.pendingTransactionId).map(row => [row.pendingTransactionId!, row.providerTransactionId]))),
     malformedProviderRows,
   });
 }
