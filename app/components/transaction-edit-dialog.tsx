@@ -30,6 +30,7 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
   const categories = dashboard.managedCategories.filter(category => category.active || category.id === transaction.categoryId);
   const categoryApplies = supportsBudgetCategory(kind);
   const entryNoun = ledgerEntryNoun(kind);
+  const hasOpenReview = dashboard.reviews.some(review => review.transaction?.id === transaction.id);
 
   useEffect(() => {
     const node = dialog.current, previousOverflow = document.body.style.overflow;
@@ -53,6 +54,7 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
     <p className="field-help">Change this imported or manual ledger entry directly. Account is where the entry occurred.</p>
     <form onSubmit={async event => {
       event.preventDefault(); setBusy(true); setError("");
+      const approveReview = ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.value === "approve";
       const values = Object.fromEntries(new FormData(event.currentTarget));
       const payload = {
         id: transaction.id,
@@ -64,6 +66,7 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
         description: String(values.description),
         status: String(values.status),
         pending: String(values.status) === "pending",
+        approveReview,
         rememberCategory: supportsBudgetCategory(String(values.kind)) && values.rememberCategory === "on",
         categoryRuleMatch: String(values.categoryRuleMatch ?? ""),
       };
@@ -71,7 +74,7 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
         const response = await fetch("/api/entries", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const result = await response.json().catch(() => null);
         if (!response.ok) throw new Error(result?.error ?? "Could not update transaction.");
-        onSaved(result?.ruleSaved ? `Entry updated; future Plaid imports containing “${ruleMatch.trim()}” will use this category` : "Entry updated");
+        onSaved(result?.ruleSaved ? `Entry ${approveReview ? "updated and approved" : "updated"}; future Plaid imports containing “${ruleMatch.trim()}” will use this category` : approveReview ? "Entry updated and approved" : "Entry updated");
       } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not update entry."); } finally { setBusy(false); }
     }}>
       <fieldset disabled={busy}>
@@ -80,12 +83,12 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
         <Typeahead label="Account / payment method" name="accountId" options={accounts.map(account => ({ value: account.id, label: `${account.name}${account.active ? "" : " (inactive)"}` }))} initialValue={transaction.accountId} />
         <div className="form-grid"><Typeahead label="Type" name="kind" options={kindOptions.map(([value, label]) => ({ value, label }))} value={kind} onChange={setKind} />{categoryApplies && <Typeahead label="Category" name="categoryId" required={false} options={[{ value: "", label: "No category" }, ...categories.map(category => ({ value: category.id, label: `${category.name}${category.active ? "" : " (inactive)"}` }))]} value={categoryId} onChange={setCategoryId} />}</div>
         {categoryApplies && categorySuggestion && !transaction.categoryId && <div className="category-suggestion"><span className={`suggestion-confidence ${categorySuggestion.confidence}`}>{categorySuggestion.confidence} confidence</span><div><strong>{categorySuggestion.category} was preselected</strong><p>{categorySuggestion.reason} Nothing changes until you save.</p></div></div>}
-        {transaction.source === "plaid" && ["expense", "refund"].includes(kind) && <div className="rule-builder"><label className="toggle-field"><input name="rememberCategory" type="checkbox" checked={rememberCategory} onChange={event => setRememberCategory(event.target.checked)} disabled={!categoryId} /> Always use this category for matching Plaid imports</label>{rememberCategory && <><label>Description contains<input name="categoryRuleMatch" value={ruleMatch} onChange={event => setRuleMatch(event.target.value)} minLength={3} maxLength={120} required /></label><p className="field-help">This categorizes the current transaction and future matching expenses or refunds. It does not rewrite older transactions.</p></>}</div>}
+        {transaction.source === "plaid" && ["expense", "refund"].includes(kind) && <div className="rule-builder"><label className="toggle-field"><input name="rememberCategory" type="checkbox" checked={rememberCategory} onChange={event => setRememberCategory(event.target.checked)} disabled={!categoryId} /> Always use this category for matching Plaid imports</label>{rememberCategory && <><label>Description contains<input name="categoryRuleMatch" value={ruleMatch} onChange={event => setRuleMatch(event.target.value)} minLength={3} maxLength={120} required /></label><p className="field-help">This categorizes the current transaction and future matching expenses or refunds. New imports still appear in Review.</p></>}</div>}
         <Typeahead label="Status" name="status" options={[{ value: "posted", label: "Posted" }, { value: "pending", label: "Pending" }, { value: "cleared", label: "Cleared" }, { value: "void", label: "Void" }]} initialValue={transaction.status} />
       </fieldset>
       <p className="field-help">Source: {transaction.source.replaceAll("_", " ")}. Source and payment coverage history stay auditable; changing the account changes the payment method.</p>
       {error && <p className="form-error" role="alert">{error}</p>}
-      <div className="form-footer"><button type="button" className="danger-button" disabled={busy} onClick={() => void removeTransaction()}>Delete {entryNoun}</button><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
+      <div className="form-footer"><button type="button" className="danger-button" disabled={busy} onClick={() => void removeTransaction()}>Delete {entryNoun}</button><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button type="submit" className={hasOpenReview ? "secondary-button" : "primary-button"} value="save" disabled={busy}>{busy ? "Saving…" : "Save"}</button>{hasOpenReview && <button type="submit" className="primary-button" value="approve" disabled={busy}>Save and Approve</button>}</div>
     </form>
     {confirmationDialog}</dialog>;
 }

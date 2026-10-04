@@ -4,6 +4,7 @@ import type { Database } from "./db";
 import { accounts, auditEvents, cardPayments, categorizationRules, categories, providerAccounts, providerConnections, rawProviderTransactions, reviewItems, syncLocks, syncRuns, transactions } from "./schema";
 import { accountType, findCardPaymentMatch, findLedgerDuplicate, mockProviderAccounts, syncCutoverDate, toNormalized, type CardPaymentMatchCandidate, type LedgerMatchCandidate, type NormalizedTransaction, type PlaidAccount, type PlaidTransaction } from "./bank-sync-core";
 import { findCategorizationRule } from "./categorization-rules";
+import { importedReviewDetails, importedReviewTitle } from "./ledger-entry-types";
 import { decryptProviderToken, encryptProviderToken, hasProviderEncryptionKey } from "./provider-crypto";
 
 const plaidEnvironment = () => {
@@ -227,13 +228,16 @@ export async function syncConnection(db: Database, userId: string, connectionId:
         if (normalized.date < cutoverDate) { suppressedCount++; continue; }
         const id = randomUUID();
         const categoryRule = normalized.kind === "expense" || normalized.kind === "refund" ? findCategorizationRule(normalized.description, categoryRuleRows) : null;
-        await db.insert(transactions).values({ id, userId, accountId: localAccountId, categoryId: categoryRule?.categoryId ?? null, kind: normalized.kind, amountCents: normalized.amountCents, effectiveDate: normalized.date, description: normalized.description, status: normalized.pending ? "pending" : "posted", source: "plaid", providerTransactionId: normalized.providerTransactionId, pending: normalized.pending });
-        if ((normalized.kind === "expense" || normalized.kind === "refund") && !categoryRule) await db.insert(reviewItems).values({ id: randomUUID(), userId, transactionId: id, kind: "bank_transaction", title: `Review imported ${normalized.kind === "refund" ? "refund" : "transaction"}: ${normalized.description}`, details: normalized.kind === "refund" ? "Assign the original spending category, or confirm this refund is already represented in your budget." : "Assign a category or confirm this imported activity is already represented in your budget." });
-        if (categoryRule) {
-          categorizedCount++;
-          await db.insert(auditEvents).values({ id: randomUUID(), userId, action: "auto_categorize", entityType: "provider_transaction", entityId: id, afterJson: JSON.stringify({ categoryRuleId: categoryRule.id, categoryId: categoryRule.categoryId, matchText: categoryRule.matchText, providerTransactionId: normalized.providerTransactionId }) });
-        }
-        if (normalized.kind === "transfer_in" || normalized.kind === "transfer_out") await db.insert(reviewItems).values({ id: randomUUID(), userId, transactionId: id, kind: "provider_transfer", title: `Review imported transfer: ${normalized.description}`, details: normalized.kind === "transfer_out" ? "No existing card payment matched this withdrawal. If it paid an untracked card, keep it as a transaction; otherwise record the card payment and this import will be reconciled automatically." : "Confirm this transfer is not new spending and keep it as a transaction if no matching entry exists." });
+        const isTransfer = normalized.kind === "transfer_in" || normalized.kind === "transfer_out";
+        const reviewDetails = isTransfer
+          ? normalized.kind === "transfer_out" ? "No existing card payment matched this withdrawal. If it paid an untracked card, keep it as a transaction; otherwise record the card payment and this import will be reconciled automatically." : "Confirm this transfer is not new spending and keep it as a transaction if no matching entry exists."
+          : categoryRule ? "An automatic rule assigned this category. Confirm it or edit the transaction before approving." : importedReviewDetails(normalized.kind, "Review this imported ledger entry.");
+        await db.transaction(async tx => {
+          await tx.insert(transactions).values({ id, userId, accountId: localAccountId, categoryId: categoryRule?.categoryId ?? null, kind: normalized.kind, amountCents: normalized.amountCents, effectiveDate: normalized.date, description: normalized.description, status: normalized.pending ? "pending" : "posted", source: "plaid", providerTransactionId: normalized.providerTransactionId, pending: normalized.pending });
+          await tx.insert(reviewItems).values({ id: randomUUID(), userId, transactionId: id, kind: isTransfer ? "provider_transfer" : "bank_transaction", title: importedReviewTitle(normalized.kind, normalized.description), details: reviewDetails });
+          if (categoryRule) await tx.insert(auditEvents).values({ id: randomUUID(), userId, action: "auto_categorize", entityType: "provider_transaction", entityId: id, afterJson: JSON.stringify({ categoryRuleId: categoryRule.id, categoryId: categoryRule.categoryId, matchText: categoryRule.matchText, providerTransactionId: normalized.providerTransactionId }) });
+        });
+        if (categoryRule) categorizedCount++;
         addedCount++;
       }
     }

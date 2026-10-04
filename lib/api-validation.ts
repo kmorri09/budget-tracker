@@ -45,6 +45,7 @@ export const transactionUpdateSchema = z.object({
   description: z.string().trim().min(1).max(200),
   status: z.string().trim().min(1).max(40),
   pending: z.boolean(),
+  approveReview: z.boolean().optional().default(false),
   rememberCategory: z.boolean().optional().default(false),
   categoryRuleMatch: z.string().trim().max(120).optional(),
 }).transform(input => input.kind === "expense" || input.kind === "refund" ? input : { ...input, categoryId: null, rememberCategory: false, categoryRuleMatch: "" });

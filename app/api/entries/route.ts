@@ -100,12 +100,12 @@ export async function PATCH(request: Request) {
       ? { kind: "provider_transfer", title: importedReviewTitle(input.kind, input.description) }
       : { kind: "bank_transaction", title: importedReviewTitle(input.kind, input.description), details: importedReviewDetails(input.kind, "Review this imported ledger entry.") };
     await tx.update(reviewItems).set(reviewChanges).where(and(eq(reviewItems.transactionId, input.id), eq(reviewItems.userId, user.id), eq(reviewItems.status, "open")));
-    if (existing.source === "plaid" && input.categoryId && ["expense", "refund"].includes(input.kind)) await tx.update(reviewItems).set({ status: "resolved", resolvedAt: new Date(), details: input.rememberCategory ? "Categorized and resolved; a rule will categorize future matching Plaid imports." : "Categorized and resolved after editing the imported transaction." }).where(and(eq(reviewItems.transactionId, input.id), eq(reviewItems.userId, user.id), eq(reviewItems.kind, "bank_transaction"), eq(reviewItems.status, "open")));
+    if (input.approveReview) await tx.update(reviewItems).set({ status: "resolved", resolvedAt: new Date() }).where(and(eq(reviewItems.transactionId, input.id), eq(reviewItems.userId, user.id), eq(reviewItems.status, "open")));
     if (input.rememberCategory && input.categoryId) await tx.insert(categorizationRules).values({ id: randomUUID(), userId: user.id, categoryId: input.categoryId, matchText: ruleDisplayText, normalizedMatch: ruleMatch, active: true, updatedAt: new Date() }).onConflictDoUpdate({ target: [categorizationRules.userId, categorizationRules.normalizedMatch], set: { categoryId: input.categoryId, matchText: ruleDisplayText, active: true, updatedAt: new Date() } });
     await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "transaction", entityId: input.id, beforeJson: JSON.stringify({ kind: existing.kind, amountCents: existing.amountCents, effectiveDate: existing.effectiveDate, accountId: existing.accountId, categoryId: existing.categoryId, description: existing.description, status: existing.status, pending: existing.pending }), afterJson: JSON.stringify(changes) });
     if (input.rememberCategory && input.categoryId) await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "upsert", entityType: "categorization_rule", entityId: ruleMatch, afterJson: JSON.stringify({ matchText: ruleDisplayText, normalizedMatch: ruleMatch, categoryId: input.categoryId, transactionId: input.id }) });
   });
-  return NextResponse.json({ id: input.id, ok: true, ruleSaved: input.rememberCategory });
+  return NextResponse.json({ id: input.id, ok: true, ruleSaved: input.rememberCategory, reviewApproved: input.approveReview });
 }
 
 export async function DELETE(request: Request) {
