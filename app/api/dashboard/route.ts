@@ -5,6 +5,7 @@ import { getDatabase } from "../../../lib/db";
 import { accounts, allocations, budgetAdjustments, cardCoverageAdjustments, cardPaymentApplications, cardPayments, categorizationRules, categories, obligationMatchDecisions, obligations, rawProviderTransactions, reviewItems, transactions } from "../../../lib/schema";
 import { calculateCategoryBalance } from "../../../lib/category-balance";
 import { calculateAvailableToAssignCents } from "../../../lib/budget-balance";
+import { calculateAccountLedgerCents } from "../../../lib/account-ledger";
 import { suggestCategory, type ProviderCategory } from "../../../lib/category-suggestions";
 import { planObligations, type ObligationCoverage } from "../../../lib/obligation-status";
 
@@ -41,17 +42,14 @@ export async function GET() {
     paymentAppliedByPayment.set(application.paymentId, (paymentAppliedByPayment.get(application.paymentId) ?? 0) + application.amountCents);
   }
   for (const adjustment of coverageAdjustmentRows) paymentAppliedByTransaction.set(adjustment.transactionId, (paymentAppliedByTransaction.get(adjustment.transactionId) ?? 0) + adjustment.amountCents);
-  const signedCashFor = (transaction: typeof transactionRows[number]) => {
-    if (transaction.kind === "income" || transaction.kind === "refund") return transaction.amountCents;
-    if (transaction.kind === "transfer_in") return transaction.amountCents;
-    if (transaction.kind === "adjustment") return transaction.amountCents;
-    return -transaction.amountCents;
-  };
   const accountLedgers = accountRows.map((account) => ({
     ...account,
-    ledgerBalanceCents: account.openingBalanceCents
-      + activeTransactionRows.filter((transaction) => transaction.accountId === account.id).reduce((sum, transaction) => sum + signedCashFor(transaction), 0)
-      + paymentRows.reduce((sum, payment) => sum + (payment.fromAccountId === account.id ? -payment.amountCents : payment.toAccountId === account.id ? payment.amountCents : 0), 0),
+    ledgerBalanceCents: calculateAccountLedgerCents(
+      account.id,
+      account.openingBalanceCents,
+      transactionRows.filter(transaction => transaction.accountId === account.id),
+      paymentRows,
+    ),
   }));
   const ledgerByAccount = accountLedgers.filter(account => account.active);
   const ledgerBalanceCents = ledgerByAccount.filter((account) => account.type !== "credit_card").reduce((sum, account) => sum + account.ledgerBalanceCents, 0);

@@ -146,6 +146,38 @@
 .account-card dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
 .account-card dt { color: var(--muted); }
 .account-card dd { margin: 0; font-weight: 600; }
+.account-investigation-dialog { width: min(940px, calc(100% - 32px)); }
+.investigation-balance-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+.investigation-balance-grid > div { display: grid; gap: 5px; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfb; }
+.investigation-balance-grid span,.investigation-balance-grid small { color: var(--muted); font-size: 11px; }
+.investigation-balance-grid strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.investigation-balance-grid .unmatched { border-color: #efd8cc; background: #fff9f6; }
+.investigation-balance-grid .matched { border-color: #d8e9df; background: #f4faf6; }
+.investigation-breakdown { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0 0 20px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.investigation-breakdown > div { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+.investigation-breakdown dt { color: var(--muted); }
+.investigation-breakdown dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.investigation-section { margin-top: 20px; }
+.investigation-section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.investigation-section-heading h3 { margin: 0; font-size: 14px; }
+.investigation-section-heading h3 span { display: inline-grid; place-items: center; min-width: 21px; height: 21px; margin-left: 4px; border-radius: 11px; background: #edf2ee; color: var(--muted); font-size: 10px; vertical-align: 1px; }
+.investigation-section-heading > strong { white-space: nowrap; font-size: 12px; font-variant-numeric: tabular-nums; }
+.investigation-section > .field-help { margin: 6px 0 10px; line-height: 1.5; }
+.investigation-list { max-height: 270px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; }
+.investigation-row { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid #edf0ee; }
+.investigation-row:last-child { border-bottom: 0; }
+.investigation-row > div { min-width: 0; }
+.investigation-row strong,.investigation-row small { display: block; overflow-wrap: anywhere; }
+.investigation-row strong { font-size: 11px; }
+.investigation-row small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.investigation-row b { flex: 0 0 auto; font-size: 11px; font-variant-numeric: tabular-nums; }
+.investigation-callout { display: grid; gap: 4px; margin-top: 18px; padding: 12px 14px; border: 1px solid #efe2c7; border-radius: 10px; background: #fffbf1; }
+.investigation-callout strong { font-size: 12px; }
+.investigation-callout span,.investigation-callout p { margin: 0; color: var(--muted); font-size: 11px; }
+.investigation-details { margin-top: 14px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; font-size: 11px; }
+.investigation-details summary { cursor: pointer; color: var(--green-dark); font-weight: 700; }
+.investigation-details > p { color: var(--muted); line-height: 1.5; }
+.investigation-readonly-note { margin: 17px 0 0; color: var(--muted); font-size: 10px; text-align: center; }
 .bank-connections { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 4px; }
 .bank-connections-heading { align-items: flex-start; }
 .bank-connections-heading h2 { margin: 0; font-family: Fraunces, Georgia, serif; font-size: 21px; }
@@ -359,6 +391,9 @@
   .table-pagination > div { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .table-pagination > div > button { width: 100%; }
   .entry-dialog { width: calc(100vw - 16px); max-width: calc(100vw - 16px); margin: auto; padding: 20px 18px; max-height: calc(100dvh - 16px); }
+  .investigation-balance-grid { grid-template-columns: 1fr; }
+  .investigation-breakdown { grid-template-columns: 1fr; }
+  .investigation-section-heading { align-items: flex-start; flex-direction: column; }
   .entry-dialog .form-grid { grid-template-columns: 1fr; }
   .entry-dialog .form-footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
   .entry-dialog .form-footer > button { width: 100%; min-width: 0; margin: 0; padding: 8px 10px; white-space: normal; line-height: 1.3; }

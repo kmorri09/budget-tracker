@@ -1,10 +1,11 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
-import { accounts, auditEvents, transactions } from "../../../lib/schema";
+import { accounts, auditEvents, cardPayments, transactions } from "../../../lib/schema";
 import { accountCreateSchema } from "../../../lib/api-validation";
+import { calculateAccountLedgerCents } from "../../../lib/account-ledger";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -49,13 +50,11 @@ export async function PATCH(request: Request) {
   let normalizedProviderBalance: number | undefined;
   if (providerBalance !== undefined) {
     normalizedProviderBalance = account.type === "credit_card" ? -Math.abs(Math.round(providerBalance * 100)) : Math.round(providerBalance * 100);
-    const activity = await db.select({ kind: transactions.kind, amountCents: transactions.amountCents, status: transactions.status }).from(transactions).where(and(eq(transactions.accountId, account.id), eq(transactions.userId, user.id)));
-    const signedCash = activity.filter(transaction => transaction.status !== "removed").reduce((sum, transaction) => {
-      if (transaction.kind === "income" || transaction.kind === "refund" || transaction.kind === "transfer_in") return sum + transaction.amountCents;
-      if (transaction.kind === "adjustment") return sum + transaction.amountCents;
-      return sum - transaction.amountCents;
-    }, 0);
-    const currentLedger = account.openingBalanceCents + signedCash;
+    const [activity, payments] = await Promise.all([
+      db.select({ kind: transactions.kind, amountCents: transactions.amountCents, status: transactions.status }).from(transactions).where(and(eq(transactions.accountId, account.id), eq(transactions.userId, user.id))),
+      db.select({ fromAccountId: cardPayments.fromAccountId, toAccountId: cardPayments.toAccountId, amountCents: cardPayments.amountCents }).from(cardPayments).where(and(eq(cardPayments.userId, user.id), or(eq(cardPayments.fromAccountId, account.id), eq(cardPayments.toAccountId, account.id)))),
+    ]);
+    const currentLedger = calculateAccountLedgerCents(account.id, account.openingBalanceCents, activity, payments);
     reconciliationDelta = normalizedProviderBalance - currentLedger;
   }
   const changes = { ...(body.name === undefined ? {} : { name: body.name.trim() }), ...(body.institution === undefined ? {} : { institution: body.institution.trim() }), ...(body.type === undefined ? {} : { type: body.type }), ...(body.type === "credit_card" ? { isDefaultCash: false } : body.isDefaultCash === undefined ? {} : { isDefaultCash: body.isDefaultCash }), ...(body.active === undefined ? {} : { active: body.active }), ...(body.syncEnabled === undefined ? {} : { syncEnabled: body.syncEnabled }), ...(body.provider === undefined ? {} : { provider: body.provider }), ...(body.providerAccountId === undefined ? {} : { providerAccountId: body.providerAccountId }), ...(openingBalance === undefined ? {} : { openingBalanceCents: Math.round(openingBalance * 100) }), ...(providerBalance === undefined ? {} : { providerBalanceCents: normalizedProviderBalance, providerBalanceAt: new Date() }) };
