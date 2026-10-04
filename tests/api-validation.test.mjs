@@ -9,6 +9,7 @@ import {
   dateOnlySchema,
   entrySchema,
   idSchema,
+  restoreProviderEntrySchema,
   obligationSchema,
   obligationUpdateSchema,
   paymentSchema,
@@ -18,6 +19,13 @@ import {
 
 const validEntry = { kind: "transaction", amount: "12.50", date: "2026-09-08", accountId: "cash", categoryId: "food", description: "Coffee" };
 const validObligation = { name: "Rent", amount: "1200", dueDate: "2026-09-15", categoryId: "rent", accountId: "cash" };
+
+test("provider restoration requires explicit statement confirmation", () => {
+  assert.equal(restoreProviderEntrySchema.safeParse({ id: "entry" }).success, false);
+  assert.equal(restoreProviderEntrySchema.safeParse({ id: "entry", confirmPosted: false }).success, false);
+  assert.equal(restoreProviderEntrySchema.safeParse({ id: "", confirmPosted: true }).success, false);
+  assert.deepEqual(restoreProviderEntrySchema.parse({ id: "entry", confirmPosted: true, amount: 100 }), { id: "entry", confirmPosted: true });
+});
 
 test("date validation accepts real calendar dates and rejects impossible dates", () => {
   assert.equal(dateOnlySchema.safeParse("2026-02-28").success, true);

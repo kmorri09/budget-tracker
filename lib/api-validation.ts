@@ -58,6 +58,7 @@ export const allocationUpdateSchema = z.object({
   note: z.string().trim().max(200),
 });
 export const idSchema = z.object({ id: z.string().min(1) });
+export const restoreProviderEntrySchema = idSchema.extend({ confirmPosted: z.literal(true, { error: "Confirm that the charge is still posted on your bank statement" }) });
 
 export const budgetAdjustmentUpdateSchema = z.object({
   id: z.string().min(1),

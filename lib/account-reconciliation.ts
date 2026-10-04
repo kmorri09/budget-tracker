@@ -35,8 +35,19 @@ export type ReconciliationBankActivity = {
   linkedToApp: boolean;
 };
 
-type LinkedEntry = { id: string; description: string; signedCents: number; pending: boolean; excluded: boolean; providerTransactionId: string | null };
+type LinkedEntry = { id: string; description: string; signedCents: number; pending: boolean; excluded: boolean; providerTransactionId: string | null; confirmedRestoration?: boolean };
 export type LinkedBankDifference = { entryId: string; description: string; appSignedCents: number; bank: ReconciliationBankActivity; amountDifferenceCents: number; pendingDiffers: boolean };
+export type RemovedPostedBankEntry = { entryId: string; description: string; appSignedCents: number; bank: ReconciliationBankActivity };
+
+export function removedPostedBankEntries(entries: LinkedEntry[], bankActivity: ReconciliationBankActivity[], supersededProviderIds: ReadonlySet<string> = new Set()): RemovedPostedBankEntry[] {
+  const bankById = new Map(bankActivity.map(row => [row.id, row]));
+  return entries.flatMap(entry => {
+    if (!entry.excluded || !entry.providerTransactionId || supersededProviderIds.has(entry.providerTransactionId)) return [];
+    const bank = bankById.get(entry.providerTransactionId);
+    if (!bank || bank.pending || !bank.removedByProvider) return [];
+    return [{ entryId: entry.id, description: entry.description, appSignedCents: entry.signedCents, bank }];
+  });
+}
 
 // A link only establishes identity. Check the final amount and state too,
 // including older pending IDs still attached to an app entry.
@@ -51,7 +62,7 @@ export function linkedBankDifferences(entries: LinkedEntry[], bankActivity: Reco
     if (!bank) return [];
     const amountDifferenceCents = bank.signedCents - entry.signedCents;
     const pendingDiffers = bank.pending !== entry.pending;
-    if (!amountDifferenceCents && !pendingDiffers && !bank.removedByProvider) return [];
+    if (!amountDifferenceCents && !pendingDiffers && (!bank.removedByProvider || entry.confirmedRestoration)) return [];
     return [{ entryId: entry.id, description: entry.description, appSignedCents: entry.signedCents, bank, amountDifferenceCents, pendingDiffers }];
   });
 }

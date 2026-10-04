@@ -21,15 +21,22 @@ export default function FundObligationsDialog({ dashboard, onClose, onSaved }: {
   const [scope, setScope] = useState(DEFAULT_SCOPE);
   const inScope = (days: string) => dashboard.obligations.filter(obligation => obligation.active && !obligation.covered && (days === "all" || obligation.nextChargeDate <= addDays(currentDate, Number(days)))).sort((a, b) => a.nextChargeDate.localeCompare(b.nextChargeDate));
   const [selected, setSelected] = useState<string[]>(() => inScope(DEFAULT_SCOPE).map(obligation => obligation.id));
+  const [amountInputs, setAmountInputs] = useState<Record<string, string>>(() => Object.fromEntries(dashboard.obligations.map(obligation => [obligation.id, obligation.expectedAmount.toFixed(2)])));
   const [date, setDate] = useState(currentDate);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const visible = inScope(scope);
   const selectedObligations = dashboard.obligations.filter(obligation => obligation.active && !obligation.covered && selected.includes(obligation.id));
+  const selectedAmounts = selectedObligations.map(obligation => {
+    const value = Number(amountInputs[obligation.id]);
+    return { id: obligation.id, amountCents: Number.isFinite(value) ? Math.round(value * 100) : 0 };
+  });
+  const hasInvalidAmount = selectedAmounts.some(item => item.amountCents < 1);
+  const amountById = new Map(selectedAmounts.map(item => [item.id, item.amountCents]));
   const funding = useMemo(() => calculateObligationFunding(
-    selectedObligations.map(obligation => ({ id: obligation.id, categoryId: obligation.categoryId, name: obligation.name, amountCents: Math.round(obligation.expectedAmount * 100) })),
+    selectedObligations.map(obligation => ({ id: obligation.id, categoryId: obligation.categoryId, name: obligation.name, amountCents: amountById.get(obligation.id) ?? 0 })),
     dashboard.categories.map(category => ({ id: category.id, name: category.name, availableCents: Math.round(category.available * 100) })),
-  ), [dashboard.categories, selectedObligations]);
+  ), [dashboard.categories, selectedObligations, amountInputs]);
   const amount = funding.reduce((sum, group) => sum + group.allocationCents, 0) / 100;
 
   useEffect(() => {
@@ -45,18 +52,18 @@ export default function FundObligationsDialog({ dashboard, onClose, onSaved }: {
 
   return <dialog ref={dialog} className="entry-dialog obligation-dialog" aria-labelledby={titleId} onCancel={event => { if (busy) event.preventDefault(); else onClose(); }}>
     <div className="modal-top"><div><p className="eyebrow">Automatic allocation</p><h2 id={titleId}>Fund upcoming obligations</h2></div><button type="button" className="close-button" aria-label="Close obligation funding" disabled={busy} onClick={onClose}>×</button></div>
-    <p className="field-help">Choose the obligations to cover. The app groups them by category and allocates only the difference between their combined amount and the category&apos;s current available balance.</p>
+    <p className="field-help">Choose the obligations to cover and adjust their amounts for this allocation. Enter a positive amount for each selected item. These edits won&apos;t change the saved obligation. The app groups them by category and allocates only the difference between their combined amount and the category&apos;s current available balance.</p>
     <div className="obligation-tools"><Typeahead label="Due date window" options={[{ value: "14", label: "Due within 14 days" }, { value: "30", label: "Due within 30 days" }, { value: "60", label: "Due within 60 days" }, { value: "90", label: "Due within 90 days" }, { value: "all", label: "All active obligations" }]} value={scope} onChange={changeScope} required={false} /><label>Allocation date<input type="date" value={date} onChange={event => setDate(event.target.value)} /></label></div>
     <div className="obligation-selection"><span><strong>{selected.length}</strong> selected</span><button type="button" className="text-link" onClick={() => setSelected(visible.every(item => selected.includes(item.id)) ? selected.filter(id => !visible.some(item => item.id === id)) : [...new Set([...selected, ...visible.map(item => item.id)])])}>{visible.length && visible.every(item => selected.includes(item.id)) ? "Clear this window" : `Select all ${visible.length}`}</button></div>
-    <div className="obligation-list">{visible.map(obligation => <label className="obligation-row" key={obligation.id}><input type="checkbox" checked={selected.includes(obligation.id)} onChange={() => setSelected(current => current.includes(obligation.id) ? current.filter(id => id !== obligation.id) : [...current, obligation.id])} /><span><strong>{obligation.name}</strong><small>{obligation.nextChargeDate < currentDate ? "Overdue" : `Expected ${obligation.nextChargeDate}`} · {obligation.category} · {obligation.amountSource === "observed" ? "latest charge" : "planned amount"}</small></span><strong>{money(obligation.expectedAmount)}</strong></label>)}{!visible.length && <p className="empty-state">No active obligations fall within this window.</p>}</div>
+    <div className="obligation-list">{visible.map(obligation => <div className="obligation-row" key={obligation.id}><input id={`select-${obligation.id}`} type="checkbox" checked={selected.includes(obligation.id)} aria-labelledby={`name-${obligation.id}`} onChange={() => setSelected(current => current.includes(obligation.id) ? current.filter(id => id !== obligation.id) : [...current, obligation.id])} /><span id={`name-${obligation.id}`}><strong>{obligation.name}</strong><small>{obligation.nextChargeDate < currentDate ? "Overdue" : `Expected ${obligation.nextChargeDate}`} · {obligation.category} · {obligation.amountSource === "observed" ? "latest charge" : "planned amount"}</small></span><label className="obligation-amount"><span className="sr-only">Amount for {obligation.name}</span><span aria-hidden="true">$</span><input type="number" min="0.01" step="0.01" inputMode="decimal" value={amountInputs[obligation.id] ?? ""} aria-invalid={selected.includes(obligation.id) && (!Number.isFinite(Number(amountInputs[obligation.id])) || Number(amountInputs[obligation.id]) <= 0)} onChange={event => setAmountInputs(current => ({ ...current, [obligation.id]: event.target.value }))} /></label></div>)}{!visible.length && <p className="empty-state">No active obligations fall within this window.</p>}</div>
     {!!funding.length && <div className="funding-preview">{funding.map(group => <div key={group.categoryId}><span><strong>{group.category}</strong><small>{money(group.availableCents / 100)} currently available · {money(group.obligationCents / 100)} due</small></span><strong>{group.allocationCents ? `+${money(group.allocationCents / 100)}` : "Already funded"}</strong></div>)}</div>}
     {amount > dashboard.remainingToBudget && <p className="form-warning">This will allocate {money(amount - dashboard.remainingToBudget)} more than is currently available to assign.</p>}
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="reconcile-summary"><span>{funding.length} {funding.length === 1 ? "category" : "categories"}</span><strong>Total allocation {money(amount)}</strong></div>
-    <div className="form-footer"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button type="button" className="primary-button" disabled={busy || !selected.length || amount === 0} onClick={async () => {
+    <div className="form-footer"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button type="button" className="primary-button" disabled={busy || !selected.length || hasInvalidAmount || amount === 0} onClick={async () => {
       setBusy(true); setError("");
       try {
-        const response = await fetch("/api/obligations/fund", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ obligationIds: selected, date }) });
+        const response = await fetch("/api/obligations/fund", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ obligations: selectedAmounts, date }) });
         const result = await response.json().catch(() => null) as { error?: string; categoriesFunded?: number; amount?: number } | null;
         if (!response.ok) throw new Error(result?.error ?? "Could not fund upcoming obligations.");
         onSaved(result?.categoriesFunded ?? 0, result?.amount ?? 0);

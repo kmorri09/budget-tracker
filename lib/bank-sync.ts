@@ -130,7 +130,12 @@ export async function syncConnection(db: Database, userId: string, connectionId:
         ),
       )) : [];
       const explicitlyRemovedIds = new Set(removalAudits.map(row => row.entityId));
+      const providerRemovalAudits = removedLedgerIds.length ? await db.select({ entityId: auditEvents.entityId }).from(auditEvents).where(and(eq(auditEvents.userId, userId), inArray(auditEvents.entityId, removedLedgerIds), eq(auditEvents.action, "remove"), eq(auditEvents.entityType, "provider_transaction"))) : [];
+      const previouslyRemovedByProvider = new Set(providerRemovalAudits.map(row => row.entityId));
       const ledgerIds = ledgerRows.map(row => row.id);
+      const restoreAudits = ledgerIds.length ? await db.select({ entityId: auditEvents.entityId, createdAt: auditEvents.createdAt }).from(auditEvents).where(and(eq(auditEvents.userId, userId), inArray(auditEvents.entityId, ledgerIds), eq(auditEvents.entityType, "transaction"), eq(auditEvents.action, "restore_provider_removal"))) : [];
+      const restoredAt = new Map<string, Date>();
+      for (const audit of restoreAudits) if (!restoredAt.has(audit.entityId) || restoredAt.get(audit.entityId)! < audit.createdAt) restoredAt.set(audit.entityId, audit.createdAt);
       const editAudits = ledgerIds.length ? await db.select({ entityId: auditEvents.entityId, beforeJson: auditEvents.beforeJson, afterJson: auditEvents.afterJson }).from(auditEvents).where(and(eq(auditEvents.userId, userId), eq(auditEvents.entityType, "transaction"), eq(auditEvents.action, "update"), inArray(auditEvents.entityId, ledgerIds))) : [];
       const overridesById = bankFieldOverrides(editAudits);
       for (const id of ledgerIds) if (!overridesById.has(id)) overridesById.set(id, new Set());
@@ -152,6 +157,15 @@ export async function syncConnection(db: Database, userId: string, connectionId:
         if (review) await db.update(reviewItems).set({ details }).where(eq(reviewItems.id, review.id));
         else await db.insert(reviewItems).values({ id: randomUUID(), userId, kind, title: `Check card payment: ${payment.description}`, details });
       };
+      const flagPostedRemoval = async (entry: typeof transactions.$inferSelect, bankLastSeenAt: Date) => {
+        const kind = "provider_posted_removal";
+        // A reviewed historical removal must not reappear on every sync.
+        const review = (await db.select().from(reviewItems).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, entry.id), eq(reviewItems.kind, kind))).limit(1))[0];
+        if (review && (review.status === "open" || (review.resolvedAt ?? review.createdAt) >= bankLastSeenAt)) return;
+        const changes = { title: `Check removed posted entry: ${entry.description}`, details: `Plaid reported this previously posted record (${(entry.amountCents / 100).toFixed(2)}) as removed, and it is excluded from the app balance. No linked replacement was found. A provider removal does not by itself confirm a refund or reversal on your bank statement. Verify the final statement before restoring this entry or accepting the removal.` };
+        if (review) await db.update(reviewItems).set({ ...changes, status: "open", resolvedAt: null }).where(eq(reviewItems.id, review.id));
+        else await db.insert(reviewItems).values({ id: randomUUID(), userId, transactionId: entry.id, kind, ...changes });
+      };
       const updateBankEntry = async (existing: typeof transactions.$inferSelect, normalized: NormalizedTransaction, localAccountId: string) => {
         // A user may have moved a linked entry outside this connection's
         // mapped accounts. Its edits still apply when found by provider ID.
@@ -162,6 +176,7 @@ export async function syncConnection(db: Database, userId: string, connectionId:
         const { changes, conflicts } = bankTransactionUpdate(existing, normalized, localAccountId, overridesById.get(existing.id));
         const changed = Object.entries(changes).some(([key, value]) => existing[key as keyof typeof existing] !== value);
         if (changed) await db.update(transactions).set({ ...changes, updatedAt: now }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
+        if (existing.status === "removed") await db.update(reviewItems).set({ status: "resolved", resolvedAt: now, details: "The provider restored this record; it is included in the ledger again." }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, existing.id), eq(reviewItems.kind, "provider_posted_removal"), eq(reviewItems.status, "open")));
         if (changes.amountCents !== existing.amountCents || changes.pending !== existing.pending || changes.providerTransactionId !== existing.providerTransactionId) {
           await db.insert(auditEvents).values({ id: randomUUID(), userId, action: "provider_update", entityType: "transaction", entityId: existing.id, beforeJson: JSON.stringify({ amountCents: existing.amountCents, pending: existing.pending, providerTransactionId: existing.providerTransactionId }), afterJson: JSON.stringify({ amountCents: changes.amountCents, pending: changes.pending, providerTransactionId: changes.providerTransactionId, connectionId }) });
         }
@@ -227,6 +242,10 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       const rawRows = await db.select().from(rawProviderTransactions).where(and(eq(rawProviderTransactions.userId, userId), eq(rawProviderTransactions.connectionId, connectionId)));
       const rawByProviderId = new Map(rawRows.map(row => [row.providerTransactionId, row]));
       const supersededPendingIds = new Set(rawRows.filter(row => !row.pending && row.pendingTransactionId).map(row => row.pendingTransactionId!));
+      for (const row of ledgerRows.filter(row => row.status === "removed" && previouslyRemovedByProvider.has(row.id) && !explicitlyRemovedIds.has(row.id))) {
+        const raw = row.providerTransactionId ? rawByProviderId.get(row.providerTransactionId) : null;
+        if (raw && !raw.pending && !supersededPendingIds.has(raw.providerTransactionId)) await flagPostedRemoval(row, raw.lastSeenAt);
+      }
       for (const plaidRow of ledgerRows.filter(row => row.source === "plaid" && row.status !== "removed" && row.providerTransactionId && rawByProviderId.has(row.providerTransactionId))) {
         const raw = rawByProviderId.get(plaidRow.providerTransactionId!);
         const localAccountId = raw ? localByProvider.get(raw.providerAccountId) : null;
@@ -319,7 +338,15 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       for (const removedRow of removed) {
         const existing = (await db.select().from(transactions).where(and(eq(transactions.userId, userId), eq(transactions.providerTransactionId, removedRow.transaction_id))).limit(1))[0];
         if (existing) {
-          if (!explicitlyRemovedIds.has(existing.id)) {
+          const bankRecord = (await db.select({ pending: rawProviderTransactions.pending, lastSeenAt: rawProviderTransactions.lastSeenAt }).from(rawProviderTransactions).where(and(eq(rawProviderTransactions.userId, userId), eq(rawProviderTransactions.providerTransactionId, removedRow.transaction_id))).limit(1))[0];
+          if (!ledgerIds.includes(existing.id)) {
+            const restore = (await db.select({ createdAt: auditEvents.createdAt }).from(auditEvents).where(and(eq(auditEvents.userId, userId), eq(auditEvents.entityId, existing.id), eq(auditEvents.entityType, "transaction"), eq(auditEvents.action, "restore_provider_removal"))).orderBy(sql`${auditEvents.createdAt} desc`).limit(1))[0];
+            if (restore) restoredAt.set(existing.id, restore.createdAt);
+          }
+          // Honor statement-confirmed restorations through a replay of the
+          // old removal. Fresh provider data supersedes that old decision.
+          const keepRestored = existing.status !== "removed" && bankRecord && restoredAt.has(existing.id) && bankRecord.lastSeenAt <= restoredAt.get(existing.id)!;
+          if (!explicitlyRemovedIds.has(existing.id) && !keepRestored) {
             await db.update(transactions).set({ status: "removed", pending: false, removedAt: new Date() }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
             await db.update(reviewItems).set({ status: "resolved", resolvedAt: new Date(), details: "Automatically resolved because the provider removed this transaction." }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, existing.id), eq(reviewItems.status, "open")));
             const [applications, coverage] = await Promise.all([
@@ -328,6 +355,7 @@ export async function syncConnection(db: Database, userId: string, connectionId:
             ]);
             if (applications.length || coverage.length) await flagUpdate(existing.id, existing.description, "The bank removed this purchase, but recorded payment applications or coverage corrections still reference it. The purchase is excluded from balances. Check whether a posted replacement needs those applications reassigned; the recorded payments were retained.");
             else if (existing.source !== "plaid") await flagUpdate(existing.id, existing.description, "The bank removed this linked manual/imported entry. It is excluded from balances; check whether it was replaced by a posted transaction or was an authorization hold.");
+            if (bankRecord && !bankRecord.pending && !supersededPendingIds.has(removedRow.transaction_id)) await flagPostedRemoval(existing, bankRecord.lastSeenAt);
           }
         }
         // Keep removals for raw-only entries too, including superseded pending

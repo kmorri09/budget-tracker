@@ -8,6 +8,7 @@ import * as schema from "../lib/schema.ts";
 import { syncConnection } from "../lib/bank-sync.ts";
 import { encryptProviderToken } from "../lib/provider-crypto.ts";
 import { calculateAccountLedgerCents } from "../lib/account-ledger.ts";
+import { RestoreEntryError, restoreProviderEntry } from "../lib/restore-provider-entry.ts";
 
 // Real PostgreSQL queries and transactions, entirely in memory. This suite
 // never reads an environment file or connects to DATABASE_URL or Plaid.
@@ -202,6 +203,91 @@ test("authorization holds removed without a purchase disappear from the balance"
   await sync(page({ removed: [{ transaction_id: "hotel-hold" }] }));
   assert.equal(calculateAccountLedgerCents("card", 0, await ledger(), []), 0);
   assert.equal((await ledger())[0].status, "removed");
+  assert.equal((await db.select().from(schema.reviewItems)).filter(row => row.kind === "provider_posted_removal").length, 0);
+});
+
+test("posted removals explain the real checking gap, create review warnings, and backfill once", async () => {
+  const cash = (id, amount, merchant) => remote(id, amount, false, { account_id: "remote-cash", merchant_name: merchant });
+  const batch = [cash("deposit", -74, "CVS"), cash("market-one", 9.99, "Han Yang Market"), cash("market-two", 17.98, "Han Yang Market"), cash("groceries", 10.85, "H-E-B"), cash("transfer-one", -20, "SoFi"), cash("bagels", 12.39, "Brueggers"), cash("tacos", 14.22, "Tacodeli"), cash("transfer-two", -25, "SoFi"), cash("games", 12.98, "Nintendo"), cash("last-charge", 12.36, "Merchant")];
+  await sync(page({ added: batch }));
+  assert.equal(calculateAccountLedgerCents("cash", 0, await ledger(), []), 2823);
+  await sync(page({ removed: [{ transaction_id: "market-one" }, { transaction_id: "market-two" }] }));
+  assert.equal(calculateAccountLedgerCents("cash", 0, await ledger(), []), 5620);
+  let warnings = (await db.select().from(schema.reviewItems)).filter(row => row.kind === "provider_posted_removal");
+  assert.equal(warnings.length, 2);
+  assert(warnings.every(row => row.status === "open" && /previously posted/.test(row.details)));
+  // Simulate older removals with no warning, then an ordinary empty sync.
+  await db.delete(schema.reviewItems).where(eq(schema.reviewItems.kind, "provider_posted_removal"));
+  await sync(page());
+  warnings = (await db.select().from(schema.reviewItems)).filter(row => row.kind === "provider_posted_removal");
+  assert.equal(warnings.length, 2);
+  await db.update(schema.reviewItems).set({ status: "resolved" }).where(eq(schema.reviewItems.id, warnings[0].id));
+  await sync(page());
+  warnings = (await db.select().from(schema.reviewItems)).filter(row => row.kind === "provider_posted_removal");
+  assert.equal(warnings.length, 2);
+  assert.equal(warnings.filter(row => row.status === "open").length, 1);
+  await sync(page({ modified: batch.filter(row => row.transaction_id.startsWith("market-")) }));
+  assert.equal(calculateAccountLedgerCents("cash", 0, await ledger(), []), 2823);
+  assert.equal((await db.select().from(schema.reviewItems)).filter(row => row.kind === "provider_posted_removal" && row.status === "open").length, 0);
+});
+
+test("statement-confirmed restoration retains original identity and category through removal replay", async () => {
+  const cash = (id, amount, merchant) => remote(id, amount, false, { account_id: "remote-cash", merchant_name: merchant });
+  const batch = [cash("deposit", -74, "CVS"), cash("market-one", 9.99, "Han Yang Market"), cash("market-two", 17.98, "Han Yang Market"), cash("groceries", 10.85, "H-E-B"), cash("transfer-one", -20, "SoFi"), cash("bagels", 12.39, "Brueggers"), cash("tacos", 14.22, "Tacodeli"), cash("transfer-two", -25, "SoFi"), cash("games", 12.98, "Nintendo"), cash("last-charge", 12.36, "Merchant")];
+  await sync(page({ added: batch }));
+  const originals = (await ledger()).filter(row => row.description === "Han Yang Market");
+  for (const entry of originals) await edit(entry, { categoryId: "dining" });
+  const removals = [{ transaction_id: "market-one" }, { transaction_id: "market-two" }];
+  await sync(page({ removed: removals }));
+  assert.equal(calculateAccountLedgerCents("cash", 0, await ledger(), []), 5620);
+  for (const entry of originals) await restoreProviderEntry(db, "user", entry.id);
+  assert.equal(calculateAccountLedgerCents("cash", 0, await ledger(), []), 2823);
+  await restoreProviderEntry(db, "user", originals[0].id);
+  await sync(page({ removed: removals }));
+  await sync(page());
+  const restored = (await ledger()).filter(row => row.description === "Han Yang Market");
+  assert.deepEqual(restored.map(row => row.id).sort(), originals.map(row => row.id).sort());
+  assert(restored.every(row => row.status === "posted" && row.categoryId === "dining" && row.removedAt === null));
+  assert.equal(calculateAccountLedgerCents("cash", 0, await ledger(), []), 2823);
+  assert.equal((await db.select().from(schema.auditEvents)).filter(row => row.action === "restore_provider_removal").length, 2);
+  assert.equal((await db.select().from(schema.reviewItems)).filter(row => row.kind === "provider_posted_removal" && row.status === "open").length, 0);
+  // Fresh bank data followed by a new removal is a new event to review.
+  await sync(page({ modified: [batch.find(row => row.transaction_id === "market-one")] }));
+  await sync(page({ removed: [{ transaction_id: "market-one" }] }));
+  assert.equal((await ledger()).find(row => row.id === originals[0].id).status, "removed");
+  assert.equal((await db.select().from(schema.reviewItems)).filter(row => row.kind === "provider_posted_removal" && row.status === "open").length, 1);
+});
+
+test("restoration rejects other users, authorization holds, known replacements and intentional deletions", async () => {
+  await sync(page({ added: [remote("posted", 9.99), remote("hold", 40, true), remote("deleted", 10)] }));
+  const rows = await ledger();
+  const posted = rows.find(row => row.providerTransactionId === "posted");
+  const hold = rows.find(row => row.providerTransactionId === "hold");
+  const deleted = rows.find(row => row.providerTransactionId === "deleted");
+  await sync(page({ removed: [{ transaction_id: "posted" }, { transaction_id: "hold" }, { transaction_id: "deleted" }] }));
+  await assert.rejects(restoreProviderEntry(db, "other-user", posted.id), error => error instanceof RestoreEntryError && error.status === 404);
+  await assert.rejects(restoreProviderEntry(db, "user", hold.id), /previously posted/);
+  await db.insert(schema.auditEvents).values({ id: "explicit-delete", userId: "user", action: "delete", entityType: "transaction", entityId: deleted.id });
+  await assert.rejects(restoreProviderEntry(db, "user", deleted.id), /explicitly deleted/);
+  await db.insert(schema.rawProviderTransactions).values({ id: "replacement", userId: "user", connectionId: "connection", providerAccountId: "remote-card", providerTransactionId: "replacement", pendingTransactionId: "posted", pending: false, rawJson: JSON.stringify(remote("replacement", 9.99)) });
+  await assert.rejects(restoreProviderEntry(db, "user", posted.id), /replacement exists/);
+  assert((await ledger()).every(row => row.status === "removed"));
+});
+
+test("failed restoration audit rolls back the restored row and retry retains its payment application", async () => {
+  await sync(page({ added: [remote("posted", 40)] }));
+  const [entry] = await ledger();
+  await db.insert(schema.cardPayments).values({ id: "payment", userId: "user", fromAccountId: "cash", toAccountId: "card", amountCents: 4000, effectiveDate: "2026-10-02", description: "Payment" });
+  await db.insert(schema.cardPaymentApplications).values({ id: "application", userId: "user", paymentId: "payment", transactionId: entry.id, amountCents: 4000 });
+  await sync(page({ removed: [{ transaction_id: "posted" }] }));
+  await client.exec(`CREATE FUNCTION fixture_fail_restore() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action = 'restore_provider_removal' THEN RAISE EXCEPTION 'fixture audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER fixture_fail_restore BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION fixture_fail_restore()`);
+  try {
+    await assert.rejects(restoreProviderEntry(db, "user", entry.id));
+    assert.equal((await ledger())[0].status, "removed");
+  } finally { await client.exec("DROP TRIGGER fixture_fail_restore ON audit_events; DROP FUNCTION fixture_fail_restore()"); }
+  await restoreProviderEntry(db, "user", entry.id);
+  assert.equal((await ledger())[0].status, "posted");
+  assert.equal((await db.select().from(schema.cardPaymentApplications))[0].transactionId, entry.id);
 });
 
 test("a paid purchase removed without an alias leaves a review to reassign its applications", async () => {

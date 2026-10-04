@@ -27,7 +27,7 @@ export function SearchFilter({ label, options, value, onChange }: { label: strin
     document.addEventListener("pointerdown", closeOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
   }, []);
-  return <details ref={details} className="filter-menu" name="workspace-filters" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>{label}{value.length > 0 && <span className="filter-count">{value.length}</span>} <span className="filter-chevron" aria-hidden="true" /></summary>
+  return <details ref={details} className="filter-menu" name="workspace-filters" onToggle={event => { if (event.currentTarget.open) searchInput.current?.focus(); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>{label}{value.length > 0 && <span className="filter-count">{value.length}</span>} <span className="filter-chevron" aria-hidden="true" /></summary>
     <div className="filter-popover"><input ref={searchInput} aria-label={"Search " + label} type="search" placeholder={"Find " + label.toLowerCase()} value={search} onChange={e => setSearch(e.target.value)} onKeyDown={event => {
       if (filteredOptions.length === 0) return;
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {

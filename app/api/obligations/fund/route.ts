@@ -10,7 +10,10 @@ import { planObligations, type ObligationCoverage } from "../../../../lib/obliga
 import { accounts, allocations, auditEvents, cardPayments, categories, obligationMatchDecisions, obligations, transactions } from "../../../../lib/schema";
 
 const schema = z.object({
-  obligationIds: z.array(z.string().min(1)).min(1).max(200),
+  obligations: z.array(z.object({
+    id: z.string().min(1),
+    amountCents: z.number().int().positive().max(2_147_483_647),
+  })).min(1).max(200),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
@@ -19,8 +22,9 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid obligations" }, { status: 400 });
-  const ids = [...new Set(parsed.data.obligationIds)];
-  if (ids.length !== parsed.data.obligationIds.length) return NextResponse.json({ error: "Each obligation can only be selected once" }, { status: 400 });
+  const ids = parsed.data.obligations.map(obligation => obligation.id);
+  const amountById = new Map(parsed.data.obligations.map(obligation => [obligation.id, obligation.amountCents]));
+  if (new Set(ids).size !== ids.length) return NextResponse.json({ error: "Each obligation can only be selected once" }, { status: 400 });
   const db = getDatabase();
   const [obligationRows, categoryRows, allocationRows, transactionRows, paymentRows, decisionRows, accountRows] = await Promise.all([
     db.select().from(obligations).where(and(eq(obligations.userId, user.id), eq(obligations.active, true))),
@@ -40,14 +44,14 @@ export async function POST(request: Request) {
   const plans = planObligations(obligationRows, candidates, decisionRows, new Date().toISOString().slice(0, 10));
   if (selected.some(row => plans.get(row.id)?.covered)) return NextResponse.json({ error: "A selected one-time obligation has already been paid" }, { status: 400 });
   const categoryBalances = categoryRows.map(category => ({ id: category.id, name: category.name, availableCents: calculateCategoryBalance(category.id, allocationRows, transactionRows).availableCents }));
-  const funding = calculateObligationFunding(selected.map(obligation => ({ id: obligation.id, categoryId: obligation.categoryId, name: obligation.name, amountCents: plans.get(obligation.id)?.expectedAmountCents ?? obligation.amountCents })), categoryBalances);
+  const funding = calculateObligationFunding(selected.map(obligation => ({ id: obligation.id, categoryId: obligation.categoryId, name: obligation.name, amountCents: amountById.get(obligation.id)! })), categoryBalances);
   const changes = funding.filter(group => group.allocationCents > 0);
 
   await db.transaction(async tx => {
     for (const group of changes) {
       await tx.insert(allocations).values({ id: randomUUID(), userId: user.id, categoryId: group.categoryId, amountCents: group.allocationCents, effectiveDate: parsed.data.date, note: `Fund upcoming obligations: ${group.obligationNames.join(", ")}` });
     }
-    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "fund", entityType: "upcoming_obligations", entityId: randomUUID(), afterJson: JSON.stringify({ date: parsed.data.date, obligationIds: ids, funding: changes }) });
+    await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "fund", entityType: "upcoming_obligations", entityId: randomUUID(), afterJson: JSON.stringify({ date: parsed.data.date, obligations: parsed.data.obligations, funding: changes }) });
   });
   return NextResponse.json({ ok: true, categoriesFunded: changes.length, amount: changes.reduce((sum, group) => sum + group.allocationCents, 0) / 100 });
 }

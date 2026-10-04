@@ -6,6 +6,7 @@ import { DELETE as deleteAdjustment, PATCH as patchAdjustment } from "../app/api
 import { DELETE as deletePayment, PATCH as patchPayment, POST as postPayment } from "../app/api/card-payments/route";
 import { GET as getCategories, PATCH as patchCategory, POST as postCategory } from "../app/api/categories/route";
 import { DELETE as deleteEntry, PATCH as patchEntry, POST as postEntry } from "../app/api/entries/route";
+import { POST as restoreEntry } from "../app/api/entries/restore/route";
 import { DELETE as deleteObligation, PATCH as patchObligation, POST as postObligation } from "../app/api/obligations/route";
 import { POST as decideObligationMatch } from "../app/api/obligations/matches/route";
 import { GET as getDashboard } from "../app/api/dashboard/route";
@@ -47,6 +48,7 @@ test("all user-owned mutation routes reject unauthenticated requests", async () 
       ["entries POST", postEntry, "POST", { kind: "allocation", amount: -10, date: "2026-09-08", categoryId: "category", description: "Correction" }],
       ["entries PATCH", patchEntry, "PATCH", { id: "entry", kind: "expense", amount: 10, date: "2026-09-08", accountId: "cash", categoryId: "category", description: "Expense", status: "posted", pending: false }],
       ["entries DELETE", deleteEntry, "DELETE", { id: "entry" }],
+      ["entries restore POST", restoreEntry, "POST", { id: "entry", confirmPosted: true }],
       ["obligations POST", postObligation, "POST", { name: "Rent", amount: 100, dueDate: "2026-09-15", accountId: "cash", categoryId: "rent" }],
       ["obligations PATCH", patchObligation, "PATCH", { id: "obligation", name: "Rent", amount: 100, dueDate: "2026-09-15", accountId: "cash", categoryId: "rent" }],
       ["obligations DELETE", deleteObligation, "DELETE", { id: "obligation" }],

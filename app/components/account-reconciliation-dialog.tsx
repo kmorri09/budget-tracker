@@ -2,7 +2,8 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { kindLabel, money } from "../../lib/workspace-types";
-import type { LinkedBankDifference, PaymentEvidence, PossibleLedgerDuplicate } from "../../lib/account-reconciliation";
+import type { LinkedBankDifference, PaymentEvidence, PossibleLedgerDuplicate, RemovedPostedBankEntry } from "../../lib/account-reconciliation";
+import { useConfirmDialog } from "./confirm-dialog";
 
 type Investigation = {
   account: { id: string; name: string; type: string; openingBalanceCents: number; providerBalanceCents: number | null; providerBalanceAt: string | null; ledgerBalanceCents: number };
@@ -11,21 +12,26 @@ type Investigation = {
   providerAccounts: { id: string; name: string; mask: string | null; balanceAt: string | null }[];
   connections: { provider: string; institutionName: string | null; status: string; lastSyncAt: string | null }[];
   bankActivity: { id: string; date: string; description: string; kind: string; amountCents: number; signedCents: number; pending: boolean; removedByProvider: boolean; linkedToApp: boolean }[];
-  ledgerEntries: { id: string; date: string; description: string; kind: string; amountCents: number; signedCents: number; status: string; pending: boolean; source: string; linkedToBank: boolean; excluded: boolean; paymentEvidence: PaymentEvidence | null }[];
+  ledgerEntries: { id: string; date: string; description: string; kind: string; amountCents: number; signedCents: number; status: string; pending: boolean; source: string; linkedToBank: boolean; excluded: boolean; confirmedRestoration: boolean; paymentEvidence: PaymentEvidence | null }[];
   malformedProviderRows: number;
   possibleDuplicates: PossibleLedgerDuplicate[];
   linkedBankDifferences: LinkedBankDifference[];
+  removedPostedBankEntries: RemovedPostedBankEntry[];
 };
 
 const signedMoney = (cents: number) => `${cents > 0 ? "+" : cents < 0 ? "−" : ""}${money(Math.abs(cents) / 100)}`;
 const dateLabel = (value: string | null) => value ? new Date(value).toLocaleString() : "Not recorded";
 
-export default function AccountReconciliationDialog({ accountId, onClose }: { accountId: string; onClose: () => void }) {
+export default function AccountReconciliationDialog({ accountId, onClose, onChanged }: { accountId: string; onClose: () => void; onChanged: (message?: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [data, setData] = useState<Investigation | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [restoring, setRestoring] = useState(false);
+  const [message, setMessage] = useState("");
+  const [revision, setRevision] = useState(0);
+  const { confirm, dialog: confirmationDialog } = useConfirmDialog();
 
   useEffect(() => {
     const node = dialog.current, previousOverflow = document.body.style.overflow;
@@ -44,7 +50,21 @@ export default function AccountReconciliationDialog({ accountId, onClose }: { ac
       .catch(failure => { if (!cancelled) setError(failure instanceof Error ? failure.message : "Could not load this account investigation."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [accountId]);
+  }, [accountId, revision]);
+
+  async function restoreEntry(entry: RemovedPostedBankEntry) {
+    setRestoring(true); setError(""); setMessage("");
+    try {
+      if (!await confirm({ title: `Restore ${entry.description}?`, message: `Confirm that your bank statement still shows this ${money(Math.abs(entry.appSignedCents) / 100)} ${entry.appSignedCents < 0 ? "debit" : "credit"} on ${entry.bank.date} as posted, with no reversal or replacement. Restoring it will include the original entry in account and category balances again and retain its existing category and bank link.`, confirmLabel: "Confirmed — restore" })) return;
+      const response = await fetch("/api/entries/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: entry.entryId, confirmPosted: true }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Could not restore this entry.");
+      setMessage(`${entry.description} restored; original category and bank link retained.`);
+      onChanged("Original transaction restored");
+      setRevision(value => value + 1);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not restore this entry."); }
+    finally { setRestoring(false); }
+  }
 
   const bankOnly = data?.bankActivity.filter(item => !item.linkedToApp && !item.removedByProvider) ?? [];
   const removedBankActivity = data?.bankActivity.filter(item => item.removedByProvider) ?? [];
@@ -59,11 +79,14 @@ export default function AccountReconciliationDialog({ accountId, onClose }: { ac
   const duplicatePairs = data?.possibleDuplicates ?? [];
   const independentDuplicatePairs = new Set(duplicatePairs.flatMap(pair => [pair.first.id, pair.second.id])).size === duplicatePairs.length * 2;
   const duplicateExclusionImpact = duplicatePairs.reduce((sum, pair) => sum + pair.balanceEffectIfExcludedCents, 0);
+  const removedPosted = data?.removedPostedBankEntries ?? [];
+  const restorationImpact = removedPosted.reduce((sum, entry) => sum + entry.appSignedCents, 0);
 
-  return <dialog ref={dialog} className="entry-dialog reconcile-dialog account-investigation-dialog" aria-labelledby={titleId} onCancel={onClose}>
-    <div className="modal-top"><div><p className="eyebrow">Read-only account check</p><h2 id={titleId}>Investigate balance difference</h2>{data && <p>{data.account.name} · {kindLabel(data.account.type)}</p>}</div><button type="button" className="close-button" aria-label="Close account investigation" onClick={onClose}>×</button></div>
+  return <dialog ref={dialog} className="entry-dialog reconcile-dialog account-investigation-dialog" aria-labelledby={titleId} onCancel={event => { if (restoring) event.preventDefault(); else onClose(); }}>
+    <div className="modal-top"><div><p className="eyebrow">Account check</p><h2 id={titleId}>Investigate balance difference</h2>{data && <p>{data.account.name} · {kindLabel(data.account.type)}</p>}</div><button type="button" className="close-button" aria-label="Close account investigation" disabled={restoring} onClick={onClose}>×</button></div>
     {loading && <p className="empty-state" role="status">Comparing bank activity with the app ledger…</p>}
     {error && <p className="form-error" role="alert">{error}</p>}
+    {message && <p className="field-help" role="status">{message}</p>}
     {data && <>
       {data.account.type === "credit_card" && <p className="field-help">Card balances use the app’s ledger sign: amounts owed appear as negative values.</p>}
       {data.differenceCents === null
@@ -76,6 +99,16 @@ export default function AccountReconciliationDialog({ accountId, onClose }: { ac
 
       <dl className="investigation-breakdown"><div><dt>Opening balance</dt><dd>{money(data.breakdown.openingBalanceCents / 100)}</dd></div><div><dt>Ledger transactions</dt><dd>{signedMoney(data.breakdown.transactionCents)}</dd></div><div><dt>Card payments</dt><dd>{signedMoney(data.breakdown.cardPaymentCents)}</dd></div></dl>
       <p className="field-help">The balance difference above is the amount to explain. The lists below show records to check, not proven errors or amounts to remove.</p>
+
+      {!!removedPosted.length && <section className="investigation-callout">
+        <strong>{data.differenceCents !== null && data.differenceCents !== 0 && data.differenceCents === restorationImpact ? "Excluded posted charges exactly explain this difference" : "Check posted entries removed from the provider feed"}</strong>
+        <span>{removedPosted.length} excluded posted records · ledger effect if restored {signedMoney(restorationImpact)}</span>
+        <p>Plaid reported these records as removed. That does not by itself confirm a refund or reversal on your bank statement. No linked replacement was found in the saved records.</p>
+        {removedPosted.map(entry => <div className="investigation-row" key={entry.entryId}><div><strong>{entry.description}</strong><small>{entry.bank.date} · Posted record later removed from provider feed</small></div><b>{signedMoney(entry.appSignedCents)}</b><button type="button" className="secondary-button" disabled={restoring} onClick={() => void restoreEntry(entry)}>Restore original</button></div>)}
+        <p>Counting these entries again would put the app ledger at {money((data.account.ledgerBalanceCents + restorationImpact) / 100)}{data.differenceCents === null ? "." : ` and leave provider − ledger at ${signedMoney(data.differenceCents - restorationImpact)}.`} Verify each charge on the bank statement before confirming restoration.</p>
+      </section>}
+
+      {data.ledgerEntries.some(entry => entry.confirmedRestoration) && <details className="investigation-details"><summary>Statement-confirmed restorations kept in the ledger</summary><p className="field-help">You confirmed these original entries against your bank statement. They remain included despite the old provider removal.</p>{data.ledgerEntries.filter(entry => entry.confirmedRestoration).map(entry => <div className="investigation-row" key={entry.id}><div><strong>{entry.description}</strong><small>{entry.date} · Restored original entry</small></div><b>{signedMoney(entry.signedCents)}</b></div>)}</details>}
 
       {!!duplicatePairs.length && <section className="investigation-section">
         <div className="investigation-section-heading"><h3>Possible duplicate bank entries <span>{duplicatePairs.length}</span></h3></div>
@@ -120,9 +153,10 @@ export default function AccountReconciliationDialog({ accountId, onClose }: { ac
         {data.providerAccounts.map(providerAccount => <p key={providerAccount.id}>Mapped account: {providerAccount.name}{providerAccount.mask ? ` · •••• ${providerAccount.mask}` : ""} · balance updated {dateLabel(providerAccount.balanceAt)}</p>)}
         {data.malformedProviderRows > 0 && <p>{data.malformedProviderRows} saved provider records could not be read.</p>}
       </details>
-      {!!removedBankActivity.length && <details className="investigation-details"><summary>Bank activity later removed by provider ({removedBankActivity.length})</summary><p className="field-help">These saved sync records were later removed by the bank, so they are not listed as current unmatched bank activity.</p>{removedBankActivity.map(item => <div className="investigation-row" key={item.id}><div><strong>{item.description}</strong><small>{item.date} · {kindLabel(item.kind)} · Removed from bank feed</small></div><b>{signedMoney(item.signedCents)}</b></div>)}</details>}
+      {!!removedBankActivity.length && <details className="investigation-details"><summary>Bank activity later removed by provider ({removedBankActivity.length})</summary><p className="field-help">Plaid reported these transaction records as removed from its feed. They are not listed as current unmatched bank activity. Check the bank statement to establish whether the underlying charges were reversed or remain posted.</p>{removedBankActivity.map(item => <div className="investigation-row" key={item.id}><div><strong>{item.description}</strong><small>{item.date} · {kindLabel(item.kind)} · Removed from provider feed</small></div><b>{signedMoney(item.signedCents)}</b></div>)}</details>}
       {!!removedEntries.length && <details className="investigation-details"><summary>Removed ledger entries excluded from balance ({removedEntries.length})</summary>{removedEntries.map(item => <div className="investigation-row" key={item.id}><div><strong>{item.description}</strong><small>{item.date} · {kindLabel(item.kind)} · Removed</small></div><b>{signedMoney(item.signedCents)}</b></div>)}</details>}
-      <p className="investigation-readonly-note">This report only reads saved records. It does not change balances or create adjustments.</p>
+      <p className="investigation-readonly-note">The report reads saved records. Balances change only when you confirm restoring an original entry.</p>
     </>}
+    {confirmationDialog}
   </dialog>;
 }

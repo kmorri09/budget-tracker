@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { calculateAccountLedgerCents } from "../lib/account-ledger.ts";
-import { linkedBankDifferences, nearbyPaymentBankActivity, possibleLedgerDuplicates } from "../lib/account-reconciliation.ts";
+import { linkedBankDifferences, nearbyPaymentBankActivity, possibleLedgerDuplicates, removedPostedBankEntries } from "../lib/account-reconciliation.ts";
 
 test("a card purchase and its payment deduct cash once and settle card debt", () => {
   const hotel = { kind: "expense", amountCents: 42_266, status: "posted" };
@@ -109,4 +109,19 @@ test("linked card-payment amount mismatches and bank removals remain visible", (
   const entry = { id: "payment", description: "Payment", signedCents: -4200, pending: false, excluded: false, providerTransactionId: "withdrawal" };
   assert.equal(linkedBankDifferences([entry], [bankRow("withdrawal", "2026-09-02", -4226)])[0].amountDifferenceCents, -26);
   assert.equal(linkedBankDifferences([entry], [bankRow("withdrawal", "2026-09-02", -4200, { removedByProvider: true })])[0].bank.removedByProvider, true);
+  assert.deepEqual(linkedBankDifferences([{ ...entry, confirmedRestoration: true }], [bankRow("withdrawal", "2026-09-02", -4200, { removedByProvider: true })]), []);
+  assert.equal(linkedBankDifferences([{ ...entry, confirmedRestoration: true }], [bankRow("withdrawal", "2026-09-02", -4226, { removedByProvider: true })])[0].amountDifferenceCents, -26);
+});
+
+test("excluded posted market charges explain the exact checking gap without restoring pending holds", () => {
+  const entry = (id, signedCents) => ({ id, description: "Han Yang Market", signedCents, pending: false, excluded: true, providerTransactionId: id });
+  const entries = [entry("market-one", -999), entry("market-two", -1798), entry("hold", -20000), entry("replaced", -4000), entry("historical", -1000)];
+  const bank = [bankRow("market-one", "2026-09-14", -999, { removedByProvider: true }), bankRow("market-two", "2026-09-14", -1798, { removedByProvider: true }), bankRow("hold", "2026-09-14", -20000, { removedByProvider: true, pending: true }), bankRow("replaced", "2026-09-14", -4000, { removedByProvider: true }), bankRow("historical", "2026-09-14", -1000)];
+  const clues = removedPostedBankEntries(entries, bank, new Set(["replaced"]));
+  assert.deepEqual(clues.map(row => row.entryId), ["market-one", "market-two"]);
+  const effect = clues.reduce((sum, row) => sum + row.appSignedCents, 0);
+  assert.equal(effect, -2797);
+  assert.equal(5620 + effect, 2823);
+  assert.equal(2823 - (5620 + effect), 0);
+  assert(entries.every(row => row.excluded));
 });
