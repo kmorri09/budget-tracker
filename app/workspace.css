@@ -298,6 +298,7 @@
 .coverage-row span:last-child { text-align: right; }
 .coverage-row strong, .coverage-row small { display: block; }
 .coverage-row small { margin-top: 3px; color: var(--muted); font-size: 10px; font-weight: 400; }
+.entry-dialog .cover-overspending-list { display: block; }
 .coverage-metadata { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 10px; }
 .obligation-dialog { width: min(780px, calc(100% - 32px)); }
 .obligation-dialog > .field-help { margin: -4px 0 16px; }
