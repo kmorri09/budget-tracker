@@ -15,7 +15,7 @@ export type DashboardData = {
   allocationPercent: number; accounts: Account[]; managedAccounts: Account[]; categories: Category[]; managedCategories: Category[];
   activity: Entry[]; allocations: Allocation[]; payments: CardPayment[];
   trailing30: { income: number; spending: number; startDate: string; endDate: string };
-  reviews: { id: string; kind: string; title: string; details: string | null; transaction: Entry | null; suggestion: CategorySuggestion | null }[];
+  reviews: { id: string; kind: string; title: string; details: string | null; transaction: Entry | null; removedTransaction?: Entry | null; suggestion: CategorySuggestion | null }[];
   categorizationRules: CategorizationRule[];
   obligations: Obligation[];
 };

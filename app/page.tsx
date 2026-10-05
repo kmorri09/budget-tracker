@@ -295,9 +295,12 @@ function Overview({ dashboard: data, navigate, onAction, onReconcileBudget, onFu
 
 function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashboard: DashboardData; onEdit: (transaction: DashboardData["activity"][number], suggestion?: DashboardData["reviews"][number]["suggestion"]) => void; onRecordPayment: (transaction: DashboardData["activity"][number]) => void; onChanged: () => void }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [search, setSearch] = useState("");
+  const [investigatingAccountId, setInvestigatingAccountId] = useState<string | null>(null);
   const { confirm, dialog: confirmationDialog } = useConfirmDialog();
   async function resolve(id?: string) {
-    if (!id && !await confirm({ title: `Resolve all ${dashboard.reviews.length} open review items?`, message: "This does not change the underlying transactions.", confirmLabel: "Resolve all" })) return;
+    const removal = dashboard.reviews.find(item => item.id === id && item.kind === "provider_posted_removal");
+    if (removal && !await confirm({ title: "Accept this bank removal?", message: "Confirm that the original entry was canceled or replaced on your bank statement and should stay excluded from app balances. This clears the reminder. If the original is still posted with no cancellation or replacement, choose Investigate removal to restore it. If you are unsure, leave this reminder open.", confirmLabel: "Accept removal" })) return;
+    if (!id && !await confirm({ title: `Resolve all ${dashboard.reviews.length} open review items?`, message: dashboard.reviews.some(item => item.kind === "provider_posted_removal") ? "This clears every reminder and keeps removed entries excluded from balances. Check the bank statement for each removed entry first. Use Investigate removal to restore an original entry that is still posted." : "This does not change the underlying transactions.", confirmLabel: "Resolve all" })) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/reviews", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(id ? { id } : { all: true }), status: "resolved" }) });
@@ -316,11 +319,13 @@ function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashbo
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Connection failed."); } finally { setBusy(false); }
   }
   const visible = dashboard.reviews.filter(item => {
-    const transaction = item.transaction;
+    const transaction = item.transaction ?? item.removedTransaction;
     return [item.title, item.details, transaction?.description, transaction?.date, transaction?.account, transaction?.category, transaction?.kind, transaction?.source, transaction?.amount].join(" ").toLowerCase().includes(search.toLowerCase());
   });
   return <div className="panel"><div className="view-heading review-toolbar"><label className="table-search"><span className="sr-only">Search reviews</span><input type="search" placeholder="Search reviews…" value={search} onChange={event => setSearch(event.target.value)} /></label>{dashboard.reviews.length > 0 && <button className="secondary-button" disabled={busy} onClick={() => void resolve()}>Mark all reviewed ({dashboard.reviews.length})</button>}</div><p className="field-help">Inspect each transaction below. Save keeps it in Review; Save and Approve updates it and clears the reminder. Mark reviewed clears the reminder without changing the transaction.</p>{error && <p className="form-error" role="alert">{error}</p>}{visible.map(item => {
     const transaction = item.transaction;
+    const isRemoval = item.kind === "provider_posted_removal";
+    const displayedEntry = transaction ?? item.removedTransaction;
     const imported = transaction && (item.kind === "provider_transfer" || item.kind === "bank_transaction");
     const title = imported ? importedReviewTitle(transaction.kind, transaction.description) : item.title;
     let details = item.details;
@@ -335,8 +340,27 @@ function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashbo
       : item.kind === "provider_update_conflict" || item.kind === "provider_posted_removal"
         ? "This entry is outside the active ledger. Check the bank removal and any posted replacement or payment applications before marking this reminder reviewed."
         : "The linked transaction is no longer in the active ledger. You can safely mark this reminder reviewed.";
-    return <article className="review-item" key={item.id}><div className="review-item-content"><strong>{title}</strong><p>{details}</p>{item.suggestion && <div className="review-suggestion"><span className={`suggestion-confidence ${item.suggestion.confidence}`}>{item.suggestion.confidence} confidence</span><div><strong>Suggested category: {item.suggestion.category}</strong><p>{item.suggestion.reason}</p></div></div>}{transaction ? <dl className="review-facts"><div><dt>Description</dt><dd>{transaction.description}</dd></div><div><dt>Date</dt><dd>{transaction.date}</dd></div><div><dt>Amount</dt><dd className={signedAmount(transaction) < 0 ? "negative" : ""}>{money(signedAmount(transaction))}</dd></div><div><dt>Account</dt><dd>{transaction.account}</dd></div><div><dt>Type</dt><dd>{kindLabel(transaction.kind)}</dd></div><div><dt>Category</dt><dd>{supportsBudgetCategory(transaction.kind) ? transaction.category ?? "Uncategorized" : "Not applicable"}</dd></div><div><dt>Source / status</dt><dd>{kindLabel(transaction.source)} · {transaction.pending ? "Pending" : kindLabel(transaction.status)}</dd></div></dl> : <p className="review-missing">{missingEntryDetails}</p>}</div><div className="review-item-actions">{transaction && item.kind === "provider_transfer" && transaction.kind === "transfer_out" && <button className="primary-button" disabled={busy} onClick={() => onRecordPayment(transaction)}>Record card payment</button>}{transaction?.source === "plaid" && <button className="secondary-button" disabled={busy} onClick={() => void ignoreHistorical(item.id)}>Already represented — ignore</button>}{transaction && <button className={item.suggestion ? "primary-button" : "secondary-button"} disabled={busy} onClick={() => onEdit(transaction, item.suggestion)}>{item.suggestion ? "Review suggestion" : `Edit ${entryNoun}`}</button>}<button className="secondary-button" disabled={busy} onClick={() => void resolve(item.id)}>Mark reviewed</button></div></article>;
-  })}{!visible.length && <p className="empty-state">{dashboard.reviews.length ? "No matching reviews." : "Nothing needs review right now."}</p>}{confirmationDialog}</div>;
+    return <article className="review-item" key={item.id}>
+      <div className="review-item-content"><strong>{title}</strong><p>{details}</p>
+        {isRemoval && <div className="review-next-step"><strong>Next: check your bank statement</strong><ul>
+          <li><strong>Still posted?</strong> Choose Investigate removal, then Restore original after confirming the entry was not canceled or replaced.</li>
+          <li><strong>Canceled or replaced?</strong> Verify the original should stay excluded, then choose Accept removal to clear this reminder.</li>
+          <li><strong>Unsure?</strong> Leave this reminder open.</li>
+        </ul></div>}
+        {item.suggestion && <div className="review-suggestion"><span className={`suggestion-confidence ${item.suggestion.confidence}`}>{item.suggestion.confidence} confidence</span><div><strong>Suggested category: {item.suggestion.category}</strong><p>{item.suggestion.reason}</p></div></div>}
+        {displayedEntry ? <dl className="review-facts"><div><dt>Description</dt><dd>{displayedEntry.description}</dd></div><div><dt>Date</dt><dd>{displayedEntry.date}</dd></div><div><dt>Amount</dt><dd className={signedAmount(displayedEntry) < 0 ? "negative" : ""}>{money(signedAmount(displayedEntry))}</dd></div><div><dt>Account</dt><dd>{displayedEntry.account}</dd></div><div><dt>Type</dt><dd>{kindLabel(displayedEntry.kind)}</dd></div><div><dt>Category</dt><dd>{supportsBudgetCategory(displayedEntry.kind) ? displayedEntry.category ?? "Uncategorized" : "Not applicable"}</dd></div><div><dt>Source / status</dt><dd>{kindLabel(displayedEntry.source)} · {displayedEntry.pending ? "Pending" : kindLabel(displayedEntry.status)}{isRemoval && " · Excluded from balances"}</dd></div></dl> : <p className="review-missing">{isRemoval ? "Open Accounts → Investigate difference for the affected account to check the original entry and any replacement." : missingEntryDetails}</p>}
+      </div>
+      <div className="review-item-actions">
+        {isRemoval && (displayedEntry ? <button className="primary-button" disabled={busy} onClick={() => setInvestigatingAccountId(displayedEntry.accountId)}>Investigate removal</button> : <a className="primary-button" href="/#accounts">Open Accounts</a>)}
+        {transaction && item.kind === "provider_transfer" && transaction.kind === "transfer_out" && <button className="primary-button" disabled={busy} onClick={() => onRecordPayment(transaction)}>Record card payment</button>}
+        {!isRemoval && transaction?.source === "plaid" && <button className="secondary-button" disabled={busy} onClick={() => void ignoreHistorical(item.id)}>Already represented — ignore</button>}
+        {!isRemoval && transaction && <button className={item.suggestion ? "primary-button" : "secondary-button"} disabled={busy} onClick={() => onEdit(transaction, item.suggestion)}>{item.suggestion ? "Review suggestion" : `Edit ${entryNoun}`}</button>}
+        <button className="secondary-button" disabled={busy} onClick={() => void resolve(item.id)}>{isRemoval ? "Accept removal" : "Mark reviewed"}</button>
+      </div>
+    </article>;
+  })}{!visible.length && <p className="empty-state">{dashboard.reviews.length ? "No matching reviews." : "Nothing needs review right now."}</p>}{confirmationDialog}
+    {investigatingAccountId && <AccountReconciliationDialog accountId={investigatingAccountId} onClose={() => setInvestigatingAccountId(null)} onChanged={() => onChanged()} />}
+  </div>;
 }
 
 function Accounts({ dashboard, onAction, onChanged }: { dashboard: DashboardData; onAction: (action: ActionType) => void; onChanged: (message?: string) => void }) {

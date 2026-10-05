@@ -69,6 +69,7 @@ export async function GET() {
   const trailingIncomeCents = trailingRows.filter((transaction) => transaction.kind === "income").reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const trailingSpendCents = trailingRows.filter((transaction) => transaction.kind === "expense").reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const transactionById = new Map(activeTransactionRows.map(transaction => [transaction.id, transaction]));
+  const removedTransactionById = new Map(transactionRows.filter(transaction => transaction.status === "removed").map(transaction => [transaction.id, transaction]));
   const providerCategoryByTransactionId = new Map<string, ProviderCategory>();
   for (const raw of rawProviderRows) {
     try {
@@ -118,11 +119,13 @@ export async function GET() {
     reviews: reviewRows.map((review) => {
       const transactionRow = review.transactionId ? transactionById.get(review.transactionId) : null;
       const transaction = transactionRow ? toEntry(transactionRow) : null;
+      const removedRow = review.kind === "provider_posted_removal" && review.transactionId ? removedTransactionById.get(review.transactionId) : null;
+      const removedTransaction = removedRow ? toEntry(removedRow) : null;
       const providerCategory = transactionRow?.providerTransactionId ? providerCategoryByTransactionId.get(transactionRow.providerTransactionId) : null;
       const suggestion = transactionRow && !transactionRow.categoryId && ["expense", "refund"].includes(transactionRow.kind)
         ? suggestCategory({ description: transactionRow.description, accountId: transactionRow.accountId, categories: categoryRows, history: suggestionHistory.filter(item => item.id !== transactionRow.id), providerCategory })
         : null;
-      return { id: review.id, kind: review.kind, title: review.title, details: review.details, transaction, suggestion };
+      return { id: review.id, kind: review.kind, title: review.title, details: review.details, transaction, removedTransaction, suggestion };
     }),
     payments: [
       ...paymentRows.map((payment) => {
