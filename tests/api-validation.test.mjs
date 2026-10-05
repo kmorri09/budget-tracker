@@ -82,6 +82,8 @@ test("transaction updates require an owned reference id shape and valid state fi
   const valid = transactionUpdateSchema.parse({ id: "tx", kind: "expense", amount: "10", date: "2026-09-08", accountId: "cash", categoryId: "food", description: "Groceries", status: "posted", pending: false });
   assert.equal(valid.amount, 10);
   assert.equal(valid.approveReview, false);
+  assert.equal(transactionUpdateSchema.parse({ ...valid, paymentStatus: "paid" }).paymentStatus, "paid");
+  assert.equal(transactionUpdateSchema.safeParse({ ...valid, paymentStatus: "partially-paid" }).success, false);
   assert.equal(transactionUpdateSchema.parse({ ...valid, approveReview: true }).approveReview, true);
   assert.equal(transactionUpdateSchema.safeParse({ ...valid, approveReview: "true" }).success, false);
   assert.equal(transactionUpdateSchema.safeParse({ ...valid, kind: "unknown" }).success, false);

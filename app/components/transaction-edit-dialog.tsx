@@ -22,6 +22,8 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [kind, setKind] = useState(transaction.kind);
+  const [accountId, setAccountId] = useState(transaction.accountId);
+  const [paymentStatus, setPaymentStatus] = useState(transaction.paymentStatus === "Paid" ? "paid" : transaction.paymentStatus === "Partially paid" ? "partial" : "unpaid");
   const [categoryId, setCategoryId] = useState(transaction.categoryId ?? categorySuggestion?.categoryId ?? "");
   const [rememberCategory, setRememberCategory] = useState(false);
   const [ruleMatch, setRuleMatch] = useState(transaction.description);
@@ -29,6 +31,7 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
   const accounts = dashboard.managedAccounts.filter(account => account.active || account.id === transaction.accountId);
   const categories = dashboard.managedCategories.filter(category => category.active || category.id === transaction.categoryId);
   const categoryApplies = supportsBudgetCategory(kind);
+  const coverageApplies = kind === "expense" && dashboard.managedAccounts.some(account => account.id === accountId && account.type === "credit_card");
   const entryNoun = ledgerEntryNoun(kind);
   const hasOpenReview = dashboard.reviews.some(review => review.transaction?.id === transaction.id);
 
@@ -62,6 +65,7 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
         amount: String(values.amount),
         date: String(values.date),
         accountId: String(values.accountId),
+        ...(coverageApplies ? { paymentStatus: String(values.paymentStatus) } : {}),
         categoryId: supportsBudgetCategory(String(values.kind)) ? String(values.categoryId ?? "") || null : null,
         description: String(values.description),
         status: String(values.status),
@@ -80,11 +84,12 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
       <fieldset disabled={busy}>
         <label>Description<input name="description" defaultValue={transaction.description} required maxLength={200} /></label>
         <div className="form-grid"><label>Amount<input name="amount" type="number" min="0.01" step="0.01" defaultValue={transaction.amount.toFixed(2)} required /></label><label>Date<input name="date" type="date" defaultValue={transaction.date} required /></label></div>
-        <Typeahead label="Account / payment method" name="accountId" options={accounts.map(account => ({ value: account.id, label: `${account.name}${account.active ? "" : " (inactive)"}` }))} initialValue={transaction.accountId} />
+        <Typeahead label="Account / payment method" name="accountId" options={accounts.map(account => ({ value: account.id, label: `${account.name}${account.active ? "" : " (inactive)"}` }))} value={accountId} onChange={setAccountId} />
         <div className="form-grid"><Typeahead label="Type" name="kind" options={kindOptions.map(([value, label]) => ({ value, label }))} value={kind} onChange={setKind} />{categoryApplies && <Typeahead label="Category" name="categoryId" required={false} options={[{ value: "", label: "No category" }, ...categories.map(category => ({ value: category.id, label: `${category.name}${category.active ? "" : " (inactive)"}` }))]} value={categoryId} onChange={setCategoryId} />}</div>
         {categoryApplies && categorySuggestion && !transaction.categoryId && <div className="category-suggestion"><span className={`suggestion-confidence ${categorySuggestion.confidence}`}>{categorySuggestion.confidence} confidence</span><div><strong>{categorySuggestion.category} was preselected</strong><p>{categorySuggestion.reason} Nothing changes until you save.</p></div></div>}
         {transaction.source === "plaid" && ["expense", "refund"].includes(kind) && <div className="rule-builder"><label className="toggle-field"><input name="rememberCategory" type="checkbox" checked={rememberCategory} onChange={event => setRememberCategory(event.target.checked)} disabled={!categoryId} /> Always use this category for matching Plaid imports</label>{rememberCategory && <><label>Description contains<input name="categoryRuleMatch" value={ruleMatch} onChange={event => setRuleMatch(event.target.value)} minLength={3} maxLength={120} required /></label><p className="field-help">This categorizes the current transaction and future matching expenses or refunds. New imports still appear in Review.</p></>}</div>}
         <Typeahead label="Status" name="status" options={[{ value: "posted", label: "Posted" }, { value: "pending", label: "Pending" }, { value: "cleared", label: "Cleared" }, { value: "void", label: "Void" }]} initialValue={transaction.status} />
+        {coverageApplies && <><Typeahead label="Card coverage" name="paymentStatus" options={[{ value: "paid", label: "Paid" }, ...(transaction.paymentStatus === "Partially paid" ? [{ value: "partial", label: "Partially paid" }] : []), { value: "unpaid", label: "Unpaid" }]} value={paymentStatus} onChange={setPaymentStatus} /><p className="field-help">This changes the purchase’s coverage status in the app. It does not record a card payment or move money.</p></>}
       </fieldset>
       <p className="field-help">Source: {transaction.source.replaceAll("_", " ")}. Source and payment coverage history stay auditable; changing the account changes the payment method.</p>
       {error && <p className="form-error" role="alert">{error}</p>}

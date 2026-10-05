@@ -7,6 +7,7 @@ import { accounts, allocations, auditEvents, cardCoverageAdjustments, cardPaymen
 import { entrySchema, idSchema, transactionUpdateSchema } from "../../../lib/api-validation";
 import { normalizeCategorizationMatch } from "../../../lib/categorization-rules";
 import { importedReviewDetails, importedReviewTitle } from "../../../lib/ledger-entry-types";
+import { coverageReconciliation } from "../../../lib/card-coverage";
 
 const cents = (amount: number) => Math.round(amount * 100);
 
@@ -80,8 +81,9 @@ export async function PATCH(request: Request) {
   const existing = (await db.select().from(transactions).where(and(eq(transactions.id, input.id), eq(transactions.userId, user.id))).limit(1))[0];
   if (!existing) return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
   if (existing.status === "removed") return NextResponse.json({ error: "Removed transactions cannot be edited" }, { status: 400 });
-  const account = (await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.id, input.accountId), eq(accounts.userId, user.id))).limit(1))[0];
+  const account = (await db.select({ id: accounts.id, type: accounts.type }).from(accounts).where(and(eq(accounts.id, input.accountId), eq(accounts.userId, user.id))).limit(1))[0];
   if (!account) return NextResponse.json({ error: "Account not found" }, { status: 400 });
+  if (input.paymentStatus && (input.kind !== "expense" || account.type !== "credit_card")) return NextResponse.json({ error: "Card coverage can only be changed for credit-card expenses" }, { status: 400 });
   if (input.categoryId) {
     const category = (await db.select({ id: categories.id }).from(categories).where(and(eq(categories.id, input.categoryId), eq(categories.userId, user.id))).limit(1))[0];
     if (!category) return NextResponse.json({ error: "Category not found" }, { status: 400 });
@@ -93,6 +95,15 @@ export async function PATCH(request: Request) {
   if (input.rememberCategory && !input.categoryId) return NextResponse.json({ error: "Choose a category before saving an automatic rule" }, { status: 400 });
   if (input.rememberCategory && ruleMatch.length < 3) return NextResponse.json({ error: "Rule match text must contain at least 3 letters or numbers" }, { status: 400 });
   const changes = { kind: input.kind, amountCents: cents(input.amount), effectiveDate: input.date, accountId: input.accountId, categoryId: input.categoryId, description: input.description, status: input.status, pending: input.pending, userEdited: true, updatedAt: new Date() };
+  let coverageChange: { currentCents: number; desiredCents: number; deltaCents: number } | null = null;
+  if (input.paymentStatus && input.paymentStatus !== "partial") {
+    const [applicationRows, adjustmentRows] = await Promise.all([
+      db.select().from(cardPaymentApplications).where(and(eq(cardPaymentApplications.userId, user.id), eq(cardPaymentApplications.transactionId, input.id))),
+      db.select().from(cardCoverageAdjustments).where(and(eq(cardCoverageAdjustments.userId, user.id), eq(cardCoverageAdjustments.transactionId, input.id))),
+    ]);
+    const currentCoveredCents = [...applicationRows, ...adjustmentRows].reduce((sum, row) => sum + row.amountCents, 0);
+    coverageChange = coverageReconciliation(changes.amountCents, currentCoveredCents, input.paymentStatus);
+  }
   await db.transaction(async (tx) => {
     await tx.update(transactions).set(changes).where(and(eq(transactions.id, input.id), eq(transactions.userId, user.id)));
     const isTransfer = input.kind === "transfer_in" || input.kind === "transfer_out";
@@ -103,6 +114,10 @@ export async function PATCH(request: Request) {
     if (input.approveReview) await tx.update(reviewItems).set({ status: "resolved", resolvedAt: new Date() }).where(and(eq(reviewItems.transactionId, input.id), eq(reviewItems.userId, user.id), eq(reviewItems.status, "open")));
     if (input.rememberCategory && input.categoryId) await tx.insert(categorizationRules).values({ id: randomUUID(), userId: user.id, categoryId: input.categoryId, matchText: ruleDisplayText, normalizedMatch: ruleMatch, active: true, updatedAt: new Date() }).onConflictDoUpdate({ target: [categorizationRules.userId, categorizationRules.normalizedMatch], set: { categoryId: input.categoryId, matchText: ruleDisplayText, active: true, updatedAt: new Date() } });
     await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "transaction", entityId: input.id, beforeJson: JSON.stringify({ kind: existing.kind, amountCents: existing.amountCents, effectiveDate: existing.effectiveDate, accountId: existing.accountId, categoryId: existing.categoryId, description: existing.description, status: existing.status, pending: existing.pending }), afterJson: JSON.stringify(changes) });
+    if (coverageChange?.deltaCents) {
+      await tx.insert(cardCoverageAdjustments).values({ id: randomUUID(), userId: user.id, transactionId: input.id, amountCents: coverageChange.deltaCents, effectiveDate: input.date, note: "Edited in transaction editor" });
+      await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "reconcile", entityType: "card_coverage", entityId: randomUUID(), beforeJson: JSON.stringify([{ transactionId: input.id, coveredCents: coverageChange.currentCents }]), afterJson: JSON.stringify({ state: input.paymentStatus, date: input.date, note: "Edited in transaction editor", transactions: [{ transactionId: input.id, coveredCents: coverageChange.desiredCents }] }) });
+    }
     if (input.rememberCategory && input.categoryId) await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "upsert", entityType: "categorization_rule", entityId: ruleMatch, afterJson: JSON.stringify({ matchText: ruleDisplayText, normalizedMatch: ruleMatch, categoryId: input.categoryId, transactionId: input.id }) });
   });
   return NextResponse.json({ id: input.id, ok: true, ruleSaved: input.rememberCategory, reviewApproved: input.approveReview });
