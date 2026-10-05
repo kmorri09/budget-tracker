@@ -25,6 +25,44 @@ test('amount bounds are independently inclusive', () => {
   assert.deepEqual(queryRows(rows, { ...query, min: '-100', max: '-100' }, 'amount').map(r => r.id), ['b']);
   assert.deepEqual(queryRows(rows, { ...query, min: '500' }, 'amount').map(r => r.id), ['c']);
 });
+
+const amountRows = [-40.01, -40, -39, -38, -37.99, 0, 37.99, 38, 39, 40, 40.01]
+  .map(amount => ({ id: `amount-${amount}`, date: '2026-09-01', amount }));
+const amountQuery = { ...query, sort: 'amount', direction: 'asc' };
+const filteredAmounts = overrides => queryRows(amountRows, { ...amountQuery, ...overrides }, 'amount').map(row => row.amount);
+
+test('positive amount bounds match purchase and income magnitudes while preserving signed amounts and sort', () => {
+  const result = queryRows(amountRows, { ...amountQuery, min: '38', max: '40' }, 'amount');
+  assert.deepEqual(result.map(row => row.amount), [-40, -39, -38, 38, 39, 40]);
+  assert.equal(result.reduce((total, row) => total + row.amount, 0), 0);
+  assert.deepEqual(filteredAmounts({ min: '38', max: '40', amountSign: 'any' }), [-40, -39, -38, 38, 39, 40]);
+});
+
+test('amount sign can restrict a magnitude range to expenses or income', () => {
+  assert.deepEqual(filteredAmounts({ min: '38', max: '40', amountSign: 'negative' }), [-40, -39, -38]);
+  assert.deepEqual(filteredAmounts({ min: '38', max: '40', amountSign: 'positive' }), [38, 39, 40]);
+});
+
+test('amount sign works without bounds and includes zero only for any sign', () => {
+  assert.deepEqual(filteredAmounts({ amountSign: 'negative' }), [-40.01, -40, -39, -38, -37.99]);
+  assert.deepEqual(filteredAmounts({ amountSign: 'positive' }), [37.99, 38, 39, 40, 40.01]);
+  assert.deepEqual(filteredAmounts({ min: '0', max: '0' }), [0]);
+  assert.deepEqual(filteredAmounts({ min: '0', max: '0', amountSign: 'negative' }), []);
+  assert.deepEqual(filteredAmounts({ min: '0', max: '0', amountSign: 'positive' }), []);
+});
+
+test('magnitude bounds are independently inclusive down to fractional amounts', () => {
+  assert.deepEqual(filteredAmounts({ min: '40' }), [-40.01, -40, 40, 40.01]);
+  assert.deepEqual(filteredAmounts({ max: '38' }), [-38, -37.99, 0, 37.99, 38]);
+  assert.deepEqual(filteredAmounts({ min: '37.99', max: '38' }), [-38, -37.99, 37.99, 38]);
+});
+
+test('a negative bound preserves explicit signed ranges and one-sided comparisons', () => {
+  assert.deepEqual(filteredAmounts({ min: '-40', max: '-38' }), [-40, -39, -38]);
+  assert.deepEqual(filteredAmounts({ min: '-39' }), [-39, -38, -37.99, 0, 37.99, 38, 39, 40, 40.01]);
+  assert.deepEqual(filteredAmounts({ max: '-39' }), [-40.01, -40, -39]);
+  assert.deepEqual(filteredAmounts({ min: '-39', max: '40' }), [-39, -38, -37.99, 0, 37.99, 38, 39, 40]);
+});
 test('query never mutates source and gracefully supports zero matches', () => {
   queryRows(rows, query, 'amount'); assert.equal(rows[0].id, 'a');
   assert.equal(queryRows(rows, { ...query, search: 'missing' }, 'amount').length, 0);

@@ -51,18 +51,25 @@ export function SearchFilter({ label, options, value, onChange }: { label: strin
     </div></details>;
 }
 
-function AmountFilter({ label, min, max, onChange }: { label: string; min: string; max: string; onChange: (change: Pick<TableQuery, "min" | "max">) => void }) {
+function AmountFilter({ label, min, max, amountSign = "any", onChange }: { label: string; min: string; max: string; amountSign?: TableQuery["amountSign"]; onChange: (change: Pick<TableQuery, "min" | "max" | "amountSign">) => void }) {
   const details = useRef<HTMLDetailsElement>(null);
-  const active = min !== "" || max !== "";
-  return <details ref={details} className="filter-menu amount-filter" name="workspace-filters" onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>{label}{active && <span className="filter-count">1</span>} <span className="filter-chevron" aria-hidden="true" /></summary>
-    <div className="filter-popover amount-filter-popover"><div className="amount-filter-fields"><label>Minimum<input type="number" step="0.01" placeholder="No minimum" value={min} onChange={event => onChange({ min: event.target.value, max })} /></label><label>Maximum<input type="number" step="0.01" placeholder="No maximum" value={max} onChange={event => onChange({ min, max: event.target.value })} /></label></div><button type="button" className="text-link" onClick={() => onChange({ min: "", max: "" })}>Clear amount</button></div>
+  const minimumInput = useRef<HTMLInputElement>(null);
+  const active = min !== "" || max !== "" || amountSign !== "any";
+  const signedRange = (min !== "" && Number(min) < 0) || (max !== "" && Number(max) < 0);
+  return <details ref={details} className="filter-menu amount-filter" name="workspace-filters" onToggle={event => { if (event.currentTarget.open) minimumInput.current?.focus(); }} onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>{label}{active && <span className="filter-count">1</span>} <span className="filter-chevron" aria-hidden="true" /></summary>
+    <div className="filter-popover amount-filter-popover">
+      <div className="amount-filter-fields"><label>Minimum<input ref={minimumInput} type="number" step="0.01" placeholder="No minimum" value={min} onChange={event => onChange({ min: event.target.value, max, amountSign })} /></label><label>Maximum<input type="number" step="0.01" placeholder="No maximum" value={max} onChange={event => onChange({ min, max: event.target.value, amountSign })} /></label></div>
+      <div className="segmented amount-sign-options" role="group" aria-label="Amount direction">{([["any", "Both signs"], ["negative", "Negative (−)"], ["positive", "Positive (+)"]] as const).map(([sign, text]) => <button key={sign} type="button" aria-pressed={amountSign === sign} onClick={() => onChange({ min, max, amountSign: sign })}>{text}</button>)}</div>
+      <p className="amount-filter-help">{signedRange ? "Negative bounds use the signed amounts shown in the table." : amountSign === "negative" ? "Enter positive bounds to find negative amounts." : amountSign === "positive" ? "Enter positive bounds to find positive amounts." : "Enter 38–40 to find both −$39 and +$39."}</p>
+      <button type="button" className="text-link" onClick={() => onChange({ min: "", max: "", amountSign: "any" })}>Clear amount</button>
+    </div>
   </details>;
 }
 
 function defaultQuery(dated: boolean, category?: string): TableQuery {
   const start = new Date(); start.setDate(start.getDate() - 29);
   const from = [start.getFullYear(), String(start.getMonth()+1).padStart(2, "0"), String(start.getDate()).padStart(2, "0")].join("-");
-  return { search: "", facets: category ? { category: [category] } : {}, from: dated && !category ? from : "", to: dated && !category ? today() : "", min: "", max: "", sort: dated ? "date" : "name", direction: dated ? "desc" : "asc" };
+  return { search: "", facets: category ? { category: [category] } : {}, from: dated && !category ? from : "", to: dated && !category ? today() : "", min: "", max: "", amountSign: "any", sort: dated ? "date" : "name", direction: dated ? "desc" : "asc" };
 }
 
 export default function DataTable({ title, rows, columns, facets, dated = false, amountKey, amountLabel = "Amount", onRow, rowActions = [], initialCategory, initialFacet, initialSort, initialDirection = "asc", selection, emptyMessage, defaultPageSize = 50 }: Props) {
@@ -88,7 +95,7 @@ export default function DataTable({ title, rows, columns, facets, dated = false,
   const filterStorageKey = `budget-tracker:table-filters:${title}`;
   const filterControls = [
     ...(dated ? [{ key: "$date", label: "Date", control: <div className="segmented" aria-label="Date range">{[["30", "Last 30 days"], ["all", "All dates"], ["custom", "Custom dates"]].map(([key, label]) => <button key={key} aria-pressed={range === key} onClick={() => { setRange(key); update(key === "30" ? { from: defaultQuery(true).from, to: today() } : { from: "", to: "" }); }}>{label}</button>)}</div> }] : []),
-    ...(amountKey ? [{ key: "$amount", label: amountLabel, control: <AmountFilter label={amountLabel} min={query.min} max={query.max} onChange={change => update(change)} /> }] : []),
+    ...(amountKey ? [{ key: "$amount", label: amountLabel, control: <AmountFilter label={amountLabel} min={query.min} max={query.max} amountSign={query.amountSign} onChange={change => update(change)} /> }] : []),
     ...facets.map(facet => ({
       key: facet.key,
       label: facet.label,
