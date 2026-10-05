@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { z } from "zod";
+import { obligationFundingSchema } from "../../../../lib/api-validation";
 import { getCurrentUser } from "../../../../lib/auth";
 import { calculateCategoryBalance } from "../../../../lib/category-balance";
 import { getDatabase } from "../../../../lib/db";
@@ -9,18 +9,10 @@ import { calculateObligationFunding } from "../../../../lib/obligation-funding";
 import { planObligations, type ObligationCoverage } from "../../../../lib/obligation-status";
 import { accounts, allocations, auditEvents, cardPayments, categories, obligationMatchDecisions, obligations, transactions } from "../../../../lib/schema";
 
-const schema = z.object({
-  obligations: z.array(z.object({
-    id: z.string().min(1),
-    amountCents: z.number().int().positive().max(2_147_483_647),
-  })).min(1).max(200),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-});
-
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const parsed = obligationFundingSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid obligations" }, { status: 400 });
   const ids = parsed.data.obligations.map(obligation => obligation.id);
   const amountById = new Map(parsed.data.obligations.map(obligation => [obligation.id, obligation.amountCents]));
@@ -42,7 +34,7 @@ export async function POST(request: Request) {
     ...paymentRows.map(row => ({ id: row.id, type: "payment" as const, amountCents: row.amountCents, description: `${row.description} ${accountRows.find(account => account.id === row.toAccountId)?.name ?? ""}`.trim(), effectiveDate: row.effectiveDate, fromAccountId: row.fromAccountId, toAccountId: row.toAccountId })),
   ];
   const plans = planObligations(obligationRows, candidates, decisionRows, new Date().toISOString().slice(0, 10));
-  if (selected.some(row => plans.get(row.id)?.covered)) return NextResponse.json({ error: "A selected one-time obligation has already been paid" }, { status: 400 });
+  if (selected.some(row => amountById.get(row.id)! > 0 && plans.get(row.id)?.covered)) return NextResponse.json({ error: "A selected one-time obligation has already been paid" }, { status: 400 });
   const categoryBalances = categoryRows.map(category => ({ id: category.id, name: category.name, availableCents: calculateCategoryBalance(category.id, allocationRows, transactionRows).availableCents }));
   const funding = calculateObligationFunding(selected.map(obligation => ({ id: obligation.id, categoryId: obligation.categoryId, name: obligation.name, amountCents: amountById.get(obligation.id)! })), categoryBalances);
   const changes = funding.filter(group => group.allocationCents > 0);

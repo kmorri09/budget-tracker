@@ -22,6 +22,22 @@ test("an overspent category is restored before its obligation is funded", () => 
   assert.equal(group.allocationCents, 25_000);
 });
 
+test("zero amounts skip obligations without covering their category deficits or including them in funding notes", () => {
+  const groups = calculateObligationFunding([
+    { id: "skip", categoryId: "room", name: "Capital One Business Steph", amountCents: 0 },
+    { id: "also-skip", categoryId: "insurance", name: "Skipped policy", amountCents: 0 },
+    { id: "fund", categoryId: "insurance", name: "Prudential Whole", amountCents: 10500 },
+  ], [
+    { id: "room", name: "Ruoom", availableCents: -16500 },
+    { id: "insurance", name: "Insurance", availableCents: -2000 },
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].allocationCents, 12500);
+  assert.deepEqual(groups[0].obligationIds, ["fund"]);
+  assert.deepEqual(groups[0].obligationNames, ["Prudential Whole"]);
+  assert.deepEqual(calculateObligationFunding([{ id: "skip", categoryId: "room", name: "Skip", amountCents: 0 }], [{ id: "room", name: "Ruoom", availableCents: -16500 }]), []);
+});
+
 test("matching past payments cover obligations without manual cleanup", () => {
   const obligation = { name: "Hyatt Payment", amountCents: 19_000, dueDate: "2026-09-05", accountId: "card" };
   assert.equal(isObligationCovered(obligation, [{ description: "Hyatt Payment", amountCents: 19_000, effectiveDate: "2026-09-07", fromAccountId: "cash", toAccountId: "card" }], "2026-09-09"), true);

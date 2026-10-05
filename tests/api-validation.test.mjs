@@ -11,6 +11,7 @@ import {
   idSchema,
   restoreProviderEntrySchema,
   obligationSchema,
+  obligationFundingSchema,
   obligationUpdateSchema,
   paymentSchema,
   paymentUpdateSchema,
@@ -19,6 +20,15 @@ import {
 
 const validEntry = { kind: "transaction", amount: "12.50", date: "2026-09-08", accountId: "cash", categoryId: "food", description: "Coffee" };
 const validObligation = { name: "Rent", amount: "1200", dueDate: "2026-09-15", categoryId: "rent", accountId: "cash" };
+
+test("obligation funding accepts zero overrides and rejects invalid cents or allocation dates", () => {
+  const request = { date: "2026-10-04", obligations: [{ id: "skip", amountCents: 0 }, { id: "fund", amountCents: 10500 }] };
+  assert.deepEqual(obligationFundingSchema.parse(request), request);
+  for (const amountCents of [-1, 0.5, Infinity, 2_147_483_648, "0"]) {
+    assert.equal(obligationFundingSchema.safeParse({ ...request, obligations: [{ id: "bad", amountCents }] }).success, false);
+  }
+  assert.equal(obligationFundingSchema.safeParse({ ...request, date: "2026-02-30" }).success, false);
+});
 
 test("provider restoration requires explicit statement confirmation", () => {
   assert.equal(restoreProviderEntrySchema.safeParse({ id: "entry" }).success, false);

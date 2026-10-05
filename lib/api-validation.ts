@@ -89,3 +89,11 @@ export const obligationSchema = z.object({
   active: z.boolean().default(true),
 });
 export const obligationUpdateSchema = obligationSchema.extend({ id: z.string().min(1) });
+
+export const obligationFundingSchema = z.object({
+  obligations: z.array(z.object({
+    id: z.string().min(1),
+    amountCents: z.number().int().nonnegative().max(2_147_483_647),
+  })).min(1).max(200),
+  date: dateOnlySchema,
+});

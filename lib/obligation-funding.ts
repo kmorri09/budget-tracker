@@ -5,6 +5,7 @@ export function calculateObligationFunding(obligations: FundableObligation[], ca
   const categoryById = new Map(categories.map(category => [category.id, category]));
   const grouped = new Map<string, { categoryId: string; category: string; obligationIds: string[]; obligationNames: string[]; obligationCents: number; availableCents: number }>();
   for (const obligation of obligations) {
+    if (obligation.amountCents === 0) continue;
     const category = categoryById.get(obligation.categoryId);
     if (!category) continue;
     const group = grouped.get(category.id) ?? { categoryId: category.id, category: category.name, obligationIds: [], obligationNames: [], obligationCents: 0, availableCents: category.availableCents };
