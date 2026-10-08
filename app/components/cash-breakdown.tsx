@@ -1,10 +1,13 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import { calculateCashBreakdown } from "../../lib/cash-breakdown";
 import { money, type DashboardData } from "../../lib/workspace-types";
 
 const colors = ["#277456", "#5f8b6b", "#8a9f63", "#af995e", "#9a7d92", "#658ca1", "#a87968", "#7a958b"];
 const cents = (amount: number) => Math.round(amount * 100);
 
-export default function CashBreakdown({ dashboard, viewCategory }: { dashboard: DashboardData; viewCategory: (category: string) => void }) {
+export default function CashBreakdown({ dashboard }: { dashboard: DashboardData }) {
   const cashCents = cents(dashboard.ledgerBalance);
   const breakdown = calculateCashBreakdown(cashCents, cents(dashboard.remainingToBudget), dashboard.categories.map(category => ({ id: category.id, name: category.name, availableCents: cents(category.available) })));
   const segments = [
@@ -13,6 +16,29 @@ export default function CashBreakdown({ dashboard, viewCategory }: { dashboard: 
     ...(breakdown.unmatchedCents ? [{ key: "unmatched", name: "Not matched to the budget", amountCents: breakdown.unmatchedCents, color: "#dce2de" }] : []),
   ];
   const cashMarker = breakdown.shortfallCents > 0 ? Math.max(0, cashCents / breakdown.scaleCents * 100) : null;
+  const labelsRef = useRef<HTMLDivElement>(null);
+  const [visibleLabels, setVisibleLabels] = useState<Set<string>>(() => new Set());
+  const segmentSignature = segments.map(segment => `${segment.key}:${segment.name}:${segment.amountCents}`).join("|");
+
+  useEffect(() => {
+    const row = labelsRef.current;
+    if (!row) return;
+    let active = true;
+    const measure = () => {
+      if (!active) return;
+      const visible = new Set<string>();
+      Array.from(row.children).forEach((cell, index) => {
+        const label = cell.firstElementChild as HTMLElement | null;
+        if (label && label.scrollWidth + 8 <= cell.clientWidth) visible.add(segments[index].key);
+      });
+      setVisibleLabels(previous => previous.size === visible.size && [...previous].every(key => visible.has(key)) ? previous : visible);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(row);
+    document.fonts.ready.then(measure);
+    return () => { active = false; observer.disconnect(); };
+  }, [segmentSignature]);
 
   return <section className="panel cash-breakdown" aria-labelledby="cash-breakdown-title">
     <div className="cash-breakdown-heading">
@@ -21,16 +47,14 @@ export default function CashBreakdown({ dashboard, viewCategory }: { dashboard: 
     </div>
     <p className="cash-breakdown-context">Category balances are shared across cash accounts. The chart compares your plan with recorded cash after entered transactions and card payments.</p>
     {breakdown.scaleCents > 0 ? <>
-      <div className="cash-breakdown-bar" aria-hidden="true">
+      <div className="cash-breakdown-labels" ref={labelsRef} aria-hidden="true">
+        {segments.map(segment => <div className="cash-breakdown-label-cell" key={segment.key} style={{ width: `${segment.amountCents / breakdown.scaleCents * 100}%` }}><span style={{ visibility: visibleLabels.has(segment.key) ? "visible" : "hidden" }}>{segment.name}</span></div>)}
+      </div>
+      <div className="cash-breakdown-bar" role="img" aria-label={segments.map(segment => `${segment.name}: ${money(segment.amountCents / 100)}`).join("; ")}>
         {segments.map(segment => <span key={segment.key} title={`${segment.name}: ${money(segment.amountCents / 100)}`} style={{ width: `${segment.amountCents / breakdown.scaleCents * 100}%`, backgroundColor: segment.color }} />)}
         {cashMarker !== null && <span className="cash-breakdown-cash-marker" style={{ left: `${cashMarker}%` }} />}
       </div>
       {breakdown.shortfallCents > 0 && <p className="cash-breakdown-warning" role="status">Your positive category balances and unassigned budget exceed recorded cash by {money(breakdown.shortfallCents / 100)}. The marker shows where cash runs out.</p>}
-      <div className="cash-breakdown-list">
-        {breakdown.fundedCategories.map((category, index) => <div className="cash-breakdown-item" key={category.id}><span className="cash-breakdown-dot" style={{ backgroundColor: colors[index % colors.length] }} /><button className="text-link" onClick={() => viewCategory(category.name)}>{category.name}</button><strong>{money(category.availableCents / 100)}</strong></div>)}
-        {breakdown.unassignedCents > 0 && <div className="cash-breakdown-item"><span className="cash-breakdown-dot" style={{ backgroundColor: "#bad5bf" }} /><span>Available to assign</span><strong>{money(breakdown.unassignedCents / 100)}</strong></div>}
-        {breakdown.unmatchedCents > 0 && <div className="cash-breakdown-item"><span className="cash-breakdown-dot" style={{ backgroundColor: "#dce2de" }} /><span>Cash not matched to budget</span><strong>{money(breakdown.unmatchedCents / 100)}</strong></div>}
-      </div>
     </> : <p className="empty-state">No positive recorded cash or funded category balances to chart.</p>}
     {breakdown.overassignedCents > 0 && <p className="cash-breakdown-warning">The budget is overassigned by {money(breakdown.overassignedCents / 100)}.</p>}
     {breakdown.overspentCents > 0 && <p className="cash-breakdown-caution">Other categories are overspent by {money(breakdown.overspentCents / 100)}. Available to assign is the budget figure; check these deficits before treating it as free cash.</p>}
