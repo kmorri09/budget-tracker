@@ -22,20 +22,20 @@ export default function ReviewHistory({ dashboard, onBack, onChanged, onEdit }: 
   }, []);
   useEffect(() => { void load(0); }, [load, dashboard]);
 
-  async function reopen(id: string) {
+  async function unreview(id: string) {
     setBusyId(id); setError("");
     try {
       const response = await fetch("/api/reviews", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, reopen: true }) });
       const result = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(result?.error ?? "Could not reopen this review.");
+      if (!response.ok) throw new Error(result?.error ?? "Could not unreview this item.");
       onChanged(); onBack();
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not reopen this review."); }
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not unreview this item."); }
     finally { setBusyId(null); }
   }
 
   return <div className="panel review-history">
     <div className="view-heading"><div><button className="text-link" onClick={onBack}>← Open reviews</button><h2>Review history</h2></div></div>
-    <p className="field-help">These items were cleared from Review. Older entries may say “Resolved” when the exact action was not recorded. Reopening brings back the reminder; it does not undo a saved transaction edit, card payment, or bank activity exclusion.</p>
+    <p className="field-help">These items were cleared from Review. Older entries may say “Resolved” when the exact action was not recorded. Unreview returns an item to the Review inbox. To change an approved transaction, use Edit current transaction; unreviewing does not reverse saved edits, card payments, or bank activity exclusions.</p>
     {error && <p className="form-error" role="alert">{error} <button className="secondary-button" onClick={() => void load(0)}>Retry</button></p>}
     <div className="review-history-list">{items.map(item => {
       const currentEntry = item.transaction ? dashboard.activity.find(entry => entry.id === item.transaction?.id) : null;
@@ -48,8 +48,8 @@ export default function ReviewHistory({ dashboard, onBack, onChanged, onEdit }: 
         {showCurrent && <div className="review-history-transaction"><span>Current entry: {current.description} · {current.date} · {current.account}{current.category ? ` · ${current.category}` : ""} · {kindLabel(current.kind)} · {kindLabel(current.status)}</span><strong>{money(signedAmount(current))}</strong></div>}
         {!current && !reviewed && <p className="field-help">No linked transaction is available for this review.</p>}
         <div className="review-history-actions">
+          {item.canReopen ? <button className="primary-button" disabled={Boolean(busyId)} onClick={() => void unreview(item.id)}>{busyId === item.id ? "Unreviewing…" : "Unreview"}</button> : item.resolution === "Ignored historical activity" || item.resolution === "Transaction deleted" ? <span>This entry was explicitly excluded. Check the statement, then add a correction in <a href="/#transactions">Transactions</a> if it should count.</span> : <span>Removed entry: investigate in <a href="/#accounts">Accounts</a> before restoring it.</span>}
           {currentEntry && <button className="secondary-button" disabled={Boolean(busyId)} onClick={() => onEdit(currentEntry)}>Edit current transaction</button>}
-          {item.canReopen ? <button className="secondary-button" disabled={Boolean(busyId)} onClick={() => void reopen(item.id)}>{busyId === item.id ? "Reopening…" : "Reopen review"}</button> : item.resolution === "Ignored historical activity" || item.resolution === "Transaction deleted" ? <span>This entry was explicitly excluded. Check the statement, then add a correction in <a href="/#transactions">Transactions</a> if it should count.</span> : <span>Removed entry: investigate in <a href="/#accounts">Accounts</a> before restoring it.</span>}
         </div>
       </article>;
     })}</div>
