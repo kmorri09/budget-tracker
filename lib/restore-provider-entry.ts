@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import type { Database } from "./db";
+import { activeExplicitRemovalIds } from "./explicit-removals";
 import { auditEvents, rawProviderTransactions, reviewItems, transactions } from "./schema";
 
 export class RestoreEntryError extends Error {
@@ -20,10 +21,10 @@ export async function restoreProviderEntry(db: Database, userId: string, entryId
     }
     if (!entry.providerTransactionId) throw new RestoreEntryError("This entry has no bank record to verify");
     const decisions = await tx.select().from(auditEvents).where(and(eq(auditEvents.userId, userId), eq(auditEvents.entityId, entryId), or(
-      and(eq(auditEvents.entityType, "provider_transaction"), inArray(auditEvents.action, ["remove", "suppress_historical"])),
+      and(eq(auditEvents.entityType, "provider_transaction"), inArray(auditEvents.action, ["remove", "suppress_historical", "undo_suppress_historical"])),
       and(eq(auditEvents.entityType, "transaction"), eq(auditEvents.action, "delete")),
     ))).orderBy(desc(auditEvents.createdAt));
-    if (decisions.some(row => row.action === "delete" || row.action === "suppress_historical")) throw new RestoreEntryError("This entry was explicitly deleted or ignored. This action restores provider removals only.");
+    if (activeExplicitRemovalIds(decisions).has(entryId)) throw new RestoreEntryError("This entry was explicitly deleted or ignored. This action restores provider removals only.");
     const removal = decisions.find(row => row.action === "remove");
     if (!removal) throw new RestoreEntryError("No provider removal was found for this entry");
     const bank = (await tx.select().from(rawProviderTransactions).where(and(eq(rawProviderTransactions.userId, userId), eq(rawProviderTransactions.providerTransactionId, entry.providerTransactionId))).limit(1))[0];

@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { getCurrentUser } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/db";
 import { accounts, auditEvents, categories, reviewItems, transactions } from "../../../lib/schema";
+import { UndoIgnoreError, undoHistoricalIgnore } from "../../../lib/undo-historical-ignore";
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
@@ -59,6 +60,7 @@ export async function GET(request: Request) {
         resolution: currentResolutionAudit?.label ?? fallbackResolution,
         reviewedTransaction,
         canReopen: !row.transactionId || Boolean(transaction && (transaction.status !== "removed" || row.kind === "provider_posted_removal")),
+        canUndoIgnore: (currentResolutionAudit?.label ?? fallbackResolution) === "Ignored historical activity" && transaction?.status === "removed" && transaction.source === "plaid",
         transaction: transaction ? { id: transaction.id, description: transaction.description, amount: transaction.amountCents / 100,
           kind: transaction.kind, date: transaction.effectiveDate, account: accountById.get(transaction.accountId) ?? "Account",
           category: transaction.categoryId ? categoryById.get(transaction.categoryId) ?? "Uncategorized" : null,
@@ -72,7 +74,15 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const body = await request.json().catch(() => null) as { id?: string; all?: boolean; status?: "resolved" | "dismissed"; ignoreTransaction?: boolean; reopen?: boolean } | null;
+  const body = await request.json().catch(() => null) as { id?: string; all?: boolean; status?: "resolved" | "dismissed"; ignoreTransaction?: boolean; reopen?: boolean; undoIgnore?: boolean } | null;
+  if (body?.undoIgnore) {
+    if (!body.id) return NextResponse.json({ error: "Review id is required" }, { status: 400 });
+    try { return NextResponse.json(await undoHistoricalIgnore(getDatabase(), user.id, body.id)); }
+    catch (error) {
+      if (error instanceof UndoIgnoreError) return NextResponse.json({ error: error.message }, { status: error.status });
+      throw error;
+    }
+  }
   if (body?.reopen) {
     if (!body.id) return NextResponse.json({ error: "Review id is required" }, { status: 400 });
     const db = getDatabase();

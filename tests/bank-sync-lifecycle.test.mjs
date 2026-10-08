@@ -9,6 +9,7 @@ import { syncConnection } from "../lib/bank-sync.ts";
 import { encryptProviderToken } from "../lib/provider-crypto.ts";
 import { calculateAccountLedgerCents } from "../lib/account-ledger.ts";
 import { RestoreEntryError, restoreProviderEntry } from "../lib/restore-provider-entry.ts";
+import { UndoIgnoreError, undoHistoricalIgnore } from "../lib/undo-historical-ignore.ts";
 
 // Real PostgreSQL queries and transactions, entirely in memory. This suite
 // never reads an environment file or connects to DATABASE_URL or Plaid.
@@ -272,6 +273,62 @@ test("restoration rejects other users, authorization holds, known replacements a
   await db.insert(schema.rawProviderTransactions).values({ id: "replacement", userId: "user", connectionId: "connection", providerAccountId: "remote-card", providerTransactionId: "replacement", pendingTransactionId: "posted", pending: false, rawJson: JSON.stringify(remote("replacement", 9.99)) });
   await assert.rejects(restoreProviderEntry(db, "user", posted.id), /replacement exists/);
   assert((await ledger()).every(row => row.status === "removed"));
+});
+
+test("undoing a historical ignore restores its transfer and review, and future bank sync respects the reversal", async () => {
+  const bankEntry = remote("historical-transfer", -39, false, { merchant_name: "AUTOMATIC PAYMENT - THANK YOU" });
+  await sync(page({ added: [bankEntry] }));
+  const [entry] = await ledger();
+  const [review] = await db.select().from(schema.reviewItems);
+  const ignoredAt = new Date();
+  await db.update(schema.transactions).set({ status: "removed", removedAt: ignoredAt, pending: false, userEdited: true }).where(eq(schema.transactions.id, entry.id));
+  await db.update(schema.reviewItems).set({ status: "resolved", resolvedAt: ignoredAt }).where(eq(schema.reviewItems.id, review.id));
+  await db.insert(schema.auditEvents).values({ id: "ignore-transfer", userId: "user", action: "suppress_historical", entityType: "provider_transaction", entityId: entry.id, beforeJson: JSON.stringify({ status: entry.status, providerTransactionId: entry.providerTransactionId }), afterJson: JSON.stringify({ status: "removed", reviewId: review.id }), createdAt: ignoredAt });
+
+  await assert.rejects(undoHistoricalIgnore(db, "other-user", review.id), error => error instanceof UndoIgnoreError && error.status === 404);
+  await undoHistoricalIgnore(db, "user", review.id);
+  assert.equal((await ledger())[0].status, "posted");
+  assert.equal((await ledger())[0].removedAt, null);
+  assert.equal((await db.select().from(schema.reviewItems))[0].status, "open");
+  assert((await db.select().from(schema.auditEvents)).some(row => row.action === "undo_suppress_historical"));
+  await assert.rejects(undoHistoricalIgnore(db, "user", review.id), /not an ignored bank entry/);
+
+  await sync(page({ modified: [bankEntry] }));
+  assert.equal((await ledger())[0].status, "posted");
+  await sync(page({ removed: [{ transaction_id: "historical-transfer" }] }));
+  assert.equal((await ledger())[0].status, "removed");
+  assert((await db.select().from(schema.reviewItems)).some(row => row.kind === "provider_posted_removal" && row.status === "open"));
+  await restoreProviderEntry(db, "user", entry.id);
+  assert.equal((await ledger())[0].status, "posted");
+});
+
+test("an ignored transfer already linked to a card payment cannot be restored twice", async () => {
+  await sync(page({ added: [remote("linked-transfer", -39, false, { merchant_name: "AUTOMATIC PAYMENT - THANK YOU" })] }));
+  const [entry] = await ledger();
+  const [review] = await db.select().from(schema.reviewItems);
+  const ignoredAt = new Date();
+  await db.update(schema.transactions).set({ status: "removed", removedAt: ignoredAt }).where(eq(schema.transactions.id, entry.id));
+  await db.update(schema.reviewItems).set({ status: "resolved", resolvedAt: ignoredAt }).where(eq(schema.reviewItems.id, review.id));
+  await db.insert(schema.auditEvents).values({ id: "ignore-linked", userId: "user", action: "suppress_historical", entityType: "provider_transaction", entityId: entry.id, afterJson: JSON.stringify({ reviewId: review.id }), createdAt: ignoredAt });
+  await db.insert(schema.cardPayments).values({ id: "linked-payment", userId: "user", fromAccountId: "cash", toAccountId: "card", amountCents: 3900, effectiveDate: entry.effectiveDate, description: "Card payment", destinationProviderTransactionId: entry.providerTransactionId });
+  await assert.rejects(undoHistoricalIgnore(db, "user", review.id), /already linked to a card payment/);
+  assert.equal((await ledger())[0].status, "removed");
+  assert.equal((await db.select().from(schema.reviewItems))[0].status, "resolved");
+});
+
+test("a failed undo audit leaves the ignored transaction and review unchanged", async () => {
+  await sync(page({ added: [remote("failed-undo", -39, false)] }));
+  const [entry] = await ledger();
+  const [review] = await db.select().from(schema.reviewItems);
+  const ignoredAt = new Date();
+  await db.update(schema.transactions).set({ status: "removed", removedAt: ignoredAt }).where(eq(schema.transactions.id, entry.id));
+  await db.update(schema.reviewItems).set({ status: "resolved", resolvedAt: ignoredAt }).where(eq(schema.reviewItems.id, review.id));
+  await db.insert(schema.auditEvents).values({ id: "ignore-failed-undo", userId: "user", action: "suppress_historical", entityType: "provider_transaction", entityId: entry.id, afterJson: JSON.stringify({ reviewId: review.id }), createdAt: ignoredAt });
+  await client.exec(`CREATE FUNCTION fixture_fail_undo() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action = 'undo_suppress_historical' THEN RAISE EXCEPTION 'fixture audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER fixture_fail_undo BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION fixture_fail_undo()`);
+  try { await assert.rejects(undoHistoricalIgnore(db, "user", review.id)); }
+  finally { await client.exec("DROP TRIGGER fixture_fail_undo ON audit_events; DROP FUNCTION fixture_fail_undo()"); }
+  assert.equal((await ledger())[0].status, "removed");
+  assert.equal((await db.select().from(schema.reviewItems))[0].status, "resolved");
 });
 
 test("failed restoration audit rolls back the restored row and retry retains its payment application", async () => {

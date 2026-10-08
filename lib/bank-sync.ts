@@ -4,6 +4,7 @@ import type { Database } from "./db";
 import { accounts, auditEvents, cardPaymentApplications, cardCoverageAdjustments, cardPayments, categorizationRules, categories, providerAccounts, providerConnections, rawProviderTransactions, reviewItems, syncLocks, syncRuns, transactions } from "./schema";
 import { accountType, findCardPaymentMatch, findLedgerDuplicate, mockProviderAccounts, preserveRemovedTransaction, syncCutoverDate, toNormalized, type CardPaymentMatchCandidate, type LedgerMatchCandidate, type NormalizedTransaction, type PlaidAccount, type PlaidTransaction } from "./bank-sync-core";
 import { findCategorizationRule } from "./categorization-rules";
+import { activeExplicitRemovalIds } from "./explicit-removals";
 import { importedReviewDetails, importedReviewTitle } from "./ledger-entry-types";
 import { decryptProviderToken, encryptProviderToken, hasProviderEncryptionKey } from "./provider-crypto";
 import { bankFieldOverrides, bankTransactionUpdate, fetchTransactionUpdates, finalTransactionUpdates, type TransactionSyncPage } from "./bank-sync-updates";
@@ -123,13 +124,13 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       const categoryRuleRows = (await db.select().from(categorizationRules).where(and(eq(categorizationRules.userId, userId), eq(categorizationRules.active, true)))).filter(rule => activeCategoryIds.has(rule.categoryId));
       const ledgerRows = localIds.length ? await db.select().from(transactions).where(and(eq(transactions.userId, userId), inArray(transactions.accountId, localIds))) : [];
       const removedLedgerIds = ledgerRows.filter(row => row.status === "removed").map(row => row.id);
-      const removalAudits = removedLedgerIds.length ? await db.select({ entityId: auditEvents.entityId }).from(auditEvents).where(and(
+      const removalAudits = removedLedgerIds.length ? await db.select({ id: auditEvents.id, entityId: auditEvents.entityId, action: auditEvents.action, createdAt: auditEvents.createdAt }).from(auditEvents).where(and(
         eq(auditEvents.userId, userId), inArray(auditEvents.entityId, removedLedgerIds), or(
           and(eq(auditEvents.action, "delete"), eq(auditEvents.entityType, "transaction")),
-          and(eq(auditEvents.action, "suppress_historical"), eq(auditEvents.entityType, "provider_transaction")),
+          and(inArray(auditEvents.action, ["suppress_historical", "undo_suppress_historical"]), eq(auditEvents.entityType, "provider_transaction")),
         ),
       )) : [];
-      const explicitlyRemovedIds = new Set(removalAudits.map(row => row.entityId));
+      const explicitlyRemovedIds = activeExplicitRemovalIds(removalAudits);
       const providerRemovalAudits = removedLedgerIds.length ? await db.select({ entityId: auditEvents.entityId }).from(auditEvents).where(and(eq(auditEvents.userId, userId), inArray(auditEvents.entityId, removedLedgerIds), eq(auditEvents.action, "remove"), eq(auditEvents.entityType, "provider_transaction"))) : [];
       const previouslyRemovedByProvider = new Set(providerRemovalAudits.map(row => row.entityId));
       const ledgerIds = ledgerRows.map(row => row.id);
@@ -305,8 +306,8 @@ export async function syncConnection(db: Database, userId: string, connectionId:
           // A provider modification must not undo an explicit user removal.
           // Audit lookup also protects entries deleted by older app versions.
           if (existing.status === "removed" && !ledgerIds.includes(existing.id)) {
-            const removal = await db.select({ id: auditEvents.id }).from(auditEvents).where(and(eq(auditEvents.userId, userId), eq(auditEvents.entityId, existing.id), or(and(eq(auditEvents.action, "delete"), eq(auditEvents.entityType, "transaction")), and(eq(auditEvents.action, "suppress_historical"), eq(auditEvents.entityType, "provider_transaction"))))).limit(1);
-            if (removal.length) explicitlyRemovedIds.add(existing.id);
+            const decisions = await db.select({ id: auditEvents.id, entityId: auditEvents.entityId, action: auditEvents.action, createdAt: auditEvents.createdAt }).from(auditEvents).where(and(eq(auditEvents.userId, userId), eq(auditEvents.entityId, existing.id), or(and(eq(auditEvents.action, "delete"), eq(auditEvents.entityType, "transaction")), and(inArray(auditEvents.action, ["suppress_historical", "undo_suppress_historical"]), eq(auditEvents.entityType, "provider_transaction")))));
+            if (activeExplicitRemovalIds(decisions).has(existing.id)) explicitlyRemovedIds.add(existing.id);
           }
           if (preserveRemovedTransaction({ status: existing.status, effectiveDate: normalized.date }, cutoverDate, explicitlyRemovedIds.has(existing.id))) {
             // Keep the posted identity attached to the excluded entry too, so a

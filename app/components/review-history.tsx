@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { kindLabel, money, signedAmount, type DashboardData, type ReviewHistoryItem } from "../../lib/workspace-types";
+import { useConfirmDialog } from "./confirm-dialog";
 
 export default function ReviewHistory({ dashboard, onBack, onChanged, onEdit }: { dashboard: DashboardData; onBack: () => void; onChanged: () => void; onEdit: (transaction: DashboardData["activity"][number]) => void }) {
   const [items, setItems] = useState<ReviewHistoryItem[]>([]);
@@ -9,6 +10,8 @@ export default function ReviewHistory({ dashboard, onBack, onChanged, onEdit }: 
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
+  const { confirm, dialog: confirmationDialog } = useConfirmDialog();
   const load = useCallback(async (offset: number) => {
     setLoading(true); setError("");
     try {
@@ -33,9 +36,21 @@ export default function ReviewHistory({ dashboard, onBack, onChanged, onEdit }: 
     finally { setBusyId(null); }
   }
 
+  async function undoIgnore(item: ReviewHistoryItem) {
+    if (!await confirm({ title: `Restore ${item.transaction?.description ?? "this bank entry"}?`, message: `This puts ${item.transaction ? money(signedAmount(item.transaction)) : "the excluded entry"} back in the ledger and returns its reminder to Review. Confirm it still appears on your statement and is not already counted as a card payment or starting balance.`, confirmLabel: "Restore and unreview" })) return;
+    setBusyId(item.id); setActionError(null);
+    try {
+      const response = await fetch("/api/reviews", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, undoIgnore: true }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Could not undo this exclusion.");
+      onChanged(); onBack();
+    } catch (failure) { setActionError({ id: item.id, message: failure instanceof Error ? failure.message : "Could not undo this exclusion." }); }
+    finally { setBusyId(null); }
+  }
+
   return <div className="panel review-history">
     <div className="view-heading"><div><button className="text-link" onClick={onBack}>← Open reviews</button><h2>Review history</h2></div></div>
-    <p className="field-help">These items were cleared from Review. Older entries may say “Resolved” when the exact action was not recorded. Unreview returns an item to the Review inbox. To change an approved transaction, use Edit current transaction; unreviewing does not reverse saved edits, card payments, or bank activity exclusions.</p>
+    <p className="field-help">These items were cleared from Review. Older entries may say “Resolved” when the exact action was not recorded. Unreview returns an item to the Review inbox. For ignored bank activity, Undo ignore & unreview also restores the excluded entry to the ledger. Other saved edits and card payments stay as recorded.</p>
     {error && <p className="form-error" role="alert">{error} <button className="secondary-button" onClick={() => void load(0)}>Retry</button></p>}
     <div className="review-history-list">{items.map(item => {
       const currentEntry = item.transaction ? dashboard.activity.find(entry => entry.id === item.transaction?.id) : null;
@@ -48,13 +63,15 @@ export default function ReviewHistory({ dashboard, onBack, onChanged, onEdit }: 
         {showCurrent && <div className="review-history-transaction"><span>Current entry: {current.description} · {current.date} · {current.account}{current.category ? ` · ${current.category}` : ""} · {kindLabel(current.kind)} · {kindLabel(current.status)}</span><strong>{money(signedAmount(current))}</strong></div>}
         {!current && !reviewed && <p className="field-help">No linked transaction is available for this review.</p>}
         <div className="review-history-actions">
-          {item.canReopen ? <button className="primary-button" disabled={Boolean(busyId)} onClick={() => void unreview(item.id)}>{busyId === item.id ? "Unreviewing…" : "Unreview"}</button> : item.resolution === "Ignored historical activity" || item.resolution === "Transaction deleted" ? <span>This entry was explicitly excluded. Check the statement, then add a correction in <a href="/#transactions">Transactions</a> if it should count.</span> : <span>Removed entry: investigate in <a href="/#accounts">Accounts</a> before restoring it.</span>}
+          {item.canUndoIgnore ? <button className="primary-button" disabled={Boolean(busyId)} onClick={() => void undoIgnore(item)}>{busyId === item.id ? "Restoring…" : "Undo ignore & unreview"}</button> : item.canReopen ? <button className="primary-button" disabled={Boolean(busyId)} onClick={() => void unreview(item.id)}>{busyId === item.id ? "Unreviewing…" : "Unreview"}</button> : item.resolution === "Transaction deleted" ? <span>This entry was explicitly deleted. Add a correction in <a href="/#transactions">Transactions</a> if it should count.</span> : <span>Removed entry: investigate in <a href="/#accounts">Accounts</a> before restoring it.</span>}
           {currentEntry && <button className="secondary-button" disabled={Boolean(busyId)} onClick={() => onEdit(currentEntry)}>Edit current transaction</button>}
         </div>
+        {actionError?.id === item.id && <p className="form-error" role="alert">{actionError.message}</p>}
       </article>;
     })}</div>
     {!loading && !items.length && !error && <p className="empty-state">No past reviews yet.</p>}
     {loading && <p className="field-help" role="status">Loading review history…</p>}
     {hasMore && !loading && <button className="secondary-button review-history-more" onClick={() => void load(items.length)}>Show more</button>}
+    {confirmationDialog}
   </div>;
 }

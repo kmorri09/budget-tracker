@@ -57,6 +57,7 @@ test("all user-owned mutation routes reject unauthenticated requests", async () 
       ["obligations DELETE", deleteObligation, "DELETE", { id: "obligation" }],
       ["obligation match POST", decideObligationMatch, "POST", { obligationId: "obligation", candidateType: "transaction", candidateId: "transaction", status: "confirmed" }],
       ["reviews reopen PATCH", patchReview, "PATCH", { id: "review", reopen: true }],
+      ["reviews undo ignore PATCH", patchReview, "PATCH", { id: "review", undoIgnore: true }],
       ["reviews resolve PATCH", patchReview, "PATCH", { id: "review", status: "resolved" }],
     ];
     for (const [label, handler, method, body] of cases) await assertUnauthorized(handler, method, body).catch(error => { throw new Error(`${label}: ${error instanceof Error ? error.message : error}`); });
