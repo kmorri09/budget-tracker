@@ -243,6 +243,22 @@
 .review-facts dt { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .review-facts dd { margin: 3px 0 0; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .review-item-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.review-history .view-heading { align-items: flex-start; }
+.review-history .view-heading h2 { margin: 8px 0 0; font: 600 23px Fraunces, Georgia, serif; }
+.review-history-list { display: grid; gap: 10px; margin-top: 18px; }
+.review-history-item { padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: #fbfcfb; }
+.review-history-heading,.review-history-transaction { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.review-history-heading > div { min-width: 0; }
+.review-history-heading strong,.review-history-heading small { display: block; overflow-wrap: anywhere; }
+.review-history-heading strong { font-size: 13px; }
+.review-history-heading small { margin-top: 5px; color: var(--muted); font-size: 11px; }
+.review-history-heading > span { flex: 0 0 auto; color: var(--green-dark); font-size: 11px; font-weight: 700; }
+.review-history-transaction { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.5; }
+.review-history-transaction > span { min-width: 0; overflow-wrap: anywhere; }
+.review-history-transaction strong { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.review-history-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+.review-history-actions > span { color: var(--muted); font-size: 11px; }
+.review-history-more { margin-top: 14px; }
 .review-missing { color: var(--muted); font-style: italic; }
 .review-next-step { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #f1f7f3; font-size: 12px; line-height: 1.6; }
 .review-next-step ul { margin: 6px 0 0; padding-left: 18px; }
@@ -448,8 +464,10 @@
   .coverage-row { grid-template-columns: 24px minmax(0, 1fr); }
   .coverage-row span:last-child { grid-column: 2; text-align: left; }
   .settings-row { flex-wrap: wrap; }
-  .review-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  .review-toolbar { display: grid; grid-template-columns: 1fr; }
   .review-toolbar .table-search { min-width: 0; }
+  .review-toolbar .section-actions { justify-content: flex-start; }
+  .review-history-heading,.review-history-transaction { flex-wrap: wrap; gap: 7px; }
   .workspace .review-item { width: 100%; max-width: 100%; align-items: flex-start; flex-wrap: wrap; padding: 12px 10px; }
   .review-item-content { flex: 1 1 100%; }
   .review-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px; }
@@ -464,6 +482,6 @@
   .workspace .quick-trigger { padding: 0 10px; font-size: 12px; }
   .workspace .mobile-nav-item { font-size: 9px; }
   .review-toolbar { grid-template-columns: 1fr; }
-  .review-toolbar > button { width: 100%; }
+  .review-toolbar .section-actions button { flex: 1 1 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .workspace *, .workspace *::before, .workspace *::after { animation: none !important; transition: none !important; } }

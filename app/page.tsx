@@ -18,6 +18,7 @@ import AllocationEditDialog from "./components/allocation-edit-dialog";
 import BudgetAdjustmentEditDialog from "./components/budget-adjustment-edit-dialog";
 import AccountReconciliationDialog from "./components/account-reconciliation-dialog";
 import BankConnections from "./components/bank-connections";
+import ReviewHistory from "./components/review-history";
 import CashBreakdown from "./components/cash-breakdown";
 import Typeahead from "./components/typeahead";
 import CategorizationRules from "./components/categorization-rules";
@@ -297,6 +298,7 @@ function Overview({ dashboard: data, navigate, onAction, onReconcileBudget, onFu
 
 function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashboard: DashboardData; onEdit: (transaction: DashboardData["activity"][number], suggestion?: DashboardData["reviews"][number]["suggestion"]) => void; onRecordPayment: (transaction: DashboardData["activity"][number]) => void; onChanged: () => void }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [search, setSearch] = useState("");
+  const [showHistory, setShowHistory] = useState(false);
   const [investigatingAccountId, setInvestigatingAccountId] = useState<string | null>(null);
   const { confirm, dialog: confirmationDialog } = useConfirmDialog();
   async function resolve(id?: string) {
@@ -324,7 +326,8 @@ function ReviewInbox({ dashboard, onEdit, onRecordPayment, onChanged }: { dashbo
     const transaction = item.transaction ?? item.removedTransaction;
     return [item.title, item.details, transaction?.description, transaction?.date, transaction?.account, transaction?.category, transaction?.kind, transaction?.source, transaction?.amount].join(" ").toLowerCase().includes(search.toLowerCase());
   });
-  return <div className="panel"><div className="view-heading review-toolbar"><label className="table-search"><span className="sr-only">Search reviews</span><input type="search" placeholder="Search reviews…" value={search} onChange={event => setSearch(event.target.value)} /></label>{dashboard.reviews.length > 0 && <button className="secondary-button" disabled={busy} onClick={() => void resolve()}>Mark all reviewed ({dashboard.reviews.length})</button>}</div><p className="field-help">Inspect each transaction below. Save keeps it in Review; Save and Approve updates it and clears the reminder. Mark reviewed clears the reminder without changing the transaction.</p>{error && <p className="form-error" role="alert">{error}</p>}{visible.map(item => {
+  if (showHistory) return <ReviewHistory dashboard={dashboard} onBack={() => setShowHistory(false)} onChanged={onChanged} onEdit={transaction => onEdit(transaction)} />;
+  return <div className="panel"><div className="view-heading review-toolbar"><label className="table-search"><span className="sr-only">Search reviews</span><input type="search" placeholder="Search reviews…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="section-actions"><button className="secondary-button" onClick={() => setShowHistory(true)}>Review history</button>{dashboard.reviews.length > 0 && <button className="secondary-button" disabled={busy} onClick={() => void resolve()}>Mark all reviewed ({dashboard.reviews.length})</button>}</div></div><p className="field-help">Inspect each transaction below. Save keeps it in Review; Save and Approve updates it and clears the reminder. Mark reviewed clears the reminder without changing the transaction.</p>{error && <p className="form-error" role="alert">{error}</p>}{visible.map(item => {
     const transaction = item.transaction;
     const isRemoval = item.kind === "provider_posted_removal";
     const displayedEntry = transaction ?? item.removedTransaction;

@@ -12,6 +12,7 @@ import { DELETE as deleteObligation, PATCH as patchObligation, POST as postOblig
 import { POST as decideObligationMatch } from "../app/api/obligations/matches/route";
 import { GET as getDashboard } from "../app/api/dashboard/route";
 import { GET as getConnections } from "../app/api/connections/route";
+import { GET as getReviewHistory, PATCH as patchReview } from "../app/api/reviews/route";
 import { DELETE as deleteCategorizationRule } from "../app/api/categorization-rules/route";
 
 const jsonRequest = (method: string, body: unknown = {}) => new Request("http://localhost/api/test", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -55,6 +56,8 @@ test("all user-owned mutation routes reject unauthenticated requests", async () 
       ["obligations PATCH", patchObligation, "PATCH", { id: "obligation", name: "Rent", amount: 100, dueDate: "2026-09-15", accountId: "cash", categoryId: "rent" }],
       ["obligations DELETE", deleteObligation, "DELETE", { id: "obligation" }],
       ["obligation match POST", decideObligationMatch, "POST", { obligationId: "obligation", candidateType: "transaction", candidateId: "transaction", status: "confirmed" }],
+      ["reviews reopen PATCH", patchReview, "PATCH", { id: "review", reopen: true }],
+      ["reviews resolve PATCH", patchReview, "PATCH", { id: "review", status: "resolved" }],
     ];
     for (const [label, handler, method, body] of cases) await assertUnauthorized(handler, method, body).catch(error => { throw new Error(`${label}: ${error instanceof Error ? error.message : error}`); });
   } finally {
@@ -67,7 +70,7 @@ test("all user-owned read routes reject unauthenticated requests", async () => {
   const previous = process.env.DATABASE_URL;
   delete process.env.DATABASE_URL;
   try {
-    for (const [label, handler] of [["accounts", getAccounts], ["categories", getCategories], ["dashboard", getDashboard], ["connections", getConnections]] as const) {
+    for (const [label, handler] of [["accounts", getAccounts], ["categories", getCategories], ["dashboard", getDashboard], ["connections", getConnections], ["review history", () => getReviewHistory(new Request("http://localhost/api/reviews"))]] as const) {
       await assertUnauthorizedGet(handler, label);
     }
   } finally {

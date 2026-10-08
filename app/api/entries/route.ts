@@ -81,12 +81,14 @@ export async function PATCH(request: Request) {
   const existing = (await db.select().from(transactions).where(and(eq(transactions.id, input.id), eq(transactions.userId, user.id))).limit(1))[0];
   if (!existing) return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
   if (existing.status === "removed") return NextResponse.json({ error: "Removed transactions cannot be edited" }, { status: 400 });
-  const account = (await db.select({ id: accounts.id, type: accounts.type }).from(accounts).where(and(eq(accounts.id, input.accountId), eq(accounts.userId, user.id))).limit(1))[0];
+  const account = (await db.select({ id: accounts.id, name: accounts.name, type: accounts.type }).from(accounts).where(and(eq(accounts.id, input.accountId), eq(accounts.userId, user.id))).limit(1))[0];
   if (!account) return NextResponse.json({ error: "Account not found" }, { status: 400 });
   if (input.paymentStatus && (input.kind !== "expense" || account.type !== "credit_card")) return NextResponse.json({ error: "Card coverage can only be changed for credit-card expenses" }, { status: 400 });
+  let categoryName: string | null = null;
   if (input.categoryId) {
-    const category = (await db.select({ id: categories.id }).from(categories).where(and(eq(categories.id, input.categoryId), eq(categories.userId, user.id))).limit(1))[0];
+    const category = (await db.select({ id: categories.id, name: categories.name }).from(categories).where(and(eq(categories.id, input.categoryId), eq(categories.userId, user.id))).limit(1))[0];
     if (!category) return NextResponse.json({ error: "Category not found" }, { status: 400 });
+    categoryName = category.name;
   }
   const ruleDisplayText = (input.categoryRuleMatch ?? existing.description).trim();
   const ruleMatch = input.rememberCategory ? normalizeCategorizationMatch(ruleDisplayText) : "";
@@ -111,7 +113,10 @@ export async function PATCH(request: Request) {
       ? { kind: "provider_transfer", title: importedReviewTitle(input.kind, input.description) }
       : { kind: "bank_transaction", title: importedReviewTitle(input.kind, input.description), details: importedReviewDetails(input.kind, "Review this imported ledger entry.") };
     await tx.update(reviewItems).set(reviewChanges).where(and(eq(reviewItems.transactionId, input.id), eq(reviewItems.userId, user.id), eq(reviewItems.status, "open")));
-    if (input.approveReview) await tx.update(reviewItems).set({ status: "resolved", resolvedAt: new Date() }).where(and(eq(reviewItems.transactionId, input.id), eq(reviewItems.userId, user.id), eq(reviewItems.status, "open")));
+    if (input.approveReview) {
+      const approved = await tx.update(reviewItems).set({ status: "resolved", resolvedAt: new Date() }).where(and(eq(reviewItems.transactionId, input.id), eq(reviewItems.userId, user.id), eq(reviewItems.status, "open"))).returning({ id: reviewItems.id, title: reviewItems.title });
+      if (approved.length) await tx.insert(auditEvents).values(approved.map(review => ({ id: randomUUID(), userId: user.id, action: "approve", entityType: "review_item", entityId: review.id, afterJson: JSON.stringify({ title: review.title, transactionId: input.id, transactionSnapshot: { description: changes.description, amountCents: changes.amountCents, effectiveDate: changes.effectiveDate, kind: changes.kind, accountId: changes.accountId, accountName: account.name, categoryId: changes.categoryId, categoryName, status: changes.status } }) })));
+    }
     if (input.rememberCategory && input.categoryId) await tx.insert(categorizationRules).values({ id: randomUUID(), userId: user.id, categoryId: input.categoryId, matchText: ruleDisplayText, normalizedMatch: ruleMatch, active: true, updatedAt: new Date() }).onConflictDoUpdate({ target: [categorizationRules.userId, categorizationRules.normalizedMatch], set: { categoryId: input.categoryId, matchText: ruleDisplayText, active: true, updatedAt: new Date() } });
     await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "update", entityType: "transaction", entityId: input.id, beforeJson: JSON.stringify({ kind: existing.kind, amountCents: existing.amountCents, effectiveDate: existing.effectiveDate, accountId: existing.accountId, categoryId: existing.categoryId, description: existing.description, status: existing.status, pending: existing.pending }), afterJson: JSON.stringify(changes) });
     if (coverageChange?.deltaCents) {
@@ -135,7 +140,8 @@ export async function DELETE(request: Request) {
   await db.transaction(async tx => {
     await tx.delete(cardPaymentApplications).where(and(eq(cardPaymentApplications.transactionId, existing.id), eq(cardPaymentApplications.userId, user.id)));
     await tx.delete(cardCoverageAdjustments).where(and(eq(cardCoverageAdjustments.transactionId, existing.id), eq(cardCoverageAdjustments.userId, user.id)));
-    await tx.delete(reviewItems).where(and(eq(reviewItems.transactionId, existing.id), eq(reviewItems.userId, user.id)));
+    const clearedReviews = await tx.update(reviewItems).set({ status: "dismissed", resolvedAt: new Date(), details: "Linked transaction was deleted from the active ledger." }).where(and(eq(reviewItems.transactionId, existing.id), eq(reviewItems.userId, user.id), eq(reviewItems.status, "open"))).returning({ id: reviewItems.id, title: reviewItems.title });
+    if (clearedReviews.length) await tx.insert(auditEvents).values(clearedReviews.map(review => ({ id: randomUUID(), userId: user.id, action: "transaction_deleted", entityType: "review_item", entityId: review.id, afterJson: JSON.stringify({ title: review.title, transactionId: existing.id }) })));
     await tx.update(transactions).set({ status: "removed", pending: false, userEdited: true, removedAt: new Date(), updatedAt: new Date() }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, user.id)));
     await tx.insert(auditEvents).values({ id: randomUUID(), userId: user.id, action: "delete", entityType: "transaction", entityId: existing.id, beforeJson: JSON.stringify(existing), afterJson: JSON.stringify({ status: "removed" }) });
   });
