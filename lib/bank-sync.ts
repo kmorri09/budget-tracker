@@ -23,16 +23,25 @@ export class PlaidError extends Error {
 }
 export class SyncBusyError extends Error { constructor() { super("A sync is already running for this connection"); this.name = "SyncBusyError"; } }
 
-async function plaidRequest<T>(path: string, body: Record<string, unknown>) {
+async function plaidRequest<T>(path: string, body: Record<string, unknown>, options: { retryTransient?: boolean } = {}) {
   if (!hasPlaidCredentials()) throw new Error("Plaid is not configured. Add PLAID_CLIENT_ID and PLAID_SECRET to enable live connections.");
-  const response = await fetch(`${plaidBaseUrl()}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_id: process.env.PLAID_CLIENT_ID, secret: process.env.PLAID_SECRET, ...body }), cache: "no-store", signal: AbortSignal.timeout(20_000) });
-  const payload = await response.json().catch(() => null) as (T & { error_code?: string; error_message?: string; request_id?: string }) | null;
-  if (!response.ok || !payload) {
+  const retryableStatuses = [500, 502, 503, 504];
+  let attempt = 0;
+  while (true) {
+    const response = await fetch(`${plaidBaseUrl()}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_id: process.env.PLAID_CLIENT_ID, secret: process.env.PLAID_SECRET, ...body }), cache: "no-store", signal: AbortSignal.timeout(20_000) });
+    const payload = await response.json().catch(() => null) as (T & { error_code?: string; error_message?: string; request_id?: string }) | null;
+    if (response.ok && payload) return payload;
+
     const detail = payload?.error_message ?? "Request failed";
     const requestId = payload?.request_id ? `; request_id ${payload.request_id}` : "";
-    throw new PlaidError(`Plaid ${path}: ${detail} (${response.status}${requestId})`, payload?.error_code);
+    const error = new PlaidError(`Plaid ${path}: ${detail} (${response.status}${requestId})`, payload?.error_code);
+    if (!options.retryTransient || !retryableStatuses.includes(response.status) || attempt >= 2) throw error;
+
+    // Transaction sync is safe to retry with the same cursor; the cursor is
+    // only persisted after the complete update has been applied.
+    await new Promise(resolve => setTimeout(resolve, 500 * (2 ** attempt)));
+    attempt++;
   }
-  return payload;
 }
 
 export async function createPlaidLinkToken(userId: string) {
@@ -92,7 +101,7 @@ export async function syncConnection(db: Database, userId: string, connectionId:
     } else {
       const listed = await plaidRequest<{ accounts: PlaidAccount[] }>("/accounts/get", { access_token: token });
       remoteAccounts = listed.accounts;
-      const updates = await fetchTransactionUpdates(cursor => plaidRequest<TransactionSyncPage>("/transactions/sync", { access_token: token, cursor: cursor ?? undefined, count: 500 }), connection.cursor);
+      const updates = await fetchTransactionUpdates(cursor => plaidRequest<TransactionSyncPage>("/transactions/sync", { access_token: token, cursor: cursor ?? undefined, count: 500 }, { retryTransient: true }), connection.cursor);
       ({ added, modified, removed, nextCursor } = updates);
     }
     // Save the complete bank update and its cursor together. A failure rolls
