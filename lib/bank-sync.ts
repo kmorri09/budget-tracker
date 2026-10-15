@@ -28,7 +28,16 @@ async function plaidRequest<T>(path: string, body: Record<string, unknown>, opti
   const retryableStatuses = [500, 502, 503, 504];
   let attempt = 0;
   while (true) {
-    const response = await fetch(`${plaidBaseUrl()}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_id: process.env.PLAID_CLIENT_ID, secret: process.env.PLAID_SECRET, ...body }), cache: "no-store", signal: AbortSignal.timeout(20_000) });
+    let response: Response;
+    try {
+      response = await fetch(`${plaidBaseUrl()}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_id: process.env.PLAID_CLIENT_ID, secret: process.env.PLAID_SECRET, ...body }), cache: "no-store", signal: AbortSignal.timeout(20_000) });
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : "Network request failed";
+      if (!options.retryTransient || !(cause instanceof TypeError) || attempt >= 2) throw new PlaidError(`Plaid ${path}: ${detail}`);
+      await new Promise(resolve => setTimeout(resolve, 500 * (2 ** attempt)));
+      attempt++;
+      continue;
+    }
     const payload = await response.json().catch(() => null) as (T & { error_code?: string; error_message?: string; request_id?: string }) | null;
     if (response.ok && payload) return payload;
 
@@ -99,7 +108,7 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       if (!connection.cursor) added = mockTransactions();
       nextCursor = "mock-cursor-v1";
     } else {
-      const listed = await plaidRequest<{ accounts: PlaidAccount[] }>("/accounts/get", { access_token: token });
+      const listed = await plaidRequest<{ accounts: PlaidAccount[] }>("/accounts/get", { access_token: token }, { retryTransient: true });
       remoteAccounts = listed.accounts;
       const updates = await fetchTransactionUpdates(cursor => plaidRequest<TransactionSyncPage>("/transactions/sync", { access_token: token, cursor: cursor ?? undefined, count: 500 }, { retryTransient: true }), connection.cursor);
       ({ added, modified, removed, nextCursor } = updates);
