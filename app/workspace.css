@@ -52,9 +52,19 @@
 .cash-breakdown-label-cell { flex: 0 0 auto; min-width: 0; overflow: hidden; text-align: center; color: var(--green-dark); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .cash-breakdown-label-cell span { display: inline-block; }
 .cash-breakdown-bar { display: flex; position: relative; height: 25px; margin: 5px 0 15px; overflow: hidden; border-radius: 8px; background: #eef2ef; }
-.cash-breakdown-bar > span:not(.cash-breakdown-cash-marker) { display: block; height: 100%; flex: 0 0 auto; min-width: 0; border-right: 2px solid #fff; }
-.cash-breakdown-bar > span:last-child { border-right: 0; }
-.cash-breakdown-bar .cash-breakdown-cash-marker { position: absolute; top: 0; bottom: 0; width: 2px; background: #a84537; box-shadow: 0 0 0 2px #ffffffcc; }
+.cash-breakdown-segment { display: block; height: 100%; flex: 0 0 auto; min-width: 0; border-right: 2px solid #fff; }
+.cash-breakdown-segment:last-of-type { border-right: 0; }
+.cash-breakdown-uncovered, .cash-breakdown-uncovered-key { background: repeating-linear-gradient(135deg, #f9e4df 0, #f9e4df 5px, #c47c70 5px, #c47c70 7px); }
+.cash-breakdown-uncovered { position: absolute; top: 0; right: 0; bottom: 0; }
+.cash-breakdown-bar .cash-breakdown-cash-marker { position: absolute; top: 0; bottom: 0; width: 3px; background: #a13328; box-shadow: 0 0 0 2px #fff; }
+.cash-breakdown-shortfall { margin-top: 16px; padding: 14px 16px; border: 1px solid #dfb5ac; border-left: 4px solid #a13328; border-radius: 9px; background: #fff5f1; color: #81372e; }
+.cash-breakdown-shortfall > strong { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
+.cash-breakdown-shortfall p { margin: 7px 0 0; font-size: 13px; line-height: 1.6; }
+.cash-breakdown-legend { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; margin: -3px 0 15px; color: #81372e; font-size: 12px; line-height: 1.5; }
+.cash-breakdown-legend > span { display: flex; align-items: center; gap: 8px; }
+.cash-breakdown-legend i { display: inline-block; flex-shrink: 0; height: 16px; }
+.cash-breakdown-limit-key { width: 3px; margin: 0 7px; background: #a13328; }
+.cash-breakdown-uncovered-key { width: 18px; border: 1px solid #c47c70; border-radius: 3px; }
 .cash-breakdown-warning,.cash-breakdown-caution { margin: 12px 0 0; padding: 10px 12px; border: 1px solid #e9d5c9; border-radius: 9px; background: #fff8f4; color: #8f463b; font-size: 11px; line-height: 1.5; }
 .cash-breakdown-caution { border-color: #ebdfc9; background: #fffbf2; color: #765e3a; }
 @media (max-width: 700px) { .cash-breakdown-heading { flex-wrap: wrap; gap: 9px; } .cash-breakdown-total { text-align: left; } }
