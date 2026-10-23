@@ -14,8 +14,8 @@ export default function CashBreakdown({ dashboard }: { dashboard: DashboardData 
     ...breakdown.fundedCategories.map((category, index) => ({ key: category.id, name: category.name, amountCents: category.availableCents, color: colors[index % colors.length] })),
     ...(breakdown.unassignedCents ? [{ key: "unassigned", name: "Available to assign", amountCents: breakdown.unassignedCents, color: "#bad5bf" }] : []),
     ...(breakdown.unmatchedCents ? [{ key: "unmatched", name: "Not matched to the budget", amountCents: breakdown.unmatchedCents, color: "#dce2de" }] : []),
-  ];
-  const cashMarker = breakdown.shortfallCents > 0 ? Math.max(0, cashCents / breakdown.scaleCents * 100) : null;
+  ].reverse();
+  const cashMarker = breakdown.shortfallCents > 0 ? breakdown.shortfallCents / breakdown.scaleCents * 100 : null;
   const cashForUnassignedCents = Math.min(breakdown.unassignedCents, Math.max(0, cashCents - breakdown.reservedCents));
   const labelsRef = useRef<HTMLDivElement>(null);
   const [visibleLabels, setVisibleLabels] = useState<Set<string>>(() => new Set());
@@ -56,16 +56,16 @@ export default function CashBreakdown({ dashboard }: { dashboard: DashboardData 
       <div className="cash-breakdown-labels" ref={labelsRef} aria-hidden="true">
         {segments.map(segment => <div className="cash-breakdown-label-cell" key={segment.key} style={{ width: `${segment.amountCents / breakdown.scaleCents * 100}%` }}><span style={{ visibility: visibleLabels.has(segment.key) ? "visible" : "hidden" }}>{segment.name}</span></div>)}
       </div>
-      <div className="cash-breakdown-bar" role="img" aria-label={[...segments.map(segment => `${segment.name}: ${money(segment.amountCents / 100)}`), ...(cashMarker !== null ? [`Recorded cash limit: ${money(dashboard.ledgerBalance)}. Striped area: ${money(breakdown.shortfallCents / 100)} not covered by recorded cash.`] : [])].join("; ")}>
+      <div className="cash-breakdown-bar" role="img" aria-label={[...segments.map(segment => `${segment.name}: ${money(segment.amountCents / 100)}`), ...(cashMarker !== null ? [`Striped area on the left: ${money(breakdown.shortfallCents / 100)} not covered by recorded cash. Recorded cash to the right of the red line: ${money(dashboard.ledgerBalance)}.`] : [])].join("; ")}>
         {segments.map(segment => <span className="cash-breakdown-segment" key={segment.key} title={`${segment.name}: ${money(segment.amountCents / 100)}`} style={{ width: `${segment.amountCents / breakdown.scaleCents * 100}%`, backgroundColor: segment.color }} />)}
         {cashMarker !== null && <>
-          <span className="cash-breakdown-uncovered" style={{ left: `${cashMarker}%` }} title={`${money(breakdown.shortfallCents / 100)} not covered by recorded cash`} />
-          <span className="cash-breakdown-cash-marker" style={{ left: `${cashMarker}%` }} title={`Recorded cash runs out here: ${money(dashboard.ledgerBalance)}`} />
+          <span className="cash-breakdown-uncovered" style={{ width: `${cashMarker}%` }} title={`${money(breakdown.shortfallCents / 100)} not covered by recorded cash`} />
+          <span className="cash-breakdown-cash-marker" style={{ left: `${cashMarker}%` }} title={`Recorded cash covers the area to the right: ${money(dashboard.ledgerBalance)}`} />
         </>}
       </div>
       {cashMarker !== null && <div className="cash-breakdown-legend">
-        <span><i className="cash-breakdown-limit-key" aria-hidden="true" />Red line: recorded cash ends at {money(dashboard.ledgerBalance)}</span>
         <span><i className="cash-breakdown-uncovered-key" aria-hidden="true" />Striped area: {money(breakdown.shortfallCents / 100)} not covered by cash</span>
+        <span><i className="cash-breakdown-limit-key" aria-hidden="true" />Right of the red line: {money(dashboard.ledgerBalance)} in recorded cash</span>
       </div>}
     </> : <p className="empty-state">No positive recorded cash or funded category balances to chart.</p>}
     {breakdown.overassignedCents > 0 && <p className="cash-breakdown-warning">The budget is overassigned by {money(breakdown.overassignedCents / 100)}.</p>}

@@ -55,7 +55,7 @@
 .cash-breakdown-segment { display: block; height: 100%; flex: 0 0 auto; min-width: 0; border-right: 2px solid #fff; }
 .cash-breakdown-segment:last-of-type { border-right: 0; }
 .cash-breakdown-uncovered, .cash-breakdown-uncovered-key { background: repeating-linear-gradient(135deg, #f9e4df 0, #f9e4df 5px, #c47c70 5px, #c47c70 7px); }
-.cash-breakdown-uncovered { position: absolute; top: 0; right: 0; bottom: 0; }
+.cash-breakdown-uncovered { position: absolute; top: 0; left: 0; bottom: 0; }
 .cash-breakdown-bar .cash-breakdown-cash-marker { position: absolute; top: 0; bottom: 0; width: 3px; background: #a13328; box-shadow: 0 0 0 2px #fff; }
 .cash-breakdown-shortfall { margin-top: 16px; padding: 14px 16px; border: 1px solid #dfb5ac; border-left: 4px solid #a13328; border-radius: 9px; background: #fff5f1; color: #81372e; }
 .cash-breakdown-shortfall > strong { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
