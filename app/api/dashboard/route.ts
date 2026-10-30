@@ -1,3 +1,4 @@
+import { budgetToday } from "../../../lib/budget-date";
 import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../lib/auth";
@@ -8,6 +9,7 @@ import { calculateAvailableToAssignCents } from "../../../lib/budget-balance";
 import { calculateAccountLedgerCents } from "../../../lib/account-ledger";
 import { suggestCategory, type ProviderCategory } from "../../../lib/category-suggestions";
 import { planObligations, type ObligationCoverage } from "../../../lib/obligation-status";
+import { loadPaymentWorkspace } from "../../../lib/payment-workspace";
 
 const centsToAmount = (cents: number) => Math.round(cents) / 100;
 const isoDate = (value: Date) => value.toISOString().slice(0, 10);
@@ -15,7 +17,7 @@ const isoDate = (value: Date) => value.toISOString().slice(0, 10);
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const db = getDatabase();
+  return getDatabase().transaction(async db => {
   const [accountRows, categoryRows, categoryRuleRows, transactionRows, allocationRows, budgetAdjustmentRows, obligationRows, reviewRows, paymentRows, paymentApplicationRows, coverageAdjustmentRows, rawProviderRows, matchDecisionRows] = await Promise.all([
     db.select().from(accounts).where(eq(accounts.userId, user.id)),
     db.select().from(categories).where(eq(categories.userId, user.id)),
@@ -82,18 +84,24 @@ export async function GET() {
     ...activeTransactionRows.filter(transaction => ["expense", "transfer_out", "card_payment"].includes(transaction.kind) && transaction.status === "posted" && !transaction.pending).map(transaction => ({ id: transaction.id, type: "transaction" as const, amountCents: transaction.amountCents, description: transaction.description, effectiveDate: transaction.effectiveDate, accountId: transaction.accountId })),
     ...paymentRows.map(payment => ({ id: payment.id, type: "payment" as const, amountCents: payment.amountCents, description: `${payment.description} ${accountById.get(payment.toAccountId)?.name ?? ""}`.trim(), effectiveDate: payment.effectiveDate, fromAccountId: payment.fromAccountId, toAccountId: payment.toAccountId })),
   ];
-  const currentDate = isoDate(new Date());
+  const currentDate = budgetToday();
+  const paymentWorkspace = await loadPaymentWorkspace(db, user.id, currentDate);
   const obligationPlans = planObligations(obligationRows, obligationCandidates, matchDecisionRows, currentDate);
   const toEntry = (transaction: typeof transactionRows[number]) => {
     const account = accountById.get(transaction.accountId);
     const applied = Math.max(0, Math.min(transaction.amountCents, paymentAppliedByTransaction.get(transaction.id) ?? 0));
-    const paymentStatus = transaction.kind === "expense" && account?.type === "credit_card" ? applied >= transaction.amountCents ? "Paid" : applied > 0 ? "Partially paid" : "Unpaid" : "Not applicable";
-    return { id: transaction.id, description: transaction.description, amount: centsToAmount(transaction.amountCents), source: transaction.source, kind: transaction.kind, status: transaction.status, pending: transaction.pending, date: transaction.effectiveDate, category: transaction.categoryId ? categoryById.get(transaction.categoryId)?.name ?? null : null, categoryId: transaction.categoryId, account: account?.name ?? "Account", accountId: transaction.accountId, paymentStatus, remainingToPay: centsToAmount(Math.max(0, transaction.amountCents - applied)) };
+    const coverage = paymentWorkspace.cardCoverage.coverage.get(transaction.id);
+    const paymentStatus = coverage?.status ?? "Not applicable";
+    const coverageLinks = paymentWorkspace.cardCoverage.refunds.links.filter(link => link.transactionId === transaction.id).map(link => { const refund = transactionRows.find(t => t.id === link.refundId); return { id: link.refundId, description: refund?.description ?? "Refund", date: refund?.effectiveDate ?? "", amount: centsToAmount(link.amountCents), type: "refund" }; });
+    for (const application of paymentApplicationRows.filter(a => a.transactionId === transaction.id)) { const payment = paymentRows.find(p => p.id === application.paymentId); if (payment) coverageLinks.push({ id: payment.id, description: payment.description, date: payment.effectiveDate, amount: centsToAmount(application.amountCents), type: "payment" }); }
+    return { id: transaction.id, description: transaction.description, amount: centsToAmount(transaction.amountCents), source: transaction.source, kind: transaction.kind, status: transaction.status, pending: transaction.pending, date: transaction.effectiveDate, category: transaction.categoryId ? categoryById.get(transaction.categoryId)?.name ?? null : null, categoryId: transaction.categoryId, account: account?.name ?? "Account", accountId: transaction.accountId, paymentStatus, remainingToPay: centsToAmount(coverage?.remainingCents ?? Math.max(0, transaction.amountCents - applied)), refunded: centsToAmount(coverage?.refundedCents ?? 0), cardCreditApplied: centsToAmount(coverage?.cardCreditCents ?? 0), coverageLinks };
   };
 
   return NextResponse.json({
+    paymentReviewToken: paymentWorkspace.paymentReviewToken,
+    refundReviews: paymentWorkspace.cardCoverage.refunds.refunds.map(refund => ({ id: refund.id, description: refund.description, date: refund.effectiveDate, amount: centsToAmount(refund.amountCents), remaining: centsToAmount(refund.remainingCents), account: accountById.get(refund.accountId)?.name ?? "Card", links: refund.links.map(link => { const purchase = transactionRows.find(t => t.id === link.transactionId); return { transactionId: link.transactionId, description: purchase?.description ?? "Purchase", date: purchase?.effectiveDate ?? "", amount: centsToAmount(link.amountCents), confidence: link.confidence }; }), candidates: refund.candidates.map(p => ({ transactionId: p.id, description: p.description, date: p.effectiveDate, remaining: centsToAmount(p.remainingCents) })) })),
     user: { id: user.id, displayName: user.displayName, email: user.email },
-    accounts: ledgerByAccount.map((account) => ({ id: account.id, name: account.name, institution: account.institution, type: account.type, syncEnabled: account.syncEnabled, isDefaultCash: account.isDefaultCash, active: account.active, openingBalance: centsToAmount(account.openingBalanceCents), providerBalance: account.providerBalanceCents === null ? null : centsToAmount(account.providerBalanceCents), providerBalanceAt: account.providerBalanceAt, ledgerBalance: centsToAmount(account.ledgerBalanceCents) })),
+    accounts: paymentWorkspace.accounts.filter(account => account.active),
     managedAccounts: accountLedgers.map((account) => ({ id: account.id, name: account.name, institution: account.institution, type: account.type, syncEnabled: account.syncEnabled, isDefaultCash: account.isDefaultCash, active: account.active, openingBalance: centsToAmount(account.openingBalanceCents), providerBalance: account.providerBalanceCents === null ? null : centsToAmount(account.providerBalanceCents), providerBalanceAt: account.providerBalanceAt, ledgerBalance: centsToAmount(account.ledgerBalanceCents) })),
     ledgerBalance: centsToAmount(ledgerBalanceCents),
     providerBalance: providerBalanceCents === null ? null : centsToAmount(providerBalanceCents),
@@ -140,5 +148,6 @@ export async function GET() {
     ],
     activity: activeTransactionRows.map(toEntry),
   });
+  }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 

@@ -32,3 +32,15 @@ Use the dedicated **Record card payment** workflow for new payments. It records 
 
 Removed transactions are excluded from these calculations.
 
+
+### Refund coverage and payment previews
+
+Posted credit-card refunds restore their category balance and reduce the card amount still owed. Existing and future refunds use the same calculation. A unique match on card, merchant, category and date is applied automatically, with exact amounts matched before partial refunds. Ambiguous matches remain in **Card payments → Refunds to review**, and can also be reviewed by editing the refund transaction. Matches can be removed or entered with a partial amount. Manual decisions have an audit trail. Credits from unmatched refunds or refunds of already-paid purchases stay on the same card and cover other posted purchases; they do not create cash or a card payment.
+
+Purchase details show refunded amounts, linked payments/refunds, other card credit used, and the remaining amount to pay. Editing or removing a transaction recalculates its coverage.
+
+**Suggest card payment** shows category-backed purchases separately from the amount affordable now. The affordable limit protects all positive category balances plus the unassigned budget pool, and uses the lower of the source account ledger and its recent bank-reported available balance. Pending withdrawals already in these balances are counted once. All card suggestions share the same cash limit, with oldest purchases first. Funded obligations are already included in category balances, and Available to assign is never added to bank cash or quietly consumed by a payment that is supposed to be category-funded.
+
+Payment reviews refresh when opened, when the app regains focus, and periodically while open. Saving validates the current budget snapshot and refund-adjusted purchase limits inside a serializable database transaction. If the budget has changed, review the updated amounts before saving. The explicit “payment already happened” option permits accurate historical records despite current funding limits; it does not bypass purchase coverage checks.
+
+Run `npm test` and `npm run build` to verify the backend and calculations. The fixture-only browser regression is `tests/card-payment-flow-smoke.cjs`; set `UI_TEST_URL` to a localhost production test server and `PLAYWRIGHT_MODULE` to an installed Playwright package (optionally `PLAYWRIGHT_CHANNEL=msedge`).

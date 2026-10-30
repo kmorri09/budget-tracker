@@ -190,6 +190,16 @@ export const cardCoverageAdjustments = pgTable("card_coverage_adjustments", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({ transactionIndex: index("card_coverage_adjustments_transaction_idx").on(table.transactionId) }));
 
+export const cardRefundMatches = pgTable("card_refund_matches", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  refundId: text("refund_id").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  transactionId: text("transaction_id").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  status: text("status").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => ({ pairIndex: uniqueIndex("card_refund_matches_pair_idx").on(table.refundId, table.transactionId), userIndex: index("card_refund_matches_user_idx").on(table.userId) }));
+
 export const allocations = pgTable("allocations", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

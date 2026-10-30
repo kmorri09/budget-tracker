@@ -1,3 +1,5 @@
+import { budgetToday } from "../../../lib/budget-date";
+import { loadPaymentWorkspace } from "../../../lib/payment-workspace";
 import { and, eq, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
@@ -108,6 +110,13 @@ export async function PATCH(request: Request) {
   }
   await db.transaction(async (tx) => {
     await tx.update(transactions).set(changes).where(and(eq(transactions.id, input.id), eq(transactions.userId, user.id)));
+    if (coverageChange && input.paymentStatus && input.paymentStatus !== "partial") {
+      const workspace = await loadPaymentWorkspace(tx, user.id, budgetToday());
+      const coverage = workspace.cardCoverage.coverage.get(input.id);
+      const netCents = Math.max(0, changes.amountCents - (coverage?.refundedCents ?? 0) - (coverage?.cardCreditCents ?? 0));
+      coverageChange = coverageReconciliation(input.paymentStatus === "paid" ? Math.max(netCents, coverageChange.currentCents) : netCents, coverageChange.currentCents, input.paymentStatus);
+    }
+
     const isTransfer = input.kind === "transfer_in" || input.kind === "transfer_out";
     const reviewChanges = isTransfer
       ? { kind: "provider_transfer", title: importedReviewTitle(input.kind, input.description) }

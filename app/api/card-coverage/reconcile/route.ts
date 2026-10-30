@@ -1,3 +1,4 @@
+import { loadPaymentWorkspace } from "../../../../lib/payment-workspace";
 import { and, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
@@ -38,7 +39,13 @@ export async function POST(request: Request) {
   ]);
   const covered = new Map<string, number>();
   for (const row of [...applicationRows, ...adjustmentRows]) covered.set(row.transactionId, (covered.get(row.transactionId) ?? 0) + row.amountCents);
-  const changes = transactionRows.map(transaction => ({ transaction, ...coverageReconciliation(transaction.amountCents, covered.get(transaction.id) ?? 0, input.state) })).filter(change => change.deltaCents !== 0);
+  const workspace = await loadPaymentWorkspace(db, user.id, input.date);
+  const changes = transactionRows.map(transaction => {
+    const coverage = workspace.cardCoverage.coverage.get(transaction.id);
+    const current = covered.get(transaction.id) ?? 0;
+    const netCents = Math.max(0, transaction.amountCents - (coverage?.refundedCents ?? 0) - (coverage?.cardCreditCents ?? 0));
+    return { transaction, ...coverageReconciliation(input.state === "paid" ? Math.max(current, netCents) : netCents, current, input.state) };
+  }).filter(change => change.deltaCents !== 0);
 
   if (changes.length) await db.transaction(async tx => {
     await tx.insert(cardCoverageAdjustments).values(changes.map(change => ({ id: randomUUID(), userId: user.id, transactionId: change.transaction.id, amountCents: change.deltaCents, effectiveDate: input.date, note: input.note })));

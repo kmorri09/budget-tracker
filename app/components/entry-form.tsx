@@ -1,8 +1,9 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { type ActionType, type DashboardData, money, today } from "../../lib/workspace-types";
 import Typeahead from "./typeahead";
+import { paymentAffordability } from "../../lib/payment-affordability";
 
 export const actionLabels: Record<ActionType, string> = { transaction: "Add transaction", income: "Add income", allocation: "Allocate money", transfer: "Move category funds", payment: "Record card payment", category: "Add category", account: "Add account" };
 
@@ -10,7 +11,29 @@ function Suggestion({ label, name, options, initial = "", value, onChange, requi
   return <Typeahead label={label} name={name} options={options.map(option => ({ value: option, label: option }))} initialValue={initial} value={value} onChange={onChange} required={required} />;
 }
 
-export default function EntryForm({ action, dashboard, initialPaymentTransactionIds = [], initialPaymentAmountsCents, initialPaymentImport = null, onClose, onSaved }: { action: ActionType; dashboard: DashboardData; initialPaymentTransactionIds?: string[]; initialPaymentAmountsCents?: Record<string, number> | null; initialPaymentImport?: DashboardData["activity"][number] | null; onClose: () => void; onSaved: (message?: string) => void }) {
+export default function EntryForm({ action, dashboard: initialDashboard, initialPaymentSourceId, initialPaymentTransactionIds = [], initialPaymentAmountsCents, initialPaymentImport = null, onClose, onSaved }: { action: ActionType; dashboard: DashboardData; initialPaymentSourceId?: string; initialPaymentTransactionIds?: string[]; initialPaymentAmountsCents?: Record<string, number> | null; initialPaymentImport?: DashboardData["activity"][number] | null; onClose: () => void; onSaved: (message?: string) => void }) {
+  const [dashboard, setDashboard] = useState(initialDashboard);
+  const [refreshing, setRefreshing] = useState(action === "payment");
+  const [alreadyMade, setAlreadyMade] = useState(false);
+  const [paymentDate, setPaymentDate] = useState(initialPaymentImport?.date ?? today());
+  const [fromAccount, setFromAccount] = useState(initialPaymentImport?.account ?? initialDashboard.accounts.find(a => a.id === initialPaymentSourceId)?.name ?? initialDashboard.accounts.find(a => a.type !== "credit_card" && a.isDefaultCash)?.name ?? initialDashboard.accounts.find(a => a.type !== "credit_card")?.name ?? "");
+  const refreshPayment = useCallback(async () => {
+    if (action !== "payment") return;
+    setRefreshing(true);
+    try {
+      const response = await fetch("/api/dashboard", { cache: "no-store" });
+      if (!response.ok) throw new Error("Could not refresh your budget. Retry before saving a payment.");
+      setDashboard(await response.json()); setError("");
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not refresh your budget."); }
+    finally { setRefreshing(false); }
+  }, [action]);
+  useEffect(() => {
+    if (action !== "payment") return;
+    void refreshPayment();
+    const timer = setInterval(() => { if (document.visibilityState === "visible") void refreshPayment(); }, 30000);
+    window.addEventListener("focus", refreshPayment);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refreshPayment); };
+  }, [action, refreshPayment]);
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const categoryNames = dashboard.categories.map(c => c.name);
@@ -32,6 +55,10 @@ export default function EntryForm({ action, dashboard, initialPaymentTransaction
   const [allocationAmount, setAllocationAmount] = useState("");
   const [applicationAmounts, setApplicationAmounts] = useState<Record<string, string>>(initialApplications);
   const [paymentAmount, setPaymentAmount] = useState(initialPaymentAmount > 0 ? initialPaymentAmount.toFixed(2) : "");
+  const sourceAccountId = dashboard.accounts.find(a => a.name === fromAccount)?.id;
+  const affordability = paymentAffordability(dashboard, sourceAccountId ?? "missing");
+  const exceedsCash = Math.round((Number(paymentAmount) || 0) * 100) > affordability.affordableCents;
+  const invalidApplications = manualPayment && Object.entries(applicationAmounts).some(([id, value]) => Number(value) > 0 && !dashboard.activity.some(e => e.id === id && e.account === toCard && e.status === "posted" && !e.pending && e.date <= paymentDate && Number(value) <= e.remainingToPay));
   const budgetOnly = action === "allocation" || action === "transfer";
   const needsCategory = ["transaction", "allocation", "transfer"].includes(action);
   const entryAccountNames = action === "income" ? cashAccountNames : accountNames;
@@ -62,9 +89,9 @@ export default function EntryForm({ action, dashboard, initialPaymentTransaction
         if (action === "payment" && manualPayment) (values as Record<string, unknown>).applications = applications;
       try {
         const endpoint = action === "account" ? "/api/accounts" : action === "category" ? "/api/categories" : action === "payment" ? "/api/card-payments" : "/api/entries";
-        const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...values, kind: action }) });
+        const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...values, kind: action, ...(action === "payment" ? { reviewToken: dashboard.paymentReviewToken, alreadyMade } : {}) }) });
         const result = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(result?.error ?? "Could not save. Please try again.");
+        if (!response.ok) { if (action === "payment" && response.status === 409) await refreshPayment(); throw new Error(result?.error ?? "Could not save. Please try again."); }
         onSaved(result?.reconciledImport ? "Card payment recorded and Plaid withdrawal reconciled" : undefined);
       } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not save."); } finally { setBusy(false); }
     }}>
@@ -78,22 +105,28 @@ export default function EntryForm({ action, dashboard, initialPaymentTransaction
         <label>Category name<input name="name" required maxLength={80} autoFocus /></label><div className="form-grid"><label>Icon (optional)<input name="icon" placeholder="e.g. 🏠" maxLength={4} /></label><label>Target amount<input name="target" type="number" min="0" step="0.01" defaultValue="0" /></label></div>
       </> : <>
         <label>Amount<input name="amount" type="number" min={action === "allocation" ? undefined : 0.01} step="0.01" placeholder="0.00" required autoFocus {...(action === "payment" ? { value: paymentAmount, onChange: (event: ChangeEvent<HTMLInputElement>) => setPaymentAmount(event.target.value) } : action === "allocation" ? { value: allocationAmount, onChange: (event: ChangeEvent<HTMLInputElement>) => setAllocationAmount(event.target.value) } : {})} /></label>
-        <div className="form-grid"><label>Date<input name="date" type="date" defaultValue={initialPaymentImport?.date ?? today()} required /></label>{action === "payment" ? <Suggestion label="From account" name="fromAccountId" options={cashAccountNames} initial={initialPaymentImport?.account ?? (cashAccountNames.length === 1 ? cashAccountNames[0] : "")} /> : !budgetOnly && <Suggestion label={action === "income" ? "Deposit account" : "Account"} name="accountId" options={entryAccountNames} initial={action === "income" ? defaultCashAccount : entryAccountNames.length === 1 ? entryAccountNames[0] : ""} />}</div>
+        <div className="form-grid"><label>Date<input name="date" type="date" {...(action === "payment" ? { value: paymentDate, onChange: (event: ChangeEvent<HTMLInputElement>) => setPaymentDate(event.target.value) } : { defaultValue: today() })} required /></label>{action === "payment" ? <Suggestion label="From account" name="fromAccountId" options={cashAccountNames} value={fromAccount} onChange={setFromAccount} /> : !budgetOnly && <Suggestion label={action === "income" ? "Deposit account" : "Account"} name="accountId" options={entryAccountNames} initial={action === "income" ? defaultCashAccount : entryAccountNames.length === 1 ? entryAccountNames[0] : ""} />}</div>
         {action === "payment" && <Suggestion label="To credit card" name="toAccountId" options={creditCardNames} value={toCard} onChange={value => { setToCard(value); if (value !== toCard) { setApplicationAmounts({}); if (initialPaymentEntries.length) setPaymentAmount(""); } }} />}
         <label>{budgetOnly ? "Note" : "Description"}<input name="description" required maxLength={200} defaultValue={initialPaymentImport?.description ?? (action === "payment" && initialPaymentEntries.length ? `Payment for ${initialPaymentEntries.length} selected ${initialPaymentEntries.length === 1 ? "purchase" : "purchases"}` : "")} placeholder={budgetOnly ? "What is this funding for?" : "What was this for?"} /></label>
         {(action === "transaction" || action === "allocation") && <><Suggestion label="Category" name="categoryId" options={categoryNames} value={action === "allocation" ? allocationCategoryName : undefined} onChange={action === "allocation" ? setAllocationCategoryName : undefined} />{selectedAllocationCategory && <div className="field-help allocation-availability"><p>Currently available in <strong>{selectedAllocationCategory.name}</strong>: <strong>{money(selectedAllocationCategory.available)}</strong></p>{projectedAllocationAvailability !== null && <p>Available after this allocation: <strong>{money(projectedAllocationAvailability)}</strong></p>}</div>}</>}
         {action === "transfer" && <><Suggestion label="From category" name="fromCategoryId" options={categoryNames} /><Suggestion label="To category" name="toCategoryId" options={categoryNames} /></>}
         {budgetOnly && <p className="field-help">Changes your category funding, not your account balances. Funds roll forward indefinitely.</p>}
         {action === "payment" && <>
+          <dl className="payment-summary"><div><dt>Available cash in {fromAccount || "source account"}</dt><dd>{money((affordability.accounts.find(a => a.accountId === sourceAccountId)?.availableCents ?? 0) / 100)}</dd></div><div><dt>Protected in other categories</dt><dd>{money(affordability.reservedCents / 100)}</dd></div><div><dt>Unassigned budget money kept available</dt><dd>{money(affordability.unassignedCents / 100)}</dd></div><div><dt>Maximum payment preserving allocations</dt><dd>{money(affordability.affordableCents / 100)}</dd></div><div><dt>Cash across accounts after this payment</dt><dd>{money((affordability.cashCents - Math.round((Number(paymentAmount) || 0) * 100)) / 100)}</dd></div></dl>
+          {refreshing && <p role="status" className="field-help">Refreshing balances and refund coverage…</p>}
+          {affordability.needsBankVerification && <p className="form-warning">Some available balances are based on the ledger because recent bank availability is missing. Check your bank before paying.</p>}
+          {exceedsCash && <p className="form-warning" role="status">This exceeds the amount available after protecting other allocations. Reduce the payment or reallocate funds before paying.</p>}
+          {invalidApplications && <p className="form-error" role="alert">Refunds or coverage have changed. Reduce or clear the selected amounts to match the latest remaining balances.</p>}
+          <label className="toggle-field"><input type="checkbox" checked={alreadyMade} onChange={event => setAlreadyMade(event.target.checked)} /> This payment has already happened; record it even if it exceeds current funding.</label>
           {initialPaymentImport && <p className="field-help">This will replace the reviewed Plaid transfer when its source account, amount, and posting date match.</p>}
           <fieldset className="type-options"><legend>Apply payment</legend><label><input type="radio" name="allocationMode" value="fifo" checked={!manualPayment} onChange={() => setManualPayment(false)} /> Oldest unpaid purchases first</label><label><input type="radio" name="allocationMode" value="manual" checked={manualPayment} onChange={() => setManualPayment(true)} /> Choose purchases manually</label></fieldset>
-          {manualPayment && <div className="payment-allocations"><p className="field-help">Choose full amounts or enter partial amounts. Enter 0 to leave a purchase unpaid. The payment total updates as you make selections.</p>{dashboard.activity.filter(entry => entry.kind === "expense" && entry.accountId === dashboard.accounts.find(account => account.name === toCard)?.id && entry.remainingToPay > 0).sort((a, b) => Number(initialPaymentTransactionIds.includes(b.id)) - Number(initialPaymentTransactionIds.includes(a.id)) || a.date.localeCompare(b.date)).map(entry => <div className="payment-allocation-row" key={entry.id}><span><strong>{entry.description}</strong><small>{entry.date} · {entry.paymentStatus} · {entry.remainingToPay.toFixed(2)} remaining</small></span><span className="payment-allocation-controls"><input aria-label={`Amount to apply to ${entry.description}`} name={"application_" + entry.id} type="number" min="0" max={entry.remainingToPay} step="0.01" placeholder="0.00" value={applicationAmounts[entry.id] ?? ""} onChange={event => updateApplication(entry.id, event.target.value)} /><button className="secondary-button" type="button" onClick={() => updateApplication(entry.id, entry.remainingToPay.toFixed(2))}>Full amount</button></span></div>)}{!dashboard.activity.some(entry => entry.kind === "expense" && entry.accountId === dashboard.accounts.find(account => account.name === toCard)?.id && entry.remainingToPay > 0) && <p className="empty-state">No unpaid purchases found for this card.</p>}</div>}
+          {manualPayment && <div className="payment-allocations"><p className="field-help">Choose full amounts or enter partial amounts. Enter 0 to leave a purchase unpaid. The payment total updates as you make selections.</p>{dashboard.activity.filter(entry => entry.kind === "expense" && entry.status === "posted" && !entry.pending && entry.date <= paymentDate && entry.accountId === dashboard.accounts.find(account => account.name === toCard)?.id && entry.remainingToPay > 0).sort((a, b) => Number(initialPaymentTransactionIds.includes(b.id)) - Number(initialPaymentTransactionIds.includes(a.id)) || a.date.localeCompare(b.date)).map(entry => <div className="payment-allocation-row" key={entry.id}><span><strong>{entry.description}</strong><small>{entry.date} · {entry.paymentStatus} · {entry.remainingToPay.toFixed(2)} remaining</small></span><span className="payment-allocation-controls"><input aria-label={`Amount to apply to ${entry.description}`} name={"application_" + entry.id} type="number" min="0" max={entry.remainingToPay} step="0.01" placeholder="0.00" value={applicationAmounts[entry.id] ?? ""} onChange={event => updateApplication(entry.id, event.target.value)} /><button className="secondary-button" type="button" onClick={() => updateApplication(entry.id, entry.remainingToPay.toFixed(2))}>Full amount</button></span></div>)}{!dashboard.activity.some(entry => entry.kind === "expense" && entry.status === "posted" && !entry.pending && entry.date <= paymentDate && entry.accountId === dashboard.accounts.find(account => account.name === toCard)?.id && entry.remainingToPay > 0) && <p className="empty-state">No unpaid purchases found for this card.</p>}</div>}
           {!manualPayment && <p className="field-help">Moves money from the selected cash account to the card and automatically applies it to the oldest unpaid card purchases. Review coverage in Card payments.</p>}
         </>}
       </>}
       </fieldset>
-      {error && <p className="form-error" role="alert">{error}</p>}
-      <div className="form-footer"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy} type="submit">{busy ? "Saving…" : "Save"}</button></div>
+      {error && <p className="form-error" role="alert">{error} {action === "payment" && <button type="button" className="text-link" onClick={() => void refreshPayment()}>Refresh payment review</button>}</p>}
+      <div className="form-footer"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || (action === "payment" && (refreshing || invalidApplications || (exceedsCash && !alreadyMade)))} type="submit">{busy ? "Saving…" : "Save"}</button></div>
     </form>}
   </dialog>;
 }

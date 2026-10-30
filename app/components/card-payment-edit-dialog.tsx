@@ -1,11 +1,22 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { money, type DashboardData } from "../../lib/workspace-types";
 import Typeahead from "./typeahead";
+import { paymentAffordability } from "../../lib/payment-affordability";
 import { useConfirmDialog } from "./confirm-dialog";
 
-export default function CardPaymentEditDialog({ payment, dashboard, onClose, onSaved }: { payment: DashboardData["payments"][number]; dashboard: DashboardData; onClose: () => void; onSaved: (message: string) => void }) {
+export default function CardPaymentEditDialog({ payment, dashboard: initialDashboard, onClose, onSaved }: { payment: DashboardData["payments"][number]; dashboard: DashboardData; onClose: () => void; onSaved: (message: string) => void }) {
+  const [dashboard, setDashboard] = useState(initialDashboard);
+  const [refreshing, setRefreshing] = useState(true);
+  const [alreadyMade, setAlreadyMade] = useState(true);
+  const refreshReview = useCallback(async () => {
+    setRefreshing(true);
+    try { const response = await fetch("/api/dashboard", { cache: "no-store" }); if (!response.ok) throw new Error("Could not refresh the payment review."); setDashboard(await response.json()); setError(""); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : "Could not refresh the payment review."); }
+    finally { setRefreshing(false); }
+  }, []);
+  useEffect(() => { void refreshReview(); window.addEventListener("focus", refreshReview); return () => window.removeEventListener("focus", refreshReview); }, [refreshReview]);
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [busy, setBusy] = useState(false);
@@ -47,13 +58,16 @@ export default function CardPaymentEditDialog({ payment, dashboard, onClose, onS
       const values = Object.fromEntries(new FormData(event.currentTarget));
       const selectedApplications = Object.entries(applications).filter(([, value]) => Number(value) > 0).map(([transactionId, value]) => ({ transactionId, amount: Number(value) }));
       try {
-        const response = await fetch("/api/card-payments", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: payment.id, description: values.description, amount, date, fromAccountId: values.fromAccountId, toAccountId, applications: selectedApplications }) });
+        const response = await fetch("/api/card-payments", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reviewToken: dashboard.paymentReviewToken, alreadyMade, id: payment.id, description: values.description, amount, date, fromAccountId: values.fromAccountId, toAccountId, applications: selectedApplications }) });
         const result = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(result?.error ?? "Could not update card payment.");
+        if (!response.ok) { if (response.status === 409) await refreshReview(); throw new Error(result?.error ?? "Could not update card payment."); }
         onSaved("Card payment updated");
       } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not update card payment."); } finally { setBusy(false); }
     }}>
-      <fieldset disabled={busy}>
+      <p className="field-help">Current cash available for additional payments after protecting allocations: {money(paymentAffordability(dashboard).affordableCents / 100)}. Refunds reduce each purchase’s remaining amount.</p>
+      {refreshing && <p className="field-help" role="status">Refreshing coverage and balances…</p>}
+      <label className="toggle-field"><input type="checkbox" checked={alreadyMade} onChange={event => setAlreadyMade(event.target.checked)} /> This payment already happened; preserve its historical record even if current funding is lower.</label>
+      <fieldset disabled={busy || refreshing}>
         <label>Description<input name="description" defaultValue={payment.description} required maxLength={200} autoFocus /></label>
         <div className="form-grid"><label>Amount<input name="amount" type="number" min="0.01" step="0.01" value={amount} onChange={event => setAmount(event.target.value)} required /></label><label>Date<input name="date" type="date" value={date} onChange={event => { const nextDate = event.target.value; setDate(nextDate); setApplications(current => Object.fromEntries(Object.entries(current).filter(([transactionId]) => dashboard.activity.find(entry => entry.id === transactionId)?.date && dashboard.activity.find(entry => entry.id === transactionId)!.date <= nextDate))); }} required /></label></div>
         <div className="form-grid"><Typeahead label="From account" name="fromAccountId" options={fromAccounts.map(account => ({ value: account.id, label: `${account.name}${account.active ? "" : " (inactive)"}` }))} initialValue={payment.fromAccountId} /><Typeahead label="To credit card" name="toAccountId" options={toAccounts.map(account => ({ value: account.id, label: `${account.name}${account.active ? "" : " (inactive)"}` }))} value={toAccountId} onChange={value => { setToAccountId(value); setApplications({}); }} /></div>
@@ -65,7 +79,7 @@ export default function CardPaymentEditDialog({ payment, dashboard, onClose, onS
       {payment.providerLinked && <p className="field-help">This payment is linked to Plaid activity on one or both accounts. Editing preserves those links. If that activity is already in a starting balance, delete and ignore it; otherwise return it to Review.</p>}
       {applied > (Number(amount) || 0) && <p className="form-error">Applied purchases exceed the payment amount.</p>}
       {error && <p className="form-error" role="alert">{error}</p>}
-      <div className="form-footer">{payment.providerLinked ? <><button type="button" className="danger-button" disabled={busy} onClick={() => void removePayment(true)}>Delete &amp; ignore bank activity</button><button type="button" className="text-link" disabled={busy} onClick={() => void removePayment(false)}>Delete; return activity to Review</button></> : <button type="button" className="danger-button" disabled={busy} onClick={() => void removePayment()}>Delete payment</button>}<button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || applied > (Number(amount) || 0)}>{busy ? "Saving…" : "Save changes"}</button></div>
+      <div className="form-footer">{payment.providerLinked ? <><button type="button" className="danger-button" disabled={busy} onClick={() => void removePayment(true)}>Delete &amp; ignore bank activity</button><button type="button" className="text-link" disabled={busy} onClick={() => void removePayment(false)}>Delete; return activity to Review</button></> : <button type="button" className="danger-button" disabled={busy} onClick={() => void removePayment()}>Delete payment</button>}<button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || refreshing || applied > (Number(amount) || 0)}>{busy ? "Saving…" : "Save changes"}</button></div>
     </form>
     {confirmationDialog}</dialog>;
 }

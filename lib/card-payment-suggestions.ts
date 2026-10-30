@@ -1,4 +1,5 @@
 import type { DashboardData } from "./workspace-types";
+import { paymentAffordability } from "./payment-affordability";
 
 export type SuggestedApplication = {
   transactionId: string;
@@ -9,6 +10,7 @@ export type SuggestedApplication = {
 };
 
 export type CardPaymentSuggestion = {
+  sourceAccountId?: string;
   cardId: string;
   cardName: string;
   amountCents: number;
@@ -55,5 +57,36 @@ export function suggestCardPayments(dashboard: Pick<DashboardData, "accounts" | 
       suggestions.set(card.id, suggestion);
     }
   }
-  return [...suggestions.values()].sort((a, b) => b.amountCents - a.amountCents || a.cardName.localeCompare(b.cardName));
+  return [...suggestions.values()].map(suggestion => {
+    const card = cards.get(suggestion.cardId)!;
+    let remaining = Number.isFinite(card.ledgerBalance) ? Math.max(0, -Math.round(card.ledgerBalance * 100)) : suggestion.amountCents;
+    const applications = suggestion.applications.flatMap(application => {
+      const amountCents = Math.min(remaining, application.amountCents);
+      remaining -= amountCents;
+      return amountCents > 0 ? [{ ...application, amountCents }] : [];
+    });
+    return { ...suggestion, applications, amountCents: applications.reduce((n, a) => n + a.amountCents, 0) };
+  }).filter(s => s.amountCents > 0).sort((a, b) => b.amountCents - a.amountCents || a.cardName.localeCompare(b.cardName));
+}
+
+export function cardPaymentPreview(dashboard: Pick<DashboardData, "accounts" | "managedCategories" | "activity" | "payments"> & Partial<Pick<DashboardData, "remainingToBudget">>, throughDate: string, sourceAccountId?: string, now = Date.now()) {
+  const fundedSuggestions = suggestCardPayments(dashboard, throughDate);
+  const affordability = paymentAffordability(dashboard, sourceAccountId, now);
+  let remaining = affordability.affordableCents;
+  const approved = new Map<string, CardPaymentSuggestion>();
+  // One cash limit shared across every card. Use the same oldest-first order
+  // across cards as across category funding; never promise the cash twice.
+  const ordered = fundedSuggestions.flatMap(card => card.applications.map(application => ({ card, application }))).sort((a, b) => a.application.date.localeCompare(b.application.date) || a.application.transactionId.localeCompare(b.application.transactionId));
+  for (const { card, application } of ordered) {
+    const amountCents = Math.min(remaining, application.amountCents);
+    if (amountCents <= 0) break;
+    remaining -= amountCents;
+    const suggestion = approved.get(card.cardId) ?? { cardId: card.cardId, cardName: card.cardName, amountCents: 0, applications: [] };
+    suggestion.amountCents += amountCents;
+    suggestion.applications.push({ ...application, amountCents });
+    approved.set(card.cardId, suggestion);
+  }
+  const fundedCents = fundedSuggestions.reduce((sum, card) => sum + card.amountCents, 0);
+  const suggestedCents = affordability.affordableCents - remaining;
+  return { ...affordability, fundedCents, suggestedCents, shortfallCents: Math.max(0, fundedCents - suggestedCents), cashAfterCents: affordability.cashCents - suggestedCents, fundedSuggestions, suggestions: [...approved.values()] };
 }

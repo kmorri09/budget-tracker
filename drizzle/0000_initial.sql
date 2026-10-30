@@ -308,6 +308,18 @@ CREATE TABLE IF NOT EXISTS "sync_locks" (
 ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "removed_at" timestamptz;
 
 -- Versioned application data repairs run once even though this schema file is idempotent.
+CREATE TABLE IF NOT EXISTS "card_refund_matches" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "refund_id" text NOT NULL REFERENCES "transactions"("id") ON DELETE CASCADE,
+  "transaction_id" text NOT NULL REFERENCES "transactions"("id") ON DELETE CASCADE,
+  "amount_cents" bigint NOT NULL CHECK ("amount_cents" >= 0),
+  "status" text NOT NULL CHECK ("status" IN ('confirmed', 'dismissed')),
+  "created_at" timestamptz DEFAULT now() NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "card_refund_matches_pair_idx" ON "card_refund_matches" ("refund_id", "transaction_id");
+CREATE INDEX IF NOT EXISTS "card_refund_matches_user_idx" ON "card_refund_matches" ("user_id");
+
 CREATE TABLE IF NOT EXISTS "app_migrations" (
   "id" text PRIMARY KEY NOT NULL,
   "applied_at" timestamptz DEFAULT now() NOT NULL

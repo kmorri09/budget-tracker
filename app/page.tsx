@@ -89,6 +89,7 @@ export default function Home() {
   const [obligationEditor, setObligationEditor] = useState<DashboardData["obligations"][number] | "new" | null>(null);
   const [matchReview, setMatchReview] = useState<DashboardData["obligations"][number] | null>(null);
   const [planningThrough, setPlanningThrough] = useState(() => dateInDays(14));
+  const [paymentSourceId, setPaymentSourceId] = useState<string | undefined>();
   const [paymentTransactionIds, setPaymentTransactionIds] = useState<string[]>([]);
   const [paymentAmountsCents, setPaymentAmountsCents] = useState<Record<string, number> | null>(null);
   const [suggestingCardPayment, setSuggestingCardPayment] = useState(false);
@@ -120,6 +121,11 @@ export default function Home() {
     readHash(); window.addEventListener("hashchange", readHash);
     return () => window.removeEventListener("hashchange", readHash);
   }, [refresh]);
+  useEffect(() => {
+    const onFocus = () => { void refresh(); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refresh]);
   useEffect(() => { if (toast) { const timer = setTimeout(() => setToast(""), 5000); return () => clearTimeout(timer); } }, [toast]);
   useEffect(() => {
     if (!quickOpen) return;
@@ -148,7 +154,7 @@ export default function Home() {
     event.preventDefault();
     navigate(next);
   }
-  function openAction(next: ActionType) { setQuickOpen(false); setPaymentImport(null); setPaymentAmountsCents(null); if (next !== "payment") setPaymentTransactionIds([]); setAction(next); }
+  function openAction(next: ActionType) { setPaymentSourceId(undefined); setQuickOpen(false); setPaymentImport(null); setPaymentAmountsCents(null); if (next !== "payment") setPaymentTransactionIds([]); setAction(next); }
   function viewCategory(category: string) { setDrilldown(current => ({ category, key: current.key + 1 })); navigate("transactions"); }
   function paySelected(rows: { id: string }[]) {
     const entries = rows.map(row => dashboard?.activity.find(entry => entry.id === row.id)).filter((entry): entry is DashboardData["activity"][number] => Boolean(entry));
@@ -156,6 +162,7 @@ export default function Home() {
     setPaymentImport(null); setPaymentAmountsCents(null); setPaymentTransactionIds(entries.map(entry => entry.id)); setAction("payment");
   }
   function chooseSuggestedPayment(suggestion: CardPaymentSuggestion) {
+    setPaymentSourceId(suggestion.sourceAccountId);
     setSuggestingCardPayment(false);
     setPaymentImport(null);
     setPaymentTransactionIds(suggestion.applications.map(application => application.transactionId));
@@ -185,14 +192,15 @@ export default function Home() {
         <section hidden={destination !== "home"} aria-label="Home"><Overview dashboard={dashboard} navigate={navigate} onAction={openAction} onReconcileBudget={() => setReconcilingBudget(true)} onFundObligations={() => setFundingObligations(true)} onCoverCashExpenses={() => setCoveringCashExpenses(true)} viewCategory={viewCategory} /></section>
         <section hidden={destination !== "transactions"} aria-label="Transactions">
           <div className="view-heading"><p>Money in is positive; money out is negative.</p><div className="section-actions"><button className="secondary-button" onClick={() => setCoveringCashExpenses(true)}>Cover cash expenses</button><button className="secondary-button" onClick={() => setReconcilingCoverage(true)}>Reconcile card coverage</button><button className="secondary-button" onClick={() => openAction("income")}>＋ Income</button><button className="primary-button" onClick={() => openAction("transaction")}>＋ Add transaction</button></div></div>
-          <DataTable key={drilldown.key} initialCategory={drilldown.category} title="Transactions" dated amountKey="amount" amountLabel="Net amount" rows={dashboard.activity.map(entry => ({ id: entry.id, name: entry.description, date: entry.date, account: entry.account, category: entry.category ?? "Uncategorized", type: kindLabel(entry.kind), paymentStatus: entry.paymentStatus, status: entry.pending ? "Pending" : kindLabel(entry.status), source: kindLabel(entry.source), amount: signedAmount(entry), remainingToPay: entry.remainingToPay }))}
-            columns={[{ key: "name", label: "Description" }, { key: "date", label: "Date" }, { key: "amount", label: "Amount", money: true }, { key: "category", label: "Category" }, { key: "account", label: "Account", detail: true }, { key: "type", label: "Type", detail: true }, { key: "paymentStatus", label: "Card coverage", detail: true }, { key: "status", label: "Status", detail: true }, { key: "source", label: "Source", detail: true }]}
+          <DataTable key={drilldown.key} initialCategory={drilldown.category} title="Transactions" dated amountKey="amount" amountLabel="Net amount" rows={dashboard.activity.map(entry => ({ id: entry.id, name: entry.description, date: entry.date, account: entry.account, category: entry.category ?? "Uncategorized", type: kindLabel(entry.kind), paymentStatus: entry.paymentStatus, status: entry.pending ? "Pending" : kindLabel(entry.status), source: kindLabel(entry.source), amount: signedAmount(entry), remainingToPay: entry.remainingToPay, refunded: entry.refunded ?? 0, coverage: entry.coverageLinks?.map(link => `${link.type}: ${link.description} ${money(link.amount)} (${link.date})`).join("; ") || "", cardCredit: entry.cardCreditApplied ?? 0 }))}
+            columns={[{ key: "name", label: "Description" }, { key: "date", label: "Date" }, { key: "amount", label: "Amount", money: true }, { key: "category", label: "Category" }, { key: "account", label: "Account", detail: true }, { key: "type", label: "Type", detail: true }, { key: "paymentStatus", label: "Card coverage", detail: true }, { key: "remainingToPay", label: "Remaining to pay", money: true, detail: true }, { key: "refunded", label: "Refunded", money: true, detail: true }, { key: "coverage", label: "Linked refunds and payments", detail: true }, { key: "cardCredit", label: "Other card credit applied", money: true, detail: true }, { key: "status", label: "Status", detail: true }, { key: "source", label: "Source", detail: true }]}
             facets={[{ key: "category", label: "Category" }, { key: "account", label: "Account" }, { key: "type", label: "Type" }, { key: "paymentStatus", label: "Card coverage" }, { key: "status", label: "Status" }, { key: "source", label: "Source" }]}
             rowActions={[{ label: "Edit", onClick: row => { const transaction = dashboard.activity.find(entry => entry.id === row.id); if (transaction) editTransaction(transaction); } }]}
             selection={{ actionLabel: "Create card payment", isEligible: row => row.type === "Expense" && row.paymentStatus !== "Paid" && row.paymentStatus !== "Not applicable" && Number(row.remainingToPay) > 0, onAction: paySelected, suggestionAction: { label: "Suggest card payment", onAction: () => setSuggestingCardPayment(true) } }} />
         </section>
         <section hidden={destination !== "payments"} aria-label="Card payments">
           <div className="view-heading"><p>Each payment moves cash to a card and is applied to its oldest unpaid purchases.</p><div className="section-actions"><button className="primary-button" onClick={() => openAction("payment")}>＋ Record card payment</button></div></div>
+          {!!dashboard.refundReviews?.some(r => r.remaining > 0) && <article className="panel"><h3>Refunds to review</h3><p className="field-help">These posted credits already reduce what is owed on their cards. Match them to the original purchases for clear coverage history.</p>{dashboard.refundReviews.filter(r => r.remaining > 0).map(r => <button className="attention-link" key={r.id} onClick={() => { const entry = dashboard.activity.find(t => t.id === r.id); if (entry) editTransaction(entry); }}><span>{r.description} · {r.account} · {r.date}</span><strong>{money(r.remaining)} unmatched →</strong></button>)}</article>}
           <DataTable title="Card payments" dated amountKey="amount" amountLabel="Payment amount" rows={dashboard.payments.map(payment => ({ id: payment.id, name: payment.description, date: payment.date, fromAccount: payment.fromAccount, toAccount: payment.toAccount, amount: payment.amount, applied: payment.applied, remaining: payment.remaining, status: payment.status, covered: payment.covered, editable: payment.editable ? 1 : 0 }))}
             columns={[{ key: "name", label: "Description" }, { key: "date", label: "Date" }, { key: "fromAccount", label: "From account" }, { key: "toAccount", label: "To card" }, { key: "amount", label: "Amount", money: true }, { key: "applied", label: "Applied to purchases", money: true, detail: true }, { key: "remaining", label: "Unapplied", money: true, detail: true }, { key: "status", label: "Status", detail: true }, { key: "covered", label: "Covered purchases", detail: true }]}
             facets={[{ key: "fromAccount", label: "From account" }, { key: "toAccount", label: "To card" }, { key: "status", label: "Status" }]}
@@ -231,7 +239,7 @@ export default function Home() {
     {mobileMoreOpen && <div className="mobile-more-layer"><button className="mobile-more-dismiss" aria-label="Close more navigation" onClick={() => setMobileMoreOpen(false)} /><div id="mobile-more-menu" className="mobile-more-menu" role="menu" aria-label="More destinations">{mobileMoreNavigation.map(item => <a role="menuitem" key={item.key} href={`/#${item.key}`} className={destination === item.key ? "active" : ""} aria-current={destination === item.key ? "page" : undefined} onClick={event => followNavigation(event, item.key)}><span aria-hidden="true"><NavigationIcon item={item} /></span><strong>{item.label}</strong></a>)}</div></div>}
     <nav className="mobile-nav" aria-label="Mobile navigation">{mobilePrimaryNavigation.map(item => <a key={item.key} href={`/#${item.key}`} className={"mobile-nav-item " + (destination === item.key ? "active" : "")} aria-current={destination === item.key ? "page" : undefined} onClick={event => followNavigation(event, item.key)}><span aria-hidden="true"><NavigationIcon item={item} /></span>{item.label}{item.key === "review" && !!dashboard?.reviews.length && <em>{dashboard.reviews.length}</em>}</a>)}<button className={"mobile-nav-item mobile-more-trigger " + (mobileMoreNavigation.some(item => item.key === destination) ? "active" : "")} aria-current={mobileMoreNavigation.some(item => item.key === destination) ? "page" : undefined} aria-expanded={mobileMoreOpen} aria-controls="mobile-more-menu" aria-haspopup="menu" onClick={() => setMobileMoreOpen(open => !open)}><span aria-hidden="true">•••</span>More</button></nav>
     {dashboard && suggestingCardPayment && <SuggestCardPaymentDialog dashboard={dashboard} onClose={() => setSuggestingCardPayment(false)} onChoose={chooseSuggestedPayment} />}
-    {dashboard && action && <EntryForm action={action} dashboard={dashboard} initialPaymentTransactionIds={paymentTransactionIds} initialPaymentAmountsCents={paymentAmountsCents} initialPaymentImport={paymentImport} onClose={() => { setAction(null); setPaymentTransactionIds([]); setPaymentAmountsCents(null); setPaymentImport(null); }} onSaved={saved} />}
+    {dashboard && action && <EntryForm initialPaymentSourceId={paymentSourceId} action={action} dashboard={dashboard} initialPaymentTransactionIds={paymentTransactionIds} initialPaymentAmountsCents={paymentAmountsCents} initialPaymentImport={paymentImport} onClose={() => { setAction(null); setPaymentTransactionIds([]); setPaymentAmountsCents(null); setPaymentImport(null); }} onSaved={saved} />}
     {editingCategory && <CategoryEditDialog category={editingCategory} onClose={() => setEditingCategory(null)} onSaved={() => { setEditingCategory(null); setToast("Category details updated"); void refresh(); }} />}
     {dashboard && reconcilingCategories && <CategoryReconcileDialog categories={dashboard.categories} onClose={() => setReconcilingCategories(false)} onSaved={(count) => { setReconcilingCategories(false); setToast(count ? `${count} category ${count === 1 ? "balance" : "balances"} reconciled` : "Category balances already matched"); void refresh(); }} />}
     {dashboard && coveringCashExpenses && <CoverOverspendingDialog dashboard={dashboard} mode="cash" onClose={() => setCoveringCashExpenses(false)} onEditTransaction={entry => { setCoveringCashExpenses(false); editTransaction(entry); }} onSaved={(count, amount) => { setCoveringCashExpenses(false); setToast(count ? `${money(amount)} allocated to cover cash expenses in ${count} ${count === 1 ? "category" : "categories"}` : "Selected cash expenses are already funded"); void refresh(); }} />}

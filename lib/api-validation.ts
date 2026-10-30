@@ -76,6 +76,8 @@ export const paymentSchema = z.object({
   toAccountId: z.string().min(1),
   description: z.string().trim().min(1).max(200),
   applications: z.array(applicationSchema).optional(),
+  reviewToken: z.string().optional(),
+  alreadyMade: z.boolean().default(false),
 });
 export const paymentUpdateSchema = paymentSchema.extend({ id: z.string().min(1), applications: z.array(applicationSchema) });
 export const paymentDeleteSchema = z.object({ id: z.string().min(1), suppressProviderTransaction: z.boolean().optional().default(false) });

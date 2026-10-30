@@ -1,8 +1,9 @@
 import type { CategorySuggestion } from "./category-suggestions";
 
-export type Account = { id: string; name: string; institution: string; type: string; syncEnabled: boolean; isDefaultCash: boolean; active: boolean; openingBalance: number; providerBalance: number | null; providerBalanceAt: string | null; ledgerBalance: number };
+export type Account = { id: string; name: string; institution: string; type: string; syncEnabled: boolean; isDefaultCash: boolean; active: boolean; openingBalance: number; providerBalance: number | null; providerAvailableBalance?: number | null; providerAvailableBalanceAt?: string | null; providerBalanceAt: string | null; ledgerBalance: number };
 export type Category = { id: string; name: string; icon: string; available: number; target: number; allocated: number; spent: number; active: boolean };
-export type Entry = { id: string; description: string; amount: number; kind: string; source: string; status: string; pending: boolean; date: string; category: string | null; categoryId: string | null; account: string; accountId: string; paymentStatus: string; remainingToPay: number };
+export type Entry = { id: string; description: string; amount: number; kind: string; source: string; status: string; pending: boolean; date: string; category: string | null; categoryId: string | null; account: string; accountId: string; paymentStatus: string; remainingToPay: number; refunded?: number; cardCreditApplied?: number; coverageLinks?: { id: string; description: string; date: string; amount: number; type: string }[] };
+export type RefundReview = { id: string; description: string; date: string; amount: number; account: string; remaining: number; links: { transactionId: string; description: string; date: string; amount: number; confidence: string }[]; candidates: { transactionId: string; description: string; date: string; remaining: number }[] };
 export type CardPayment = { id: string; description: string; amount: number; date: string; fromAccount: string; fromAccountId: string; toAccount: string; toAccountId: string; applied: number; remaining: number; status: string; covered: string; applications: { transactionId: string; amount: number }[]; providerLinked: boolean; editable: boolean };
 export type Allocation = { id: string; date: string; amount: number; note: string; category: string; categoryId: string };
 export type BudgetAdjustment = { id: string; date: string; amount: number; note: string };
@@ -10,6 +11,7 @@ export type Obligation = { id: string; name: string; dueDate: string; nextCharge
 export type CategorizationRule = { id: string; matchText: string; categoryId: string; category: string };
 export type ReviewHistoryItem = { id: string; title: string; details: string | null; kind: string; status: string; createdAt: string; resolvedAt: string | null; resolution: string; canReopen: boolean; canUndoIgnore: boolean; reviewedTransaction: { description: string; amount: number; kind: string; date: string; account: string; category: string | null; status: string } | null; transaction: { id: string; description: string; amount: number; kind: string; date: string; account: string; category: string | null; status: string; source: string } | null };
 export type DashboardData = {
+  paymentReviewToken?: string; refundReviews?: RefundReview[];
   ledgerBalance: number; providerBalance: number | null; remainingToBudget: number;
   availableBreakdown: { income: number; adjustments: number; allocations: number; available: number };
   availableAdjustments: BudgetAdjustment[];

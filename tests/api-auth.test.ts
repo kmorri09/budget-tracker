@@ -4,6 +4,7 @@ import { DELETE as deleteAccount, GET as getAccounts, PATCH as patchAccount, POS
 import { DELETE as deleteAllocation, PATCH as patchAllocation } from "../app/api/allocations/route";
 import { DELETE as deleteAdjustment, PATCH as patchAdjustment } from "../app/api/budget/adjustments/route";
 import { DELETE as deletePayment, PATCH as patchPayment, POST as postPayment } from "../app/api/card-payments/route";
+import { POST as matchRefund } from "../app/api/card-refunds/route";
 import { GET as getCategories, PATCH as patchCategory, POST as postCategory } from "../app/api/categories/route";
 import { POST as coverOverspending } from "../app/api/categories/cover-overspending/route";
 import { DELETE as deleteEntry, PATCH as patchEntry, POST as postEntry } from "../app/api/entries/route";
@@ -44,6 +45,7 @@ test("all user-owned mutation routes reject unauthenticated requests", async () 
       ["card payments POST", postPayment, "POST", { amount: 10, date: "2026-09-08", fromAccountId: "cash", toAccountId: "card", description: "Payment" }],
       ["card payments PATCH", patchPayment, "PATCH", { id: "payment", amount: 10, date: "2026-09-08", fromAccountId: "cash", toAccountId: "card", description: "Payment", applications: [] }],
       ["card payments DELETE", deletePayment, "DELETE", { id: "payment" }],
+      ["card refunds POST", matchRefund, "POST", { refundId: "refund", transactionId: "purchase", amount: 10, status: "confirmed" }],
       ["categories POST", postCategory, "POST", { name: "Food" }],
       ["categories PATCH", patchCategory, "PATCH", { id: "category", name: "Food" }],
       ["categories cover overspending POST", coverOverspending, "POST", { categoryIds: ["food"], date: "2026-10-04" }],

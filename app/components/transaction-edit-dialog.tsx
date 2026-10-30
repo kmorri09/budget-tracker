@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { DashboardData } from "../../lib/workspace-types";
+import { money, type DashboardData } from "../../lib/workspace-types";
+import RefundReview from "./refund-review";
 import Typeahead from "./typeahead";
 import { useConfirmDialog } from "./confirm-dialog";
 import { ledgerEntryNoun, supportsBudgetCategory } from "../../lib/ledger-entry-types";
@@ -23,7 +24,7 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
   const [error, setError] = useState("");
   const [kind, setKind] = useState(transaction.kind);
   const [accountId, setAccountId] = useState(transaction.accountId);
-  const [paymentStatus, setPaymentStatus] = useState(transaction.paymentStatus === "Paid" ? "paid" : transaction.paymentStatus === "Partially paid" ? "partial" : "unpaid");
+  const [paymentStatus, setPaymentStatus] = useState("unchanged");
   const [categoryId, setCategoryId] = useState(transaction.categoryId ?? categorySuggestion?.categoryId ?? "");
   const [rememberCategory, setRememberCategory] = useState(false);
   const [ruleMatch, setRuleMatch] = useState(transaction.description);
@@ -64,6 +65,8 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
   return <dialog ref={dialog} className="entry-dialog" aria-labelledby={titleId} onCancel={event => { if (busy) event.preventDefault(); else onClose(); }}>
     <div className="modal-top"><div><p className="eyebrow">Manual control</p><h2 id={titleId}>Edit {entryNoun}</h2></div><button type="button" className="close-button" aria-label={`Close ${entryNoun} editor`} disabled={busy} onClick={onClose}>×</button></div>
     <p className="field-help">Change this imported or manual ledger entry directly. Account is where the entry occurred.</p>
+    {dashboard.refundReviews?.find(r => r.id === transaction.id) && <RefundReview refund={dashboard.refundReviews.find(r => r.id === transaction.id)!} dashboard={dashboard} onSaved={onSaved} />}
+    {coverageApplies && <section className="refund-review"><h3>{transaction.paymentStatus}</h3><p>Refunded: {money(transaction.refunded ?? 0)} · Other card credit: {money(transaction.cardCreditApplied ?? 0)} · Remaining to pay: <strong>{money(transaction.remainingToPay)}</strong></p>{transaction.coverageLinks?.map(link => <p className="field-help" key={`${link.type}-${link.id}`}>{link.type === "refund" ? "Refund" : "Payment"}: {link.description} · {link.date} · {money(link.amount)}</p>)}</section>}
     <form onSubmit={async event => {
       event.preventDefault(); setBusy(true); setError("");
       const approveReview = ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.value === "approve";
@@ -74,7 +77,7 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
         amount: String(values.amount),
         date: String(values.date),
         accountId: String(values.accountId),
-        ...(coverageApplies ? { paymentStatus: String(values.paymentStatus) } : {}),
+        ...(coverageApplies && paymentStatus !== "unchanged" ? { paymentStatus } : {}),
         categoryId: supportsBudgetCategory(String(values.kind)) ? String(values.categoryId ?? "") || null : null,
         description: String(values.description),
         status: String(values.status),
@@ -98,7 +101,7 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
         {categoryApplies && categorySuggestion && !transaction.categoryId && <div className="category-suggestion"><span className={`suggestion-confidence ${categorySuggestion.confidence}`}>{categorySuggestion.confidence} confidence</span><div><strong>{categorySuggestion.category} was preselected</strong><p>{categorySuggestion.reason} Nothing changes until you save.</p></div></div>}
         {transaction.source === "plaid" && ["expense", "refund"].includes(kind) && <div className="rule-builder"><label className="toggle-field"><input name="rememberCategory" type="checkbox" checked={rememberCategory} onChange={event => setRememberCategory(event.target.checked)} disabled={!categoryId} /> Always use this category for matching Plaid imports</label>{rememberCategory && <><label>Description contains<input name="categoryRuleMatch" value={ruleMatch} onChange={event => setRuleMatch(event.target.value)} minLength={3} maxLength={120} required /></label><p className="field-help">This categorizes the current transaction and future matching expenses or refunds. New imports still appear in Review.</p></>}</div>}
         <Typeahead label="Status" name="status" options={[{ value: "posted", label: "Posted" }, { value: "pending", label: "Pending" }, { value: "cleared", label: "Cleared" }, { value: "void", label: "Void" }]} initialValue={transaction.status} />
-        {coverageApplies && <><Typeahead label="Card coverage" name="paymentStatus" options={[{ value: "paid", label: "Paid" }, ...(transaction.paymentStatus === "Partially paid" ? [{ value: "partial", label: "Partially paid" }] : []), { value: "unpaid", label: "Unpaid" }]} value={paymentStatus} onChange={setPaymentStatus} /><p className="field-help">This changes the purchase’s coverage status in the app. It does not record a card payment or move money.</p></>}
+        {coverageApplies && <><Typeahead label="Card coverage" name="paymentStatus" options={[{ value: "unchanged", label: transaction.paymentStatus + " (keep coverage)" }, { value: "paid", label: "Paid" }, ...(transaction.paymentStatus === "Partially paid" ? [{ value: "partial", label: "Partially paid" }] : []), { value: "unpaid", label: "Unpaid" }]} value={paymentStatus} onChange={setPaymentStatus} /><p className="field-help">This changes the purchase’s coverage status in the app. It does not record a card payment or move money.</p></>}
       </fieldset>
       <p className="field-help">Source: {transaction.source.replaceAll("_", " ")}. Source and payment coverage history stay auditable; changing the account changes the payment method.</p>
       {error && <p className="form-error" role="alert">{error}</p>}
