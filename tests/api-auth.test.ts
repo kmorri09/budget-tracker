@@ -47,6 +47,7 @@ test("all user-owned mutation routes reject unauthenticated requests", async () 
       ["categories POST", postCategory, "POST", { name: "Food" }],
       ["categories PATCH", patchCategory, "PATCH", { id: "category", name: "Food" }],
       ["categories cover overspending POST", coverOverspending, "POST", { categoryIds: ["food"], date: "2026-10-04" }],
+      ["categories cover cash POST", coverOverspending, "POST", { categoryIds: ["food"], date: "2026-10-04", mode: "cash" }],
       ["categorization rules DELETE", deleteCategorizationRule, "DELETE", { id: "rule" }],
       ["entries POST", postEntry, "POST", { kind: "allocation", amount: -10, date: "2026-09-08", categoryId: "category", description: "Correction" }],
       ["entries PATCH", patchEntry, "PATCH", { id: "entry", kind: "expense", amount: 10, date: "2026-09-08", accountId: "cash", categoryId: "category", description: "Expense", status: "posted", pending: false }],

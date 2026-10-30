@@ -76,3 +76,40 @@ test("an invalid, inactive, or foreign category rejects the batch without any al
     assert.equal((await db.select().from(schema.auditEvents)).length, 0);
   }
 });
+
+test("cash covering allocates only the cash shortfall, preserves card debt, and is safe to repeat", async () => {
+  await db.insert(schema.accounts).values({ id: "card", userId: "user", name: "Card", institution: "Fixture", type: "credit_card" });
+  await db.insert(schema.transactions).values([
+    { id: "card-food", userId: "user", accountId: "card", categoryId: "groceries", kind: "expense", amountCents: 50000, effectiveDate: date, description: "Card groceries" },
+    { id: "card-only", userId: "user", accountId: "card", categoryId: "empty", kind: "expense", amountCents: 20000, effectiveDate: date, description: "Card only" },
+    { id: "pending", userId: "user", accountId: "cash", categoryId: "groceries", kind: "expense", amountCents: 1234, effectiveDate: date, description: "Pending", pending: true, status: "pending" },
+  ]);
+  const beforeTransactions = await db.select().from(schema.transactions);
+  assert.deepEqual(await coverCategoryOverspending(db, "user", ["groceries", "empty", "travel"], date, "cash"), { categoriesFunded: 1, amount: 165 });
+  const allocations = await db.select().from(schema.allocations);
+  const created = allocations.filter(row => row.note === "Cover cash expenses");
+  assert.equal(created.length, 1);
+  assert.equal(created[0].categoryId, "groceries");
+  assert.equal(created[0].amountCents, 16500);
+  assert.equal(calculateCategoryBalance("groceries", allocations, beforeTransactions).availableCents, -51234);
+  assert.deepEqual(await coverCategoryOverspending(db, "user", ["groceries", "empty", "travel"], date, "cash"), { categoriesFunded: 0, amount: 0 });
+  assert.deepEqual(await db.select().from(schema.transactions), beforeTransactions);
+  const audits = await db.select().from(schema.auditEvents);
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0].action, "cover_cash_expenses");
+  assert.equal(JSON.parse(audits[0].afterJson).availableCents, -51234);
+});
+
+test("cash covering validates ownership for the whole batch and rolls back failed audit writes", async () => {
+  await assert.rejects(coverCategoryOverspending(db, "user", ["groceries", "foreign"], date, "cash"), error => error instanceof CoverOverspendingError);
+  assert.equal((await db.select().from(schema.allocations)).length, 2);
+  await client.exec(`CREATE FUNCTION reject_cash_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit failure'; END; $$;
+    CREATE TRIGGER reject_cash_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION reject_cash_audit();`);
+  try {
+    await assert.rejects(coverCategoryOverspending(db, "user", ["groceries"], date, "cash"));
+    assert.equal((await db.select().from(schema.allocations)).length, 2);
+    assert.equal((await db.select().from(schema.auditEvents)).length, 0);
+  } finally {
+    await client.exec("DROP TRIGGER reject_cash_audit ON audit_events; DROP FUNCTION reject_cash_audit();");
+  }
+});
