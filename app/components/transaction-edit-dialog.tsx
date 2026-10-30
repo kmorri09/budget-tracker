@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { DashboardData } from "../../lib/workspace-types";
 import Typeahead from "./typeahead";
 import { useConfirmDialog } from "./confirm-dialog";
@@ -29,7 +29,16 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
   const [ruleMatch, setRuleMatch] = useState(transaction.description);
   const { confirm, dialog: confirmationDialog } = useConfirmDialog();
   const accounts = dashboard.managedAccounts.filter(account => account.active || account.id === transaction.accountId);
-  const categories = dashboard.managedCategories.filter(category => category.active || category.id === transaction.categoryId);
+  const categories = useMemo(() => {
+    const usage = new Map<string, number>();
+    for (const entry of dashboard.activity) {
+      if (!entry.categoryId || !supportsBudgetCategory(entry.kind) || ["void", "removed"].includes(entry.status)) continue;
+      usage.set(entry.categoryId, (usage.get(entry.categoryId) ?? 0) + 1);
+    }
+    return dashboard.managedCategories
+      .filter(category => category.active || category.id === transaction.categoryId)
+      .sort((a, b) => (usage.get(b.id) ?? 0) - (usage.get(a.id) ?? 0) || a.name.localeCompare(b.name));
+  }, [dashboard.activity, dashboard.managedCategories, transaction.categoryId]);
   const categoryApplies = supportsBudgetCategory(kind);
   const coverageApplies = kind === "expense" && dashboard.managedAccounts.some(account => account.id === accountId && account.type === "credit_card");
   const entryNoun = ledgerEntryNoun(kind);
