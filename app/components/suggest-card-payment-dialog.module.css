@@ -1,0 +1,30 @@
+.result { padding: 22px; border: 1px solid #cfe1d6; border-radius: 14px; background: #eef6f1; margin: 18px 0 24px; }
+.kicker { margin: 0; color: #395d49; font-size: 13px; font-weight: 600; }
+.total { display: block; margin: 6px 0; color: var(--green-dark); font-size: clamp(32px, 6vw, 44px); letter-spacing: -.04em; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.result > p:not(.kicker) { margin: 8px 0 18px; color: #395d49; font-size: 13px; line-height: 1.5; }
+.result label { max-width: 340px; }
+.explanation h3, .paymentsTitle { margin: 0 0 6px; font-size: 16px; }
+.intro { margin: 0 0 14px; color: #52655a; font-size: 12px; line-height: 1.5; }
+.checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.check { padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
+.check h4 { display: flex; align-items: center; gap: 7px; margin: 0 0 14px; font-size: 12px; font-weight: 600; }
+.check h4 span { display: grid; place-items: center; flex-shrink: 0; width: 23px; height: 23px; background: #edf2ee; border-radius: 50%; color: #395d49; }
+.check > strong { display: block; font-size: 25px; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.check p { margin: 4px 0 9px; font-size: 12px; font-weight: 600; }
+.check small { display: block; color: #52655a; font-size: 12px; line-height: 1.55; }
+.deferred { border-left: 3px solid #b07b2e; border-radius: 0 8px 8px 0; padding: 12px 14px; background: #fff8eb; color: #715321; font-size: 12px; line-height: 1.6; margin: 14px 0; }
+.deferred strong { display: block; }
+.rule { color: #52655a; font-size: 12px; line-height: 1.6; margin: 14px 0; }
+.calculation { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 14px 0; margin-bottom: 22px; }
+.calculation summary { color: var(--green-dark); font-size: 13px; font-weight: 600; cursor: pointer; padding: 3px 0; }
+.calculation dl { font-size: 12px; line-height: 1.5; }
+.calculation dl dt { color: #52655a; }
+.calculation > p { color: #52655a; font-size: 12px; line-height: 1.55; margin: 10px 0 0; }
+.subtotal { padding-top: 10px; border-top: 1px solid var(--line); font-weight: 600; }
+.cashAfter { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; line-height: 1.5; margin-top: 16px; }
+.cashAfter strong { white-space: nowrap; }
+@media (max-width: 540px) {
+  .checks { grid-template-columns: minmax(0, 1fr); }
+  .result { padding: 17px; margin-top: 14px; }
+  .check { padding: 14px; }
+}

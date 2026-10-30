@@ -1,3 +1,4 @@
+import { suggestCardPayments } from "./card-payment-suggestions";
 import { budgetToday } from "./budget-date";
 import { and, asc, eq, gte, lte, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -48,9 +49,11 @@ export async function createCardPayment(database: Pick<Database, "transaction">,
         const destination = currentWorkspace.accounts.find(a => a.id === to.id)!;
         if (amountCents > Math.max(0, -Math.round(destination.ledgerBalance * 100))) return NextResponse.json({ error: "This exceeds the card balance owed after refunds and credits. Refresh and reduce the payment." }, { status: 409 });
         const affordability = paymentAffordability(currentWorkspace, from.id);
-        if (amountCents > affordability.affordableCents) return NextResponse.json({ error: `This payment exceeds the $${(affordability.affordableCents / 100).toFixed(2)} available after protecting other allocations. Reduce the amount or reallocate funds.`, affordability }, { status: 409 });
+        if (amountCents > affordability.affordableCents) return NextResponse.json({ error: `This payment exceeds the $${(affordability.affordableCents / 100).toFixed(2)} available after protecting other allocations. Reduce the amount; this flow does not create allocations.`, affordability }, { status: 409 });
       }
       const coverageWorkspace = input.date === today ? currentWorkspace : await loadPaymentWorkspace(db, userId, input.date);
+      const historicalPayment = input.alreadyMade || matchedImports.length > 0;
+      const fundedByPurchase = new Map(suggestCardPayments(coverageWorkspace, input.date).filter(s => s.cardId === to.id).flatMap(s => s.applications).map(a => [a.transactionId, a.amountCents]));
       const expenseRows = await db.select().from(transactions).where(and(eq(transactions.userId, userId), eq(transactions.accountId, to.id), eq(transactions.kind, "expense"), eq(transactions.status, "posted"), eq(transactions.pending, false), lte(transactions.effectiveDate, input.date))).orderBy(asc(transactions.effectiveDate), asc(transactions.createdAt));
       const requested = input.applications ? input.applications.map(item => ({ transactionId: item.transactionId, amountCents: cents(item.amount) })) : null;
       if (requested && new Set(requested.map(a => a.transactionId)).size !== requested.length) return NextResponse.json({ error: "Each purchase can be applied only once" }, { status: 400 });
@@ -66,7 +69,8 @@ export async function createCardPayment(database: Pick<Database, "transaction">,
       } else {
         let remainingPayment = amountCents;
         for (const row of expenseRows) {
-          const remainingExpense = coverageWorkspace.cardCoverage.coverage.get(row.id)?.remainingCents ?? 0;
+          const coverageRemaining = coverageWorkspace.cardCoverage.coverage.get(row.id)?.remainingCents ?? 0;
+          const remainingExpense = historicalPayment ? coverageRemaining : Math.min(coverageRemaining, fundedByPurchase.get(row.id) ?? 0);
           if (!remainingExpense || remainingPayment <= 0) continue;
           const applied = Math.min(remainingExpense, remainingPayment);
           applications.push({ transactionId: row.id, amountCents: applied });
@@ -74,6 +78,7 @@ export async function createCardPayment(database: Pick<Database, "transaction">,
         }
       }
       const appliedCents = applications.reduce((sum, item) => sum + item.amountCents, 0);
+      if (!historicalPayment && (applications.some(a => a.amountCents > (fundedByPurchase.get(a.transactionId) ?? 0)) || appliedCents < amountCents)) return NextResponse.json({ error: "This payment includes purchases without confirmed category funding. Only purchases backed by existing allocations can be included; no allocations were created." }, { status: 409 });
       if (appliedCents > amountCents) return NextResponse.json({ error: "Applied purchases cannot exceed the payment amount" }, { status: 400 });
 
       const paymentId = randomUUID();
@@ -130,6 +135,10 @@ export async function updateCardPayment(database: Pick<Database, "transaction">,
         if (application.amountCents > capacity) return NextResponse.json({ error: `Applied amount exceeds the available balance for ${purchase.description}` }, { status: 400 });
       }
       const appliedCents = applications.reduce((sum, application) => sum + application.amountCents, 0);
+      if (!input.alreadyMade && !existing.providerTransactionId && !existing.destinationProviderTransactionId) {
+        const funded = new Map(suggestCardPayments(coverageWorkspace, input.date).filter(s => s.cardId === to.id).flatMap(s => s.applications).map(a => [a.transactionId, a.amountCents]));
+        if (appliedCents < amountCents || applications.some(a => a.amountCents > (funded.get(a.transactionId) ?? 0))) return NextResponse.json({ error: "Only purchases backed by existing allocations can be included. No allocations were created." }, { status: 409 });
+      }
       if (appliedCents > amountCents) return NextResponse.json({ error: "Applied purchases cannot exceed the payment amount" }, { status: 400 });
       const changes = { fromAccountId: from.id, toAccountId: to.id, amountCents, effectiveDate: input.date, description: input.description, updatedAt: new Date() };
       {

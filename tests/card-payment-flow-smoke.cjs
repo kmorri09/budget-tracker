@@ -10,7 +10,7 @@ function fixture() {
     { id: 'cash', name: 'Cash', type: 'savings', ledgerBalance: 1000, providerAvailableBalance: 1000, isDefaultCash: true },
     { id: 'card', name: 'Amex Gold', type: 'credit_card', ledgerBalance: -439.20 },
   ].map(a => ({ ...a, institution: 'Fixture', active: true, openingBalance: 0, providerBalance: a.ledgerBalance, providerBalanceAt: new Date().toISOString(), syncEnabled: true }));
-  const categories = [{ id: 'travel', name: 'Travel', available: 259.20 }, { id: 'rent', name: 'Rent', available: 400 }].map(c => ({ ...c, active: true, icon: '', target: 0, allocated: 0, spent: 0 }));
+  const categories = [{ id: 'travel', name: 'Travel', available: 259.20, allocated: 698.40 }, { id: 'rent', name: 'Rent', available: 400, allocated: 400 }].map(c => ({ ...c, active: true, icon: '', target: 0, spent: 0 }));
   const activity = [
     { id: 'full', description: 'Refunded airline purchase', amount: 140.01, remainingToPay: 0, refunded: 140.01, paymentStatus: 'Refunded' },
     { id: 'partial', description: 'Airline purchase', amount: 558.39, remainingToPay: 439.20, refunded: 119.19, paymentStatus: 'Partially refunded' },
@@ -50,9 +50,25 @@ function fixture() {
       await dialog.getByRole('button', { name: 'Review payment', exact: true }).waitFor({ state: 'visible' });
       await page.waitForFunction(() => { const b = [...document.querySelectorAll('dialog button')].find(b => b.textContent === 'Review payment'); return b && !b.disabled; });
       assert.match(await dialog.innerText(), /Suggest \$340\.80/);
-      assert.match(await dialog.innerText(), /Protected in other categories\s*\$659\.20/);
-      await dialog.getByText('View charges after refunds and payments').click();
+      assert.match(await dialog.innerText(), /only money already allocated/);
+      assert.match(await dialog.innerText(), /leaves allocations unchanged/);
+      await dialog.evaluate(node => { node.scrollTop = 0; });
+      await page.screenshot({ path: `.next/ui-smoke/payment-overview-${width}.png` });
+      assert.match(await dialog.getByRole('region', { name: 'Suggested payment total', exact: true }).innerText(), /\$340\.80/);
+      assert.match(await dialog.getByRole('region', { name: 'Category allocation check', exact: true }).innerText(), /\$439\.20/);
+      assert.match(await dialog.getByRole('region', { name: 'Cash check', exact: true }).innerText(), /\$340\.80/);
+      assert.match(await dialog.innerText(), /\$98\.40 of eligible purchases must wait/);
+      await dialog.getByText('How the cash limit is calculated', { exact: true }).click();
+      assert.match(await dialog.innerText(), /Less: protected category balances\s*−\$659\.20/);
+      assert.match(await dialog.innerText(), /not extra spending money/);
+      assert(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth), 'Preview should fit without horizontal scrolling');
+      await dialog.getByText('How the cash limit is calculated', { exact: true }).click();
+      await dialog.getByText('View charges included in this payment').click();
       assert(!await dialog.getByText('Refunded airline purchase', { exact: true }).count());
+      assert(!/\$0\.00 now/.test(await dialog.innerText()));
+      await dialog.getByText('Deferred by cash limit (1)', { exact: true }).click();
+      assert.match(await dialog.innerText(), /\$98\.40 deferred/);
+      assert.match(await dialog.innerText(), /not included in this payment/);
       await page.screenshot({ path: `.next/ui-smoke/payment-preview-${width}.png`, fullPage: true });
       await dialog.getByRole('button', { name: 'Review payment', exact: true }).click();
       dialog = page.getByRole('dialog', { name: 'Record card payment', exact: true });
@@ -60,7 +76,7 @@ function fixture() {
       assert.equal(await dialog.getByLabel('Amount', { exact: true }).inputValue(), '340.80');
       assert.match(await dialog.innerText(), /Maximum payment preserving allocations\s*\$340\.80/);
       await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-      await dialog.getByText('Refunds or coverage have changed.', { exact: false }).waitFor();
+      await dialog.getByText('Funding, refunds, or coverage have changed.', { exact: false }).waitFor();
       assert.equal(await dialog.getByRole('button', { name: 'Save', exact: true }).isDisabled(), true);
       assert.equal(requests[0].reviewToken, 'fixture-token');
       assert.equal(requests[0].applications[0].amount, 340.80);

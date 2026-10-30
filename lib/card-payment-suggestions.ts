@@ -45,7 +45,15 @@ export function suggestCardPayments(dashboard: Pick<DashboardData, "accounts" | 
   for (const [categoryId, entries] of unpaidByCategory) {
     const category = categories.get(categoryId)!;
     const unpaidCents = entries.reduce((sum, item) => sum + item.remainingCents, 0);
-    let fundedCents = Math.min(unpaidCents, Math.max(0, Math.round(category.available * 100) + unpaidCents));
+    // A card credit reduces the amount owed, but an unmatched refund must not
+    // also appear as cash funding for unrelated purchases in its category.
+    const unmatchedRefundCents = Math.max(0, Math.round((category.unmatchedRefunds ?? 0) * 100));
+    const allocated = category.cardFundingAllocated ?? category.allocated;
+    const available = category.cardFundingAvailable ?? category.available;
+    // Actual effective net allocations are the ceiling. Bank cash, an unassigned
+    // pool, or a positive balance alone are never proof of allocation funding.
+    const allocatedCents = Number.isFinite(allocated) ? Math.max(0, Math.round(allocated * 100)) : 0;
+    let fundedCents = Math.min(unpaidCents, allocatedCents, Math.max(0, Math.round(available * 100) + unpaidCents - unmatchedRefundCents));
     for (const { entry, remainingCents } of entries) {
       if (fundedCents <= 0) break;
       const appliedCents = Math.min(fundedCents, remainingCents);
@@ -88,5 +96,6 @@ export function cardPaymentPreview(dashboard: Pick<DashboardData, "accounts" | "
   }
   const fundedCents = fundedSuggestions.reduce((sum, card) => sum + card.amountCents, 0);
   const suggestedCents = affordability.affordableCents - remaining;
-  return { ...affordability, fundedCents, suggestedCents, shortfallCents: Math.max(0, fundedCents - suggestedCents), cashAfterCents: affordability.cashCents - suggestedCents, fundedSuggestions, suggestions: [...approved.values()] };
+  const unmatchedRefundCents = dashboard.managedCategories.reduce((sum, c) => sum + Math.max(0, Math.round((c.unmatchedRefunds ?? 0) * 100)), 0);
+  return { ...affordability, unmatchedRefundCents, fundedCents, suggestedCents, shortfallCents: Math.max(0, fundedCents - suggestedCents), cashAfterCents: affordability.cashCents - suggestedCents, fundedSuggestions, suggestions: [...approved.values()] };
 }

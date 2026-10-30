@@ -4,7 +4,7 @@ import { paymentAffordability } from "../lib/payment-affordability.ts";
 import { cardPaymentPreview } from "../lib/card-payment-suggestions.ts";
 const now = Date.parse("2026-10-30T03:00:00Z");
 const cash = (id, ledgerBalance, available = ledgerBalance) => ({ id, name: id, active: true, type: "savings", ledgerBalance, providerAvailableBalance: available, providerBalanceAt: new Date(now).toISOString() });
-const category = (id, available) => ({ id, name: id, available, active: true });
+const category = (id, available) => ({ id, name: id, available, active: true, allocated: 1000 });
 
 test("cash protects all positive allocations without counting a pending withdrawal twice", () => {
   const result = paymentAffordability({ accounts: [cash("savings", 4513.01), cash("checking", 150)], managedCategories: [category("rent", 1400), category("other", 2320.62), category("loan already pending", 0), category("overspent", -100)] }, "savings", now);

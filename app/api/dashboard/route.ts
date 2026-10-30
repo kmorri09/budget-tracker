@@ -110,8 +110,8 @@ export async function GET() {
     availableAdjustments: budgetAdjustmentRows.map(adjustment => ({ id: adjustment.id, date: adjustment.effectiveDate, amount: centsToAmount(adjustment.amountCents), note: adjustment.note })),
     allocationPercent,
     trailing30: { income: centsToAmount(trailingIncomeCents), spending: centsToAmount(trailingSpendCents), startDate: isoDate(cutoff), endDate: isoDate(new Date()) },
-    categories: categoryBalances,
-    managedCategories,
+    categories: categoryBalances.map(c => ({ ...c, unmatchedRefunds: paymentWorkspace.managedCategories.find(row => row.id === c.id)?.unmatchedRefunds ?? 0, cardFundingAllocated: paymentWorkspace.managedCategories.find(row => row.id === c.id)?.allocated ?? 0, cardFundingAvailable: paymentWorkspace.managedCategories.find(row => row.id === c.id)?.available ?? 0 })),
+    managedCategories: managedCategories.map(c => ({ ...c, unmatchedRefunds: paymentWorkspace.managedCategories.find(row => row.id === c.id)?.unmatchedRefunds ?? 0, cardFundingAllocated: paymentWorkspace.managedCategories.find(row => row.id === c.id)?.allocated ?? 0, cardFundingAvailable: paymentWorkspace.managedCategories.find(row => row.id === c.id)?.available ?? 0 })),
     categorizationRules: categoryRuleRows.filter(rule => rule.active).map(rule => ({ id: rule.id, matchText: rule.matchText, categoryId: rule.categoryId, category: categoryById.get(rule.categoryId)?.name ?? "Removed category" })),
     allocations: allocationRows.map((row) => ({ id: row.id, date: row.effectiveDate, amount: centsToAmount(row.amountCents), note: row.note ?? "", category: categoryById.get(row.categoryId)?.name ?? "Uncategorized", categoryId: row.categoryId })),
     obligations: obligationRows.map((obligation) => {

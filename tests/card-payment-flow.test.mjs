@@ -31,6 +31,7 @@ const input = (workspace, extra = {}) => ({ fromAccountId: "cash", toAccountId: 
 
 test("existing refunds produce $0 and $439.20 remaining; a saved suggestion preserves all reserves", async () => {
   const original = await db.select().from(schema.transactions);
+  const originalAllocations = await db.select().from(schema.allocations);
   const workspace = await loadPaymentWorkspace(db, "owner", today);
   assert.equal(workspace.activity.find(t => t.id === "full-purchase").remainingToPay, 0);
   assert.equal(workspace.activity.find(t => t.id === "partial-purchase").remainingToPay, 439.20);
@@ -38,6 +39,7 @@ test("existing refunds produce $0 and $439.20 remaining; a saved suggestion pres
   assert.equal(preview.suggestedCents, 34080);
   assert.equal(preview.reservedCents, 65920);
   assert.deepEqual(await db.select().from(schema.transactions), original);
+  assert.deepEqual(await db.select().from(schema.allocations), originalAllocations);
   const response = await createCardPayment(db, "owner", input(workspace));
   assert.equal(response.status, 200, JSON.stringify(await response.clone().json()));
   const after = await loadPaymentWorkspace(db, "owner", today);
@@ -45,6 +47,44 @@ test("existing refunds produce $0 and $439.20 remaining; a saved suggestion pres
   assert.equal(Math.round(after.activity.find(t => t.id === "partial-purchase").remainingToPay * 100), 9840);
   assert.equal(cardPaymentPreview(after, today, "cash").suggestedCents, 0);
   assert.equal((await db.select().from(schema.auditEvents)).length, 1);
+  assert.deepEqual(await db.select().from(schema.allocations), originalAllocations);
+});
+
+test("a cash refund and bank cash cannot fund a category with no allocations, and no allocation is created", async () => {
+  await db.insert(schema.categories).values({ id: "unallocated", userId: "owner", name: "Unallocated category" });
+  await db.insert(schema.transactions).values([
+    { id: "cash-refund", userId: "owner", accountId: "cash", categoryId: "unallocated", kind: "refund", description: "Cash refund", amountCents: 10000, effectiveDate: today },
+    { id: "unallocated-purchase", userId: "owner", accountId: "card", categoryId: "unallocated", kind: "expense", description: "Purchase", amountCents: 10000, effectiveDate: today },
+  ]);
+  const originalAllocations = await db.select().from(schema.allocations);
+  const workspace = await loadPaymentWorkspace(db, "owner", today);
+  const category = workspace.managedCategories.find(c => c.id === "unallocated");
+  assert.equal(category.allocated, 0);
+  assert.equal(category.available, 0);
+  assert(!cardPaymentPreview(workspace, today, "cash").fundedSuggestions.flatMap(s => s.applications).some(a => a.transactionId === "unallocated-purchase"));
+  const response = await createCardPayment(db, "owner", input(workspace, { amount: 100, applications: [{ transactionId: "unallocated-purchase", amount: 100 }] }));
+  assert.equal(response.status, 409);
+  assert.deepEqual(await db.select().from(schema.allocations), originalAllocations);
+  assert.equal((await db.select().from(schema.cardPayments)).length, 0);
+});
+
+test("future allocations never fund today's or future-dated proposed payments", async () => {
+  await db.insert(schema.categories).values({ id: "scheduled", userId: "owner", name: "Scheduled funding" });
+  await db.insert(schema.allocations).values([
+    { id: "scheduled-current", userId: "owner", categoryId: "scheduled", amountCents: 10000, effectiveDate: today },
+    { id: "scheduled-future", userId: "owner", categoryId: "scheduled", amountCents: 10000, effectiveDate: "2099-01-01" },
+  ]);
+  await db.insert(schema.transactions).values([
+    { id: "consumed-funding", userId: "owner", accountId: "cash", categoryId: "scheduled", kind: "expense", description: "Cash expense", amountCents: 10000, effectiveDate: today },
+    { id: "needs-funding", userId: "owner", accountId: "card", categoryId: "scheduled", kind: "expense", description: "Card expense", amountCents: 10000, effectiveDate: today },
+  ]);
+  for (const date of [today, "2099-01-01"]) {
+    const workspace = await loadPaymentWorkspace(db, "owner", date);
+    const category = workspace.managedCategories.find(c => c.id === "scheduled");
+    assert.equal(category.allocated, 100);
+    assert.equal(category.available, -100);
+    assert(!cardPaymentPreview(workspace, date, "cash").fundedSuggestions.flatMap(s => s.applications).some(a => a.transactionId === "needs-funding"));
+  }
 });
 
 test("changed allocations or an intervening payment reject a stale preview without writes", async () => {
@@ -99,4 +139,22 @@ test("refund review validates ownership and capacity, audits decisions, and inva
   assert.equal((await saveCardRefundMatch(db, "owner", { ...decision, amount: 140.02, status: "confirmed" })).status, 409);
   assert.equal((await saveCardRefundMatch(db, "owner", { ...decision, status: "confirmed" })).status, 200);
   assert.equal((await loadPaymentWorkspace(db, "owner", today)).activity.find(t => t.id === "full-purchase").paymentStatus, "Refunded");
+});
+
+test("an ambiguous Target refund cannot fund unrelated Fun purchases in either the preview or save command", async () => {
+  await db.insert(schema.categories).values({ id: "fun", userId: "owner", name: "Fun (Steph)" });
+  await db.insert(schema.transactions).values([
+    { id: "target-a", userId: "owner", accountId: "card", categoryId: "fun", kind: "expense", description: "Target", amountCents: 6000, effectiveDate: "2026-09-20" },
+    { id: "target-b", userId: "owner", accountId: "card", categoryId: "fun", kind: "expense", description: "Target", amountCents: 6989, effectiveDate: "2026-10-18" },
+    { id: "target-refund", userId: "owner", accountId: "card", categoryId: "fun", kind: "refund", description: "Target", amountCents: 4545, effectiveDate: "2026-10-20" },
+    { id: "home-depot", userId: "owner", accountId: "card", categoryId: "fun", kind: "expense", description: "The Home Depot", amountCents: 292, effectiveDate: "2026-09-19" },
+  ]);
+  const workspace = await loadPaymentWorkspace(db, "owner", today);
+  assert.equal(workspace.managedCategories.find(c => c.id === "fun").unmatchedRefunds, 45.45);
+  assert.equal(workspace.activity.find(t => t.id === "home-depot").remainingToPay, 2.92);
+  assert(!cardPaymentPreview(workspace, today, "cash").fundedSuggestions.flatMap(s => s.applications).some(a => a.category === "Fun (Steph)"));
+  const response = await createCardPayment(db, "owner", input(workspace, { amount: 2.92, applications: [{ transactionId: "home-depot", amount: 2.92 }] }));
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error, /category funding/);
+  assert.equal((await db.select().from(schema.cardPayments)).length, 0);
 });
