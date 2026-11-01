@@ -175,3 +175,56 @@ test("an ambiguous Target refund cannot fund unrelated Fun purchases in either t
   assert.match((await response.json()).error, /category funding/);
   assert.equal((await db.select().from(schema.cardPayments)).length, 0);
 });
+
+test("fully matching a refund resolves its import reminders and audits the approval once", async () => {
+  await db.insert(schema.reviewItems).values([
+    { id: "refund-review", userId: "owner", transactionId: "full-refund", kind: "bank_transaction", title: "Review refund" },
+    { id: "refund-review-duplicate", userId: "owner", transactionId: "full-refund", kind: "bank_transaction", title: "Review refund again" },
+    { id: "purchase-review", userId: "owner", transactionId: "full-purchase", kind: "bank_transaction", title: "Review purchase" },
+    { id: "conflict", userId: "owner", transactionId: "full-refund", kind: "provider_update_conflict", title: "Check bank update" },
+    { id: "foreign-review", userId: "other", transactionId: "full-refund", kind: "bank_transaction", title: "Other user's reminder" },
+  ]);
+  const decision = { refundId: "full-refund", transactionId: "full-purchase", amount: 140.01, status: "confirmed" };
+  const response = await saveCardRefundMatch(db, "owner", decision);
+  assert.deepEqual(await response.json(), { ok: true, reviewResolved: true, remainingCents: 0 });
+  const reviews = new Map((await db.select().from(schema.reviewItems)).map(review => [review.id, review]));
+  for (const id of ["refund-review", "refund-review-duplicate"]) {
+    assert.equal(reviews.get(id).status, "resolved");
+    assert(reviews.get(id).resolvedAt);
+  }
+  for (const id of ["purchase-review", "conflict", "foreign-review"]) assert.equal(reviews.get(id).status, "open");
+  const approvals = (await db.select().from(schema.auditEvents)).filter(audit => audit.entityType === "review_item");
+  assert.equal(approvals.length, 2);
+  assert(approvals.every(audit => audit.action === "approve"));
+  assert.equal(JSON.parse(approvals[0].afterJson).transactionSnapshot.categoryName, "Travel");
+  assert.equal((await loadPaymentWorkspace(db, "owner", today)).cardCoverage.refunds.refunds.find(refund => refund.id === "full-refund").remainingCents, 0);
+  assert.equal((await (await saveCardRefundMatch(db, "owner", decision)).json()).reviewResolved, false);
+  assert.equal((await db.select().from(schema.auditEvents)).filter(audit => audit.entityType === "review_item").length, 2);
+});
+
+test("partial matches, dismissals and invalid matches leave the refund review open until the full amount is matched", async () => {
+  await db.insert(schema.reviewItems).values({ id: "refund-review", userId: "owner", transactionId: "full-refund", kind: "bank_transaction", title: "Review refund" });
+  const decision = { refundId: "full-refund", transactionId: "full-purchase", amount: 40, status: "confirmed" };
+  assert.equal((await (await saveCardRefundMatch(db, "owner", decision)).json()).remainingCents, 10001);
+  assert.equal((await db.select().from(schema.reviewItems))[0].status, "open");
+  await saveCardRefundMatch(db, "owner", { ...decision, status: "dismissed" });
+  assert.equal((await db.select().from(schema.reviewItems))[0].status, "open");
+  assert.equal((await saveCardRefundMatch(db, "owner", { ...decision, amount: 140.02 })).status, 409);
+  assert.equal((await db.select().from(schema.reviewItems))[0].status, "open");
+  await saveCardRefundMatch(db, "owner", decision);
+  await saveCardRefundMatch(db, "owner", { ...decision, transactionId: "partial-purchase", amount: 100.01 });
+  assert.equal((await db.select().from(schema.reviewItems))[0].status, "resolved");
+});
+
+test("failed review approval audits roll back the refund match and reminder together", async () => {
+  await db.insert(schema.reviewItems).values({ id: "refund-review", userId: "owner", transactionId: "full-refund", kind: "bank_transaction", title: "Review refund" });
+  await client.exec("CREATE FUNCTION reject_refund_approval() RETURNS trigger AS $$ BEGIN IF NEW.entity_type = 'review_item' THEN RAISE EXCEPTION 'approval audit failed'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql; CREATE TRIGGER reject_refund_approval BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION reject_refund_approval();");
+  try {
+    await assert.rejects(saveCardRefundMatch(db, "owner", { refundId: "full-refund", transactionId: "full-purchase", amount: 140.01, status: "confirmed" }));
+    assert.equal((await db.select().from(schema.cardRefundMatches)).length, 0);
+    assert.equal((await db.select().from(schema.reviewItems))[0].status, "open");
+    assert.equal((await db.select().from(schema.auditEvents)).length, 0);
+  } finally {
+    await client.exec("DROP TRIGGER reject_refund_approval ON audit_events; DROP FUNCTION reject_refund_approval();");
+  }
+});

@@ -1,10 +1,10 @@
 import { budgetToday } from "./budget-date";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { Database } from "./db";
-import { accounts, auditEvents, cardRefundMatches, transactions } from "./schema";
+import { accounts, auditEvents, cardRefundMatches, categories, reviewItems, transactions } from "./schema";
 import { matchCardRefunds } from "./card-refunds";
 import { isDiningBenefitCredit } from "./dining-credits";
 
@@ -35,7 +35,20 @@ export async function saveCardRefundMatch(database: Pick<Database, "transaction"
       const values = { id: randomUUID(), userId: userId, refundId: input.refundId, transactionId: input.transactionId, amountCents, status: input.status };
       await db.insert(cardRefundMatches).values(values).onConflictDoUpdate({ target: [cardRefundMatches.refundId, cardRefundMatches.transactionId], set: { amountCents, status: input.status } });
       await db.insert(auditEvents).values({ id: randomUUID(), userId: userId, action: input.status, entityType: "card_refund_match", entityId: input.refundId, afterJson: JSON.stringify(values) });
-      return NextResponse.json({ ok: true });
+      const matchedRefund = matchCardRefunds(rows, new Set(cardRows.filter(a => a.type === "credit_card").map(a => a.id)), [...others, values], today).refunds.find(row => row.id === refund.id)!;
+      let reviewResolved = false;
+      if (input.status === "confirmed" && matchedRefund.remainingCents === 0) {
+        // Completing this task also approves the refund's ordinary import
+        // reminder. Bank conflicts and reviews of the purchase remain separate.
+        const resolvedAt = new Date();
+        const approved = await db.update(reviewItems).set({ status: "resolved", resolvedAt }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, refund.id), eq(reviewItems.kind, "bank_transaction"), eq(reviewItems.status, "open"))).returning({ id: reviewItems.id, title: reviewItems.title });
+        if (approved.length) {
+          const category = refund.categoryId ? (await db.select({ name: categories.name }).from(categories).where(and(eq(categories.userId, userId), eq(categories.id, refund.categoryId))))[0] : null;
+          await db.insert(auditEvents).values(approved.map(review => ({ id: randomUUID(), userId, action: "approve", entityType: "review_item", entityId: review.id, createdAt: resolvedAt, afterJson: JSON.stringify({ title: review.title, transactionId: refund.id, reason: "refund_fully_matched", transactionSnapshot: { description: refund.description, amountCents: refund.amountCents, effectiveDate: refund.effectiveDate, kind: refund.kind, accountId: refund.accountId, accountName: cardRows.find(account => account.id === refund.accountId)?.name, categoryId: refund.categoryId, categoryName: category?.name, status: refund.status } }) })));
+          reviewResolved = true;
+        }
+      }
+      return NextResponse.json({ ok: true, reviewResolved, remainingCents: matchedRefund.remainingCents });
     }, { isolationLevel: "serializable" });
   } catch (error) {
     if ((error as { code?: string }).code === "40001") return NextResponse.json({ error: "Refunds changed while saving. Refresh and review the match." }, { status: 409 });

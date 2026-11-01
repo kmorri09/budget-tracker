@@ -16,7 +16,7 @@ export default function RefundReview({ refund, dashboard, onSaved }: { refund: R
       const response = await fetch("/api/card-refunds", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refundId: refund.id, transactionId: id, amount: value, status }) });
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error ?? "Could not save the refund match.");
-      onSaved(status === "confirmed" ? "Refund matched; card coverage recalculated" : "Refund match dismissed; card credit preserved");
+      onSaved(status === "confirmed" ? result?.reviewResolved ? "Refund matched and reviewed; card coverage recalculated" : "Refund matched; card coverage recalculated" : "Refund match dismissed; card credit preserved");
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not save the refund match."); }
     finally { setBusy(false); }
   }

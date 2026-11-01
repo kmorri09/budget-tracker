@@ -36,7 +36,7 @@ function fixture() {
         if (url.pathname === '/api/connections') return route.fulfill({ json: { configured: false, connections: [] } });
         if (url.pathname === '/api/reviews') return route.fulfill({ json: { reviews: data.reviews } });
         if (url.pathname === '/api/entries') { entryRequests.push(request.postDataJSON()); return route.fulfill({ json: { ok: true } }); }
-        if (url.pathname === '/api/card-refunds') { requests.push(request.postDataJSON()); if (matchingRefundQueue) data.refundReviews[0].remaining = 0; return route.fulfill({ json: { ok: true } }); }
+        if (url.pathname === '/api/card-refunds') { requests.push(request.postDataJSON()); if (matchingRefundQueue) { data.refundReviews[0].remaining = 0; data.reviews = data.reviews.filter(item => item.transaction?.id !== 'refund' || item.kind !== 'bank_transaction'); } return route.fulfill({ json: { ok: true } }); }
         if (url.pathname === '/api/obligations/matches') { requests.push(request.postDataJSON()); data.obligations[0].suggestion = null; return route.fulfill({ json: { ok: true } }); }
         if (url.pathname === '/api/card-payments') {
           requests.push(request.postDataJSON());
@@ -117,8 +117,8 @@ function fixture() {
       await dialog.getByRole('button', { name: 'Save', exact: true }).click();
       await dialog.waitFor({ state: 'hidden' });
       assert.equal(entryRequests[1].paymentStatus, 'paid', 'Explicit coverage correction must remain available');
-      // All pending matching work belongs in Reviews, including when imports are clear.
-      data.reviews = [];
+      // A full match must clear both its matching task and ordinary import reminder.
+      data.reviews = [{ id: 'refund-import', kind: 'bank_transaction', title: 'Review refund import', details: 'Confirm this refund.', transaction: data.activity.find(t => t.id === 'refund'), suggestion: null }];
       data.refundReviews[0].remaining = 140.01;
       data.refundReviews[0].links = [];
       for (const [id, description] of [['dunkin', "Dunkin' Donuts"], ['dining-credit', 'AMEX Dining Credit']]) {
@@ -131,7 +131,7 @@ function fixture() {
       await page.reload();
       assert.equal(await page.getByRole('heading', { name: 'Refunds to review', exact: true }).count(), 0, 'Card payments must not host a review queue');
       await page.goto(base + '/#home');
-      await page.getByRole('link', { name: /Review inbox.*2 open/ }).waitFor();
+      await page.getByRole('link', { name: /Review inbox.*3 open/ }).waitFor();
       await page.goto(base + '/#review');
       const inbox = page.getByRole('region', { name: 'Reviews', exact: true });
       await inbox.getByRole('heading', { name: 'Refunds to review', exact: true }).waitFor();
@@ -139,7 +139,7 @@ function fixture() {
       assert.equal(await inbox.getByText('AMEX Dining Credit', { exact: true }).count(), 0);
       assert.equal(await inbox.getByText('Nothing needs review right now.', { exact: true }).count(), 0);
       const nav = page.getByRole('navigation', { name: width === 390 ? 'Mobile navigation' : 'Primary navigation', exact: true });
-      assert.match(await nav.getByRole('link', { name: /Reviews/ }).innerText(), /2/);
+      assert.match(await nav.getByRole('link', { name: /Reviews/ }).innerText(), /3/);
       await inbox.getByRole('searchbox', { name: 'Search reviews', exact: true }).fill('no such review');
       await inbox.getByText('No matching reviews.', { exact: true }).waitFor();
       await inbox.getByRole('searchbox').fill('Sample bill');
@@ -153,6 +153,7 @@ function fixture() {
       await dialog.getByRole('button', { name: 'Match refund to purchase', exact: true }).click();
       await dialog.waitFor({ state: 'hidden' });
       await inbox.getByRole('button', { name: 'Match refund', exact: true }).waitFor({ state: 'hidden' });
+      assert.equal(await inbox.getByRole('button', { name: 'Edit refund', exact: true }).count(), 0, 'Matching must also clear the refund import reminder');
       assert.match(await nav.getByRole('link', { name: /Reviews/ }).innerText(), /1/);
       await inbox.getByRole('button', { name: 'Review suggested charge', exact: true }).click();
       dialog = page.getByRole('dialog', { name: 'Review suggested charge', exact: true });
