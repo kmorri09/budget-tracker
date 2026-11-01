@@ -27,7 +27,7 @@ function fixture() {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       currentPage = page;
       page.setDefaultTimeout(10000);
-      const errors = [], requests = [], entryRequests = []; let data = fixture(), matchingRefundQueue = false;
+      const errors = [], requests = [], entryRequests = []; let data = fixture(), matchingRefundQueue = false, failNextRefundMatch = false;
       page.on('pageerror', error => { errors.push(error.message); console.error('Browser error:', error.stack); });
       await page.route('**/api/**', async route => {
         const request = route.request(); const url = new URL(request.url());
@@ -36,7 +36,7 @@ function fixture() {
         if (url.pathname === '/api/connections') return route.fulfill({ json: { configured: false, connections: [] } });
         if (url.pathname === '/api/reviews') return route.fulfill({ json: { reviews: data.reviews } });
         if (url.pathname === '/api/entries') { entryRequests.push(request.postDataJSON()); return route.fulfill({ json: { ok: true } }); }
-        if (url.pathname === '/api/card-refunds') { requests.push(request.postDataJSON()); if (matchingRefundQueue) { data.refundReviews[0].remaining = 0; data.reviews = data.reviews.filter(item => item.transaction?.id !== 'refund' || item.kind !== 'bank_transaction'); } return route.fulfill({ json: { ok: true } }); }
+        if (url.pathname === '/api/card-refunds') { requests.push(request.postDataJSON()); if (failNextRefundMatch) { failNextRefundMatch = false; return route.fulfill({ status: 409, json: { error: 'Choose a purchase with enough remaining refund capacity.' } }); } if (matchingRefundQueue) { data.refundReviews[0].remaining = 0; data.reviews = data.reviews.filter(item => item.transaction?.id !== 'refund' || item.kind !== 'bank_transaction'); } return route.fulfill({ json: { ok: true } }); }
         if (url.pathname === '/api/obligations/matches') { requests.push(request.postDataJSON()); data.obligations[0].suggestion = null; return route.fulfill({ json: { ok: true } }); }
         if (url.pathname === '/api/card-payments') {
           requests.push(request.postDataJSON());
@@ -150,9 +150,20 @@ function fixture() {
       await inbox.getByRole('button', { name: 'Match refund', exact: true }).click();
       dialog = page.getByRole('dialog', { name: 'Edit refund', exact: true });
       await dialog.getByLabel('Original purchase', { exact: false }).selectOption('full');
-      await dialog.getByRole('button', { name: 'Match refund to purchase', exact: true }).click();
+      // Selecting a purchase and category, then using the ordinary Save, must persist the match.
+      await dialog.getByLabel('Category', { exact: true }).fill('Travel');
+      await dialog.getByRole('option', { name: 'Travel', exact: true }).click();
+      assert.equal(await dialog.getByRole('button', { name: 'Save and Approve', exact: true }).count(), 1);
+      assert.equal(await dialog.getByRole('button', { name: 'Match refund to purchase', exact: true }).count(), 0);
+      failNextRefundMatch = true;
+      await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+      await dialog.getByText('Transaction edits saved, but the refund match was not saved.', { exact: false }).waitFor();
+      assert(await dialog.isVisible(), 'A failed match must not close the dialog or claim success');
+      await dialog.getByRole('button', { name: 'Save', exact: true }).click();
       await dialog.waitFor({ state: 'hidden' });
       await inbox.getByRole('button', { name: 'Match refund', exact: true }).waitFor({ state: 'hidden' });
+      assert.deepEqual(requests.at(-1), { refundId: 'refund', transactionId: 'full', amount: 140.01, status: 'confirmed' });
+      assert.equal(entryRequests.at(-1).categoryId, 'travel');
       assert.equal(await inbox.getByRole('button', { name: 'Edit refund', exact: true }).count(), 0, 'Matching must also clear the refund import reminder');
       assert.match(await nav.getByRole('link', { name: /Reviews/ }).innerText(), /1/);
       await inbox.getByRole('button', { name: 'Review suggested charge', exact: true }).click();
@@ -161,6 +172,16 @@ function fixture() {
       await dialog.waitFor({ state: 'hidden' });
       await inbox.getByText('Nothing needs review right now.', { exact: true }).waitFor();
       assert.equal(await nav.getByRole('link', { name: /Reviews/ }).locator('em').count(), 0);
+      data.refundReviews[0].remaining = 140.01;
+      await page.reload();
+      await inbox.getByRole('button', { name: 'Match refund', exact: true }).click();
+      dialog = page.getByRole('dialog', { name: 'Edit refund', exact: true });
+      assert.equal(await dialog.getByRole('button', { name: 'Save and Approve', exact: true }).count(), 0);
+      await dialog.getByLabel('Original purchase', { exact: false }).selectOption('full');
+      await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await inbox.getByText('Nothing needs review right now.', { exact: true }).waitFor();
+      assert.deepEqual(requests.at(-1), { refundId: 'refund', transactionId: 'full', amount: 140.01, status: 'confirmed' });
       assert.deepEqual(errors, []);
       console.log(`Payment preview, stale save, and refund review passed at ${width}px`);
       await page.close();

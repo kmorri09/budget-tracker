@@ -20,6 +20,7 @@ const kindOptions = [
 export default function TransactionEditDialog({ transaction, categorySuggestion, dashboard, onClose, onSaved }: { transaction: DashboardData["activity"][number]; categorySuggestion?: DashboardData["reviews"][number]["suggestion"]; dashboard: DashboardData; onClose: () => void; onSaved: (message: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const formId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [kind, setKind] = useState(transaction.kind);
@@ -65,8 +66,8 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
   return <dialog ref={dialog} className="entry-dialog" aria-labelledby={titleId} onCancel={event => { if (busy) event.preventDefault(); else onClose(); }}>
     <div className="modal-top"><div><p className="eyebrow">Manual control</p><h2 id={titleId}>Edit {entryNoun}</h2></div><button type="button" className="close-button" aria-label={`Close ${entryNoun} editor`} disabled={busy} onClick={onClose}>×</button></div>
     <p className="field-help">Change this imported or manual ledger entry directly. Account is where the entry occurred.</p>
-    {dashboard.refundReviews?.find(r => r.id === transaction.id) && <RefundReview refund={dashboard.refundReviews.find(r => r.id === transaction.id)!} dashboard={dashboard} onSaved={onSaved} />}
-    <form onSubmit={async event => {
+    {dashboard.refundReviews?.find(r => r.id === transaction.id) && <RefundReview refund={dashboard.refundReviews.find(r => r.id === transaction.id)!} dashboard={dashboard} onSaved={onSaved} formId={formId} disabled={busy} onBusyChange={setBusy} />}
+    <form id={formId} onSubmit={async event => {
       event.preventDefault(); setBusy(true); setError("");
       const approveReview = ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.value === "approve";
       const values = Object.fromEntries(new FormData(event.currentTarget));
@@ -86,9 +87,18 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
         categoryRuleMatch: String(values.categoryRuleMatch ?? ""),
       };
       try {
+        const refundTransactionId = String(values.refundTransactionId ?? "");
+        if (refundTransactionId && payload.kind !== "refund") throw new Error("Keep the type as Refund to save a purchase match.");
         const response = await fetch("/api/entries", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const result = await response.json().catch(() => null);
         if (!response.ok) throw new Error(result?.error ?? "Could not update transaction.");
+        if (refundTransactionId) {
+          const matchResponse = await fetch("/api/card-refunds", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refundId: transaction.id, transactionId: refundTransactionId, amount: Number(values.refundMatchAmount), status: "confirmed" }) });
+          const matchResult = await matchResponse.json().catch(() => null);
+          if (!matchResponse.ok) throw new Error(`Transaction edits saved, but the refund match was not saved. ${matchResult?.error ?? "Please retry."}`);
+          onSaved(matchResult?.remainingCents > 0 ? `Refund match saved; ${money(matchResult.remainingCents / 100)} still needs matching` : "Refund matched and saved; card coverage recalculated");
+          return;
+        }
         onSaved(result?.ruleSaved ? `Entry ${approveReview ? "updated and approved" : "updated"}; future Plaid imports containing “${ruleMatch.trim()}” will use this category` : approveReview ? "Entry updated and approved" : "Entry updated");
       } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not update entry."); } finally { setBusy(false); }
     }}>
