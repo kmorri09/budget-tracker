@@ -26,6 +26,12 @@ test("category-backed payments do not silently spend money still shown as availa
   assert.equal(result.affordableCents, 52247);
 });
 
+test("dashboard cash checks protect funding reserved for pending card charges", () => {
+  const result = paymentAffordability({ accounts: [cash("cash", 100)], managedCategories: [{ ...category("reserved", 20), cardFundingAvailable: 70 }] }, "cash", now);
+  assert.equal(result.reservedCents, 7000);
+  assert.equal(result.affordableCents, 3000);
+});
+
 test("fresh available balances cap the ledger; stale balances fall back to ledger with a warning", () => {
   assert.equal(paymentAffordability({ accounts: [cash("a", 100, 60)], managedCategories: [] }, undefined, now).affordableCents, 6000);
   const stale = { ...cash("a", 80, 100), providerBalanceAt: "2026-10-01T00:00:00Z" };

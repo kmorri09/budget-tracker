@@ -19,7 +19,7 @@ export function paymentAffordability(dashboard: Pick<DashboardData, "accounts" |
   const cashCents = accounts.reduce((sum, a) => sum + a.availableCents, 0);
   // Positive balances are money left for other uses after purchases. Obligations
   // funded in those categories must not be reserved a second time.
-  const reservedCents = dashboard.managedCategories.reduce((sum, c) => sum + Math.max(0, Math.round(c.available * 100)), 0);
+  const reservedCents = dashboard.managedCategories.reduce((sum, c) => sum + Math.max(0, Math.round((c.cardFundingAvailable ?? c.available) * 100)), 0);
   // Category-backed purchases must not quietly consume the unassigned pool.
   // Allocate that money first so the budget cannot promise it again afterward.
   const unassignedCents = Math.max(0, Math.round((dashboard.remainingToBudget ?? 0) * 100));

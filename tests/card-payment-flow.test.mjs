@@ -104,6 +104,35 @@ test("future allocations never fund today's or future-dated proposed payments", 
   }
 });
 
+test("pending refunds cannot create payment funding from already-consumed allocations", async () => {
+  await db.insert(schema.categories).values({ id: "transport", userId: "owner", name: "Transportation" });
+  await db.insert(schema.allocations).values({ id: "transport-fund", userId: "owner", categoryId: "transport", amountCents: 10000, effectiveDate: today });
+  await db.insert(schema.transactions).values([
+    { id: "used-cash", userId: "owner", accountId: "cash", categoryId: "transport", kind: "expense", description: "Paid", amountCents: 10000, effectiveDate: today },
+    { id: "ride", userId: "owner", accountId: "card", categoryId: "transport", kind: "expense", description: "Ride", amountCents: 3000, effectiveDate: today },
+    { id: "pending-refund", userId: "owner", accountId: "card", categoryId: "transport", kind: "refund", description: "Lyft", amountCents: 5000, effectiveDate: today, pending: true, status: "pending" },
+  ]);
+  const workspace = await loadPaymentWorkspace(db, "owner", today);
+  assert.equal(workspace.managedCategories.find(c => c.id === "transport").available, -30);
+  assert(!cardPaymentPreview(workspace, today, "cash").fundedSuggestions.flatMap(s => s.applications).some(a => a.transactionId === "ride"));
+});
+
+test("pending card charges keep cash reserved and do not consume older posted purchase funding", async () => {
+  const original = await loadPaymentWorkspace(db, "owner", today);
+  const before = cardPaymentPreview(original, today, "cash");
+  await db.insert(schema.transactions).values({ id: "pending-charge", userId: "owner", accountId: "card", categoryId: "travel", kind: "expense", description: "Pending hotel", amountCents: 10000, effectiveDate: today, pending: true, status: "pending" });
+  const during = cardPaymentPreview(await loadPaymentWorkspace(db, "owner", today), today, "cash");
+  assert.equal(during.fundedCents, before.fundedCents);
+  assert.equal(during.reservedCents, before.reservedCents);
+  assert.equal(during.suggestedCents, before.suggestedCents);
+  assert(!during.fundedSuggestions.flatMap(s => s.applications).some(a => a.transactionId === "pending-charge"));
+  const { eq } = await import("drizzle-orm");
+  await db.update(schema.transactions).set({ pending: false, status: "posted" }).where(eq(schema.transactions.id, "pending-charge"));
+  const posted = cardPaymentPreview(await loadPaymentWorkspace(db, "owner", today), today, "cash");
+  assert.equal(posted.reservedCents, before.reservedCents - 10000);
+  assert.equal(posted.fundedCents, before.fundedCents + 10000);
+});
+
 test("changed allocations or an intervening payment reject a stale preview without writes", async () => {
   const workspace = await loadPaymentWorkspace(db, "owner", today);
   await db.insert(schema.allocations).values({ id: "changed", userId: "owner", categoryId: "rent", amountCents: 1, effectiveDate: today });

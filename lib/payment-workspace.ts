@@ -34,7 +34,12 @@ export async function loadPaymentWorkspace(db: Pick<Database, "select">, userId:
   });
   const fundingThroughDate = throughDate < cashThroughDate ? throughDate : cashThroughDate;
   const effectiveAllocations = allocationRows.filter(a => a.effectiveDate <= fundingThroughDate);
-  const effectiveTransactions = transactionRows.filter(t => t.effectiveDate <= fundingThroughDate);
+  // Pending card activity has not moved cash. Keep its category money reserved
+  // until posting instead of freeing it for another payment. Pending refunds
+  // cannot fund payments either. Cash withdrawals still count immediately.
+  const effectiveTransactions = transactionRows.filter(t => t.effectiveDate <= fundingThroughDate
+    && !(t.kind === "refund" && (t.pending || t.status === "pending"))
+    && !(cardIds.has(t.accountId) && (t.pending || t.status === "pending")));
   const managedCategories = categoryRows.map(c => {
     const balance = calculateCategoryBalance(c.id, effectiveAllocations, effectiveTransactions);
     return { ...c, unmatchedRefunds: cardCoverage.refunds.refunds.filter(r => r.categoryId === c.id && !isDiningBenefitCredit(r)).reduce((sum, r) => sum + r.remainingCents, 0) / 100, icon: c.icon ?? "", target: c.targetCents / 100, available: balance.availableCents / 100, allocated: balance.allocatedCents / 100, spent: (balance.spendingCents - balance.refundCents) / 100 };
