@@ -56,3 +56,48 @@ test("editing/deleting a matched transaction recalculates links and never over-r
   assert.equal(calculate([row("a", "expense", 100), row("r", "refund", 100, { status: "removed" })], decision).coverage.get("a").remainingCents, 100);
   assert.equal(matchCardRefunds([row("a", "expense", 100), row("r", "refund", 100)], new Set(["amex"]), [], "2026-10-01").links.length, 0);
 });
+
+test("unmatched Amex dining benefits cover Dining instead of older travel charges", () => {
+  const result = calculate([
+    row("travel", "expense", 5000, { categoryId: "travel", description: "London Seats", effectiveDate: "2026-06-27" }),
+    row("meal", "expense", 2500, { categoryId: "dining", description: "Restaurant" }),
+    row("benefit", "refund", 1000, { categoryId: "dining", description: "AMEX Dining Credit" }),
+  ]);
+  assert.equal(result.coverage.get("travel").remainingCents, 5000);
+  assert.equal(result.coverage.get("meal").cardCreditCents, 1000);
+  assert.equal(result.coverage.get("meal").remainingCents, 1500);
+});
+
+test("refunded paid Dunkin spending carries its credit only to Dining on the same card", () => {
+  const result = calculate([
+    row("travel", "expense", 5000, { description: "London Seats", effectiveDate: "2026-06-27" }),
+    row("dunkin", "expense", 700, { categoryId: "dining", description: "Dunkin'" }),
+    row("meal", "expense", 2000, { categoryId: "dining", description: "Dinner", effectiveDate: "2026-10-09" }),
+    row("other", "expense", 2000, { accountId: "other-card", categoryId: "dining", description: "Other dinner" }),
+    row("credit", "refund", 700, { categoryId: "dining", description: "Dunkin'" }),
+  ], [], [{ transactionId: "dunkin", amountCents: 700 }]);
+  assert.equal(result.coverage.get("dunkin").status, "Refunded");
+  assert.equal(result.coverage.get("meal").remainingCents, 1300);
+  assert.equal(result.coverage.get("travel").remainingCents, 5000);
+  assert.equal(result.coverage.get("other").remainingCents, 2000);
+});
+
+test("unused Dining benefits remain card credit and cannot be explicitly matched to travel", () => {
+  const result = calculate([
+    row("travel", "expense", 5000),
+    row("benefit", "refund", 1000, { categoryId: "dining", description: "AMEX Dining Credit" }),
+  ], [{ refundId: "benefit", transactionId: "travel", amountCents: 1000, status: "confirmed" }]);
+  assert.equal(result.refunds.links.length, 0);
+  assert.equal(result.coverage.get("travel").remainingCents, 5000);
+  assert.equal(result.creditByCard.get("amex"), 1000);
+});
+
+test("pending or future Dining credits cannot reduce today's payment", () => {
+  for (const extra of [{ pending: true }, { status: "removed" }, { effectiveDate: "2026-11-01" }]) {
+    const result = calculate([
+      row("meal", "expense", 2000, { categoryId: "dining", description: "Dinner" }),
+      row("credit", "refund", 1000, { categoryId: "dining", description: "AMEX Dining Credit", ...extra }),
+    ]);
+    assert.equal(result.coverage.get("meal").remainingCents, 2000);
+  }
+});

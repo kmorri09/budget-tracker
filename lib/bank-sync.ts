@@ -4,6 +4,7 @@ import type { Database } from "./db";
 import { accounts, auditEvents, cardPaymentApplications, cardCoverageAdjustments, cardPayments, categorizationRules, categories, providerAccounts, providerConnections, rawProviderTransactions, reviewItems, syncLocks, syncRuns, transactions } from "./schema";
 import { accountType, findCardPaymentMatch, findLedgerDuplicate, mockProviderAccounts, preserveRemovedTransaction, syncCutoverDate, toNormalized, type CardPaymentMatchCandidate, type LedgerMatchCandidate, type NormalizedTransaction, type PlaidAccount, type PlaidTransaction } from "./bank-sync-core";
 import { findCategorizationRule } from "./categorization-rules";
+import { isDiningBenefitCredit } from "./dining-credits";
 import { activeExplicitRemovalIds } from "./explicit-removals";
 import { importedReviewDetails, importedReviewTitle } from "./ledger-entry-types";
 import { decryptProviderToken, encryptProviderToken, hasProviderEncryptionKey } from "./provider-crypto";
@@ -138,7 +139,9 @@ export async function syncConnection(db: Database, userId: string, connectionId:
       const localByProvider = new Map(providerRows.filter(row => row.localAccountId && syncableIds.has(row.localAccountId)).map(row => [row.providerAccountId, row.localAccountId!]));
       const accountTypeByProvider = new Map(providerRows.map(row => [row.providerAccountId, row.type]));
       const cutoverDate = syncCutoverDate(connection.createdAt);
-      const activeCategoryIds = new Set((await db.select({ id: categories.id }).from(categories).where(and(eq(categories.userId, userId), eq(categories.active, true)))).map(category => category.id));
+      const activeCategories = await db.select({ id: categories.id, name: categories.name }).from(categories).where(and(eq(categories.userId, userId), eq(categories.active, true)));
+      const activeCategoryIds = new Set(activeCategories.map(category => category.id));
+      const diningCategoryId = activeCategories.find(category => category.name.trim().toLowerCase() === "dining")?.id;
       const categoryRuleRows = (await db.select().from(categorizationRules).where(and(eq(categorizationRules.userId, userId), eq(categorizationRules.active, true)))).filter(rule => activeCategoryIds.has(rule.categoryId));
       const ledgerRows = localIds.length ? await db.select().from(transactions).where(and(eq(transactions.userId, userId), inArray(transactions.accountId, localIds))) : [];
       const removedLedgerIds = ledgerRows.filter(row => row.status === "removed").map(row => row.id);
@@ -193,6 +196,11 @@ export async function syncConnection(db: Database, userId: string, connectionId:
           overridesById.set(existing.id, bankFieldOverrides(edits).get(existing.id) ?? new Set());
         }
         const { changes, conflicts } = bankTransactionUpdate(existing, normalized, localAccountId, overridesById.get(existing.id));
+        if (diningCategoryId && accountTypeByProvider.get(normalized.providerAccountId) === "credit_card" && isDiningBenefitCredit(normalized)) {
+          changes.kind = "refund";
+          changes.categoryId = diningCategoryId;
+          if (existing.categoryId !== diningCategoryId || existing.kind !== "refund") await db.insert(auditEvents).values({ id: randomUUID(), userId, action: "auto_categorize", entityType: "provider_transaction", entityId: existing.id, beforeJson: JSON.stringify({ categoryId: existing.categoryId, kind: existing.kind }), afterJson: JSON.stringify({ categoryId: diningCategoryId, kind: "refund", matchedBy: "dining_benefit_credit" }) });
+        }
         const changed = Object.entries(changes).some(([key, value]) => existing[key as keyof typeof existing] !== value);
         if (changed) await db.update(transactions).set({ ...changes, updatedAt: now }).where(and(eq(transactions.id, existing.id), eq(transactions.userId, userId)));
         if (existing.status === "removed") await db.update(reviewItems).set({ status: "resolved", resolvedAt: now, details: "The provider restored this record; it is included in the ledger again." }).where(and(eq(reviewItems.userId, userId), eq(reviewItems.transactionId, existing.id), eq(reviewItems.kind, "provider_posted_removal"), eq(reviewItems.status, "open")));
@@ -341,16 +349,18 @@ export async function syncConnection(db: Database, userId: string, connectionId:
           if (normalized.date < cutoverDate) { suppressedCount++; continue; }
           const id = randomUUID();
           const categoryRule = normalized.kind === "expense" || normalized.kind === "refund" ? findCategorizationRule(normalized.description, categoryRuleRows) : null;
+          const benefitCategoryId = accountTypeByProvider.get(normalized.providerAccountId) === "credit_card" && isDiningBenefitCredit(normalized) ? diningCategoryId : undefined;
+          const categoryId = benefitCategoryId ?? categoryRule?.categoryId ?? null;
           const isTransfer = normalized.kind === "transfer_in" || normalized.kind === "transfer_out";
           const reviewDetails = isTransfer
             ? normalized.kind === "transfer_out" ? "No existing card payment matched this withdrawal. If it paid an untracked card, keep it as a transaction; otherwise record the card payment and this import will be reconciled automatically." : "Confirm this transfer is not new spending and keep it as a transaction if no matching entry exists."
-            : categoryRule ? "An automatic rule assigned this category. Confirm it or edit the transaction before approving." : importedReviewDetails(normalized.kind, "Review this imported ledger entry.");
+            : benefitCategoryId ? "This statement benefit offsets Dining spending. It stays in Dining and does not create cash or a new allocation." : categoryRule ? "An automatic rule assigned this category. Confirm it or edit the transaction before approving." : importedReviewDetails(normalized.kind, "Review this imported ledger entry.");
           await db.transaction(async tx => {
-            await tx.insert(transactions).values({ id, userId, accountId: localAccountId, categoryId: categoryRule?.categoryId ?? null, kind: normalized.kind, amountCents: normalized.amountCents, effectiveDate: normalized.date, description: normalized.description, status: normalized.pending ? "pending" : "posted", source: "plaid", providerTransactionId: normalized.providerTransactionId, pending: normalized.pending });
+            await tx.insert(transactions).values({ id, userId, accountId: localAccountId, categoryId, kind: normalized.kind, amountCents: normalized.amountCents, effectiveDate: normalized.date, description: normalized.description, status: normalized.pending ? "pending" : "posted", source: "plaid", providerTransactionId: normalized.providerTransactionId, pending: normalized.pending });
             await tx.insert(reviewItems).values({ id: randomUUID(), userId, transactionId: id, kind: isTransfer ? "provider_transfer" : "bank_transaction", title: importedReviewTitle(normalized.kind, normalized.description), details: reviewDetails });
-            if (categoryRule) await tx.insert(auditEvents).values({ id: randomUUID(), userId, action: "auto_categorize", entityType: "provider_transaction", entityId: id, afterJson: JSON.stringify({ categoryRuleId: categoryRule.id, categoryId: categoryRule.categoryId, matchText: categoryRule.matchText, providerTransactionId: normalized.providerTransactionId }) });
+            if (categoryId) await tx.insert(auditEvents).values({ id: randomUUID(), userId, action: "auto_categorize", entityType: "provider_transaction", entityId: id, afterJson: JSON.stringify({ categoryRuleId: benefitCategoryId ? null : categoryRule?.id, categoryId, matchedBy: benefitCategoryId ? "dining_benefit_credit" : "merchant_rule", providerTransactionId: normalized.providerTransactionId }) });
           });
-          if (categoryRule) categorizedCount++;
+          if (categoryId) categorizedCount++;
           addedCount++;
         }
       }

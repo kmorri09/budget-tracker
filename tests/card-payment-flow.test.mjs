@@ -50,6 +50,23 @@ test("existing refunds produce $0 and $439.20 remaining; a saved suggestion pres
   assert.deepEqual(await db.select().from(schema.allocations), originalAllocations);
 });
 
+test("Dining benefits offset Dining without a second funding hold, new allocations, or coverage on travel", async () => {
+  await db.insert(schema.categories).values({ id: "dining", userId: "owner", name: "Dining" });
+  await db.insert(schema.allocations).values({ id: "dining-fund", userId: "owner", categoryId: "dining", amountCents: 2000, effectiveDate: "2026-09-01" });
+  await db.insert(schema.transactions).values([
+    { id: "meal", userId: "owner", accountId: "card", categoryId: "dining", description: "Dinner", amountCents: 3000, kind: "expense", effectiveDate: "2026-09-18" },
+    { id: "benefit", userId: "owner", accountId: "card", categoryId: "dining", description: "AMEX Dining Credit", amountCents: 1000, kind: "refund", effectiveDate: "2026-10-08" },
+  ]);
+  const allocations = await db.select().from(schema.allocations);
+  const workspace = await loadPaymentWorkspace(db, "owner", today);
+  assert.equal(workspace.cardCoverage.coverage.get("meal").remainingCents, 2000);
+  assert.equal(workspace.managedCategories.find(c => c.id === "dining").unmatchedRefunds, 0);
+  assert.equal(cardPaymentPreview(workspace, today, "cash").fundedSuggestions.flatMap(s => s.applications).find(a => a.transactionId === "meal").amountCents, 2000);
+  const response = await saveCardRefundMatch(db, "owner", { refundId: "benefit", transactionId: "partial-purchase", amount: 10, status: "confirmed" });
+  assert.equal(response.status, 400);
+  assert.deepEqual(await db.select().from(schema.allocations), allocations);
+});
+
 test("a cash refund and bank cash cannot fund a category with no allocations, and no allocation is created", async () => {
   await db.insert(schema.categories).values({ id: "unallocated", userId: "owner", name: "Unallocated category" });
   await db.insert(schema.transactions).values([

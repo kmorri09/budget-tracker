@@ -5,6 +5,8 @@ export type LedgerMatchCandidate = { id: string; accountId: string; amountCents:
 export type CardPaymentMatchCandidate = { id: string; fromAccountId: string; toAccountId: string; amountCents: number; effectiveDate: string; providerTransactionId: string | null; destinationProviderTransactionId: string | null };
 export type CardPaymentMatch = { candidate: CardPaymentMatchCandidate; side: "source" | "destination" };
 
+import { isDiningBenefitDescription } from "./dining-credits";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const CARD_PAYMENT_MATCH_DAYS = 5;
 export const LEDGER_MATCH_DAYS = 5;
@@ -89,6 +91,7 @@ export function accountType(account: PlaidAccount) {
 export function inferTransactionKind(transaction: PlaidTransaction, localAccountType?: string): NormalizedTransaction["kind"] {
   const primary = transaction.personal_finance_category?.primary?.toUpperCase() ?? "";
   const description = `${transaction.merchant_name ?? ""} ${transaction.name ?? ""}`.toLowerCase();
+  if (localAccountType === "credit_card" && transaction.amount < 0 && isDiningBenefitDescription(description)) return "refund";
   const transferLike = primary.includes("TRANSFER") || /\b(transfer|payment|e-?payment|paydown|autopay|credit card|card payment|credit crd|cardmember)\b/.test(description) || /\b(chase credit crd|wells fargo card|amex e-?payment)\b/.test(description);
   if (transferLike) return transaction.amount < 0 ? "transfer_in" : "transfer_out";
   if (localAccountType === "credit_card" && transaction.amount < 0) return "refund";
@@ -96,7 +99,8 @@ export function inferTransactionKind(transaction: PlaidTransaction, localAccount
 }
 
 export function toNormalized(transaction: PlaidTransaction, localAccountType?: string): NormalizedTransaction {
-  return { providerTransactionId: transaction.transaction_id, pendingTransactionId: transaction.pending_transaction_id ?? null, providerAccountId: transaction.account_id, amountCents: Math.round(Math.abs(transaction.amount) * 100), kind: inferTransactionKind(transaction, localAccountType), date: transaction.date || transaction.authorized_date || new Date().toISOString().slice(0, 10), description: transaction.merchant_name || transaction.name || "Imported transaction", pending: Boolean(transaction.pending), raw: transaction };
+  const benefitName = localAccountType === "credit_card" && transaction.amount < 0 && isDiningBenefitDescription(transaction.name ?? "") ? transaction.name : null;
+  return { providerTransactionId: transaction.transaction_id, pendingTransactionId: transaction.pending_transaction_id ?? null, providerAccountId: transaction.account_id, amountCents: Math.round(Math.abs(transaction.amount) * 100), kind: inferTransactionKind(transaction, localAccountType), date: transaction.date || transaction.authorized_date || new Date().toISOString().slice(0, 10), description: benefitName || transaction.merchant_name || transaction.name || "Imported transaction", pending: Boolean(transaction.pending), raw: transaction };
 }
 
 export function mockProviderAccounts(): PlaidAccount[] {

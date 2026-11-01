@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { Database } from "./db";
 import { accounts, auditEvents, cardRefundMatches, transactions } from "./schema";
 import { matchCardRefunds } from "./card-refunds";
+import { isDiningBenefitCredit } from "./dining-credits";
 
 
 export const refundMatchSchema = z.object({ refundId: z.string().min(1), transactionId: z.string().min(1), amount: z.coerce.number().positive().finite(), status: z.enum(["confirmed", "dismissed"]) });
@@ -22,6 +23,7 @@ export async function saveCardRefundMatch(database: Pick<Database, "transaction"
       const refund = rows.find(t => t.id === input.refundId), purchase = rows.find(t => t.id === input.transactionId);
       const today = budgetToday();
       if (!refund || !purchase || refund.kind !== "refund" || purchase.kind !== "expense" || refund.accountId !== purchase.accountId || !cardRows.some(a => a.id === refund.accountId && a.type === "credit_card") || [refund, purchase].some(t => t.status !== "posted" || t.pending || t.effectiveDate > today) || purchase.effectiveDate > refund.effectiveDate) return NextResponse.json({ error: "Choose a posted refund and an earlier purchase on the same credit card" }, { status: 400 });
+      if (input.status === "confirmed" && isDiningBenefitCredit(refund) && (!refund.categoryId || purchase.categoryId !== refund.categoryId)) return NextResponse.json({ error: "Dining benefit credits can only offset purchases in Dining." }, { status: 400 });
       // Automatic links may be replaced by an explicit decision. Confirmed
       // amounts elsewhere must remain valid and cannot be spent twice.
       const others = decisions.filter(d => !(d.refundId === input.refundId && d.transactionId === input.transactionId));

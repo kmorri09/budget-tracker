@@ -27,15 +27,17 @@ function fixture() {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       currentPage = page;
       page.setDefaultTimeout(10000);
-      const errors = [], requests = []; let data = fixture();
+      const errors = [], requests = [], entryRequests = []; let data = fixture(), matchingRefundQueue = false;
       page.on('pageerror', error => { errors.push(error.message); console.error('Browser error:', error.stack); });
       await page.route('**/api/**', async route => {
         const request = route.request(); const url = new URL(request.url());
         if (url.pathname === '/api/auth/session') return route.fulfill({ json: { user: { displayName: 'Fixture' } } });
         if (url.pathname === '/api/dashboard') return route.fulfill({ json: data });
         if (url.pathname === '/api/connections') return route.fulfill({ json: { configured: false, connections: [] } });
-        if (url.pathname === '/api/reviews') return route.fulfill({ json: { reviews: [] } });
-        if (url.pathname === '/api/card-refunds') { requests.push(request.postDataJSON()); return route.fulfill({ json: { ok: true } }); }
+        if (url.pathname === '/api/reviews') return route.fulfill({ json: { reviews: data.reviews } });
+        if (url.pathname === '/api/entries') { entryRequests.push(request.postDataJSON()); return route.fulfill({ json: { ok: true } }); }
+        if (url.pathname === '/api/card-refunds') { requests.push(request.postDataJSON()); if (matchingRefundQueue) data.refundReviews[0].remaining = 0; return route.fulfill({ json: { ok: true } }); }
+        if (url.pathname === '/api/obligations/matches') { requests.push(request.postDataJSON()); data.obligations[0].suggestion = null; return route.fulfill({ json: { ok: true } }); }
         if (url.pathname === '/api/card-payments') {
           requests.push(request.postDataJSON());
           data.activity.find(t => t.id === 'partial').remainingToPay = 300;
@@ -90,6 +92,74 @@ function fixture() {
       await dialog.waitFor({ state: 'hidden' });
       assert.equal(requests[1].status, 'dismissed');
       assert.equal(requests[1].refundId, 'refund');
+      const reviewPurchase = data.activity.find(t => t.id === 'partial');
+      reviewPurchase.paymentStatus = 'Unpaid';
+      data.reviews = [{ id: 'review-purchase', kind: 'bank_transaction', title: 'Review purchase', details: 'Confirm the category.', transaction: reviewPurchase }];
+      await page.goto(base + '/#review');
+      await page.reload();
+      await page.getByRole('button', { name: 'Edit transaction', exact: true }).click();
+      dialog = page.getByRole('dialog', { name: 'Edit transaction', exact: true });
+      assert.equal(await dialog.getByRole('heading', { name: 'Unpaid', exact: true }).count(), 0);
+      assert.equal(await dialog.locator('.transaction-payment-details [role="combobox"]').isVisible(), false);
+      assert.equal(await dialog.locator('details.transaction-payment-details').getAttribute('open'), null);
+      assert(await dialog.getByLabel('Description', { exact: true }).isVisible());
+      await dialog.evaluate(node => { node.scrollTop = 0; });
+      await page.screenshot({ path: `.next/ui-smoke/transaction-review-${width}.png` });
+      await dialog.getByRole('button', { name: 'Save and Approve', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      assert.equal(entryRequests[0].approveReview, true);
+      assert.equal(Object.hasOwn(entryRequests[0], 'paymentStatus'), false, 'Normal review must preserve payment coverage');
+      await page.getByRole('button', { name: 'Edit transaction', exact: true }).click();
+      dialog = page.getByRole('dialog', { name: 'Edit transaction', exact: true });
+      await dialog.getByText('Payment details (optional)', { exact: true }).click();
+      await dialog.locator('.transaction-payment-details [role="combobox"]').fill('Paid');
+      await dialog.getByRole('option', { name: 'Paid', exact: true }).click();
+      await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      assert.equal(entryRequests[1].paymentStatus, 'paid', 'Explicit coverage correction must remain available');
+      // All pending matching work belongs in Reviews, including when imports are clear.
+      data.reviews = [];
+      data.refundReviews[0].remaining = 140.01;
+      data.refundReviews[0].links = [];
+      for (const [id, description] of [['dunkin', "Dunkin' Donuts"], ['dining-credit', 'AMEX Dining Credit']]) {
+        data.refundReviews.push({ ...data.refundReviews[0], id, description, amount: 7, remaining: 7 });
+        data.activity.push({ ...data.activity[2], id, description, amount: 7 });
+      }
+      data.obligations = [{ id: 'bill', name: 'Sample bill', active: true, covered: false, nextChargeDate: date(2), dueDate: date(2), amount: 50, expectedAmount: 50, category: 'Travel', categoryId: 'travel', accountId: 'card', account: 'Amex Gold', cadence: 'monthly', lastCharge: null, previousCharge: null, dismissedMatches: [], suggestion: { id: 'charge', type: 'transaction', date: date(-1), amount: 50, description: 'Sample bill charge', account: 'Amex Gold', source: 'Manual transaction' } }];
+      matchingRefundQueue = true;
+      await page.goto(base + '/#payments');
+      await page.reload();
+      assert.equal(await page.getByRole('heading', { name: 'Refunds to review', exact: true }).count(), 0, 'Card payments must not host a review queue');
+      await page.goto(base + '/#home');
+      await page.getByRole('link', { name: /Review inbox.*2 open/ }).waitFor();
+      await page.goto(base + '/#review');
+      const inbox = page.getByRole('region', { name: 'Reviews', exact: true });
+      await inbox.getByRole('heading', { name: 'Refunds to review', exact: true }).waitFor();
+      assert.equal(await inbox.getByText("Dunkin' Donuts", { exact: true }).count(), 0);
+      assert.equal(await inbox.getByText('AMEX Dining Credit', { exact: true }).count(), 0);
+      assert.equal(await inbox.getByText('Nothing needs review right now.', { exact: true }).count(), 0);
+      const nav = page.getByRole('navigation', { name: width === 390 ? 'Mobile navigation' : 'Primary navigation', exact: true });
+      assert.match(await nav.getByRole('link', { name: /Reviews/ }).innerText(), /2/);
+      await inbox.getByRole('searchbox', { name: 'Search reviews', exact: true }).fill('no such review');
+      await inbox.getByText('No matching reviews.', { exact: true }).waitFor();
+      await inbox.getByRole('searchbox').fill('Sample bill');
+      assert.equal(await inbox.getByRole('button', { name: 'Match refund', exact: true }).count(), 0);
+      await inbox.getByRole('button', { name: 'Review suggested charge', exact: true }).waitFor();
+      await inbox.getByRole('searchbox').fill('');
+      await page.screenshot({ path: `.next/ui-smoke/reviews-inbox-${width}.png`, fullPage: true });
+      await inbox.getByRole('button', { name: 'Match refund', exact: true }).click();
+      dialog = page.getByRole('dialog', { name: 'Edit refund', exact: true });
+      await dialog.getByLabel('Original purchase', { exact: false }).selectOption('full');
+      await dialog.getByRole('button', { name: 'Match refund to purchase', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await inbox.getByRole('button', { name: 'Match refund', exact: true }).waitFor({ state: 'hidden' });
+      assert.match(await nav.getByRole('link', { name: /Reviews/ }).innerText(), /1/);
+      await inbox.getByRole('button', { name: 'Review suggested charge', exact: true }).click();
+      dialog = page.getByRole('dialog', { name: 'Review suggested charge', exact: true });
+      await dialog.getByRole('button', { name: 'Confirm match', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await inbox.getByText('Nothing needs review right now.', { exact: true }).waitFor();
+      assert.equal(await nav.getByRole('link', { name: /Reviews/ }).locator('em').count(), 0);
       assert.deepEqual(errors, []);
       console.log(`Payment preview, stale save, and refund review passed at ${width}px`);
       await page.close();

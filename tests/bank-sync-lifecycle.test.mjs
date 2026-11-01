@@ -63,6 +63,24 @@ async function edit(initial, changes) {
   await db.insert(schema.auditEvents).values({ id: `edit-${initial.id}`, userId: "user", action: "update", entityType: "transaction", entityId: initial.id, beforeJson: JSON.stringify(initial), afterJson: JSON.stringify({ ...initial, ...changes }) });
 }
 
+test("Dining benefits are refunds in Dining even with transfer metadata, a conflicting rule, or a prior category edit", async () => {
+  await db.insert(schema.categories).values({ id: "travel", userId: "user", name: "Travel" });
+  await db.insert(schema.categorizationRules).values({ id: "wrong-rule", userId: "user", categoryId: "travel", matchText: "AMEX Dining Credit", normalizedMatch: "amex dining credit" });
+  const benefit = remote("benefit", -10, false, { name: "AMEX Dining Credit", merchant_name: "American Express", personal_finance_category: { primary: "TRANSFER_IN" } });
+  await sync(page({ added: [benefit, remote("dunkin", -7, false, { merchant_name: "Dunkin'" })] }));
+  let rows = await ledger();
+  assert.equal(rows.length, 2);
+  for (const entry of rows) { assert.equal(entry.kind, "refund"); assert.equal(entry.categoryId, "dining"); }
+  const credit = rows.find(t => t.providerTransactionId === "benefit");
+  assert.equal(credit.description, "AMEX Dining Credit");
+  await edit(credit, { categoryId: "travel", kind: "transfer_in" });
+  await sync(page({ modified: [benefit] }));
+  const repaired = (await ledger()).find(t => t.id === credit.id);
+  assert.equal(repaired.kind, "refund");
+  assert.equal(repaired.categoryId, "dining");
+  assert.equal((await db.select().from(schema.allocations)).length, 0);
+});
+
 test("full sync settles a categorized tipped charge across pages, retains applications, and replays once", async () => {
   const hold = remote("hold", 40, true);
   await sync(page({ added: [hold] }));

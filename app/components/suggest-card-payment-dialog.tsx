@@ -74,7 +74,7 @@ export default function SuggestCardPaymentDialog({ dashboard, onClose, onChoose 
         <p>This remaining cash includes protected category balances and unassigned money; it is not extra spending money.</p>
       </details>
     </section>
-    {preview.unmatchedRefundCents > 0 && <p className="form-warning">{money(preview.unmatchedRefundCents / 100)} in unmatched refunds is excluded from cash funding. Those credits already reduce card debt. Review their original purchases in Card payments → Refunds to review.</p>}
+    {preview.unmatchedRefundCents > 0 && <p className="form-warning">{money(preview.unmatchedRefundCents / 100)} in unmatched refunds is excluded from cash funding. Those credits already reduce card debt. Review their original purchases in Reviews → Refunds to review.</p>}
     {preview.needsBankVerification && <p className="form-warning">Some accounts have no recent bank-reported available balance. Their ledger balances are used conservatively. Verify availability with your bank before paying.</p>}
     {error && <p className="form-error" role="alert">{error}</p>}
     {refreshing && <p className="field-help" role="status">Refreshing balances and refund coverage…</p>}

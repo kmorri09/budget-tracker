@@ -1,3 +1,5 @@
+import { isDiningBenefitCredit } from "./dining-credits";
+
 export type RefundTransaction = { id: string; accountId: string; categoryId: string | null; kind: string; amountCents: number; effectiveDate: string; description: string; status: string; pending: boolean };
 export type RefundDecision = { refundId: string; transactionId: string; amountCents: number; status: string };
 export type RefundLink = { refundId: string; transactionId: string; amountCents: number; confidence: "automatic" | "confirmed" };
@@ -15,7 +17,8 @@ export function matchCardRefunds(rows: RefundTransaction[], cardIds: Set<string>
   const links: RefundLink[] = [];
   const dismissed = new Set(decisions.filter(d => d.status === "dismissed").map(d => `${d.refundId}:${d.transactionId}`));
   function eligible(refund: RefundTransaction, purchase: RefundTransaction) {
-    return refund.accountId === purchase.accountId && purchase.effectiveDate <= refund.effectiveDate && !dismissed.has(`${refund.id}:${purchase.id}`);
+    return refund.accountId === purchase.accountId && purchase.effectiveDate <= refund.effectiveDate && !dismissed.has(`${refund.id}:${purchase.id}`)
+      && (!isDiningBenefitCredit(refund) || Boolean(refund.categoryId && refund.categoryId === purchase.categoryId));
   }
   function apply(refundId: string, transactionId: string, amountCents: number, confidence: RefundLink["confidence"]) {
     const amount = Math.min(amountCents, credit.get(refundId) ?? 0, remaining.get(transactionId) ?? 0);
@@ -48,12 +51,30 @@ export function calculateCardPurchaseCoverage(rows: RefundTransaction[], cardIds
   const refunds = matchCardRefunds(rows, cardIds, decisions, throughDate);
   const coverage = new Map<string, { refundedCents: number; paidCents: number; cardCreditCents: number; remainingCents: number; status: string }>();
   const creditByCard = new Map<string, number>();
-  for (const refund of refunds.refunds) creditByCard.set(refund.accountId, (creditByCard.get(refund.accountId) ?? 0) + refund.remainingCents);
+  const diningCredits = new Map<string, { accountId: string; categoryId: string; remainingCents: number }>();
+  const addCredit = (refund: RefundTransaction, amount: number) => {
+    if (isDiningBenefitCredit(refund)) {
+      const categoryId = refund.categoryId ?? "";
+      const key = JSON.stringify([refund.accountId, categoryId]);
+      const bucket = diningCredits.get(key) ?? { accountId: refund.accountId, categoryId, remainingCents: 0 };
+      bucket.remainingCents += amount;
+      diningCredits.set(key, bucket);
+    } else creditByCard.set(refund.accountId, (creditByCard.get(refund.accountId) ?? 0) + amount);
+  };
+  for (const refund of refunds.refunds) addCredit(refund, refund.remainingCents);
   const purchases = rows.filter(row => row.kind === "expense" && row.status !== "removed" && row.status !== "void" && cardIds.has(row.accountId)).sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate) || a.id.localeCompare(b.id));
   for (const purchase of purchases) {
     const refundedCents = refunds.links.filter(link => link.transactionId === purchase.id).reduce((sum, link) => sum + link.amountCents, 0);
     const paidCents = Math.min(purchase.amountCents, Math.max(0, payments.filter(p => p.transactionId === purchase.id).reduce((sum, p) => sum + p.amountCents, 0)));
-    const excess = Math.max(0, paidCents + refundedCents - purchase.amountCents);
+    let excess = Math.max(0, paidCents + refundedCents - purchase.amountCents);
+    // Benefits on already-paid purchases retain their category restriction.
+    for (const link of refunds.links.filter(l => l.transactionId === purchase.id)) {
+      const refund = refunds.refunds.find(r => r.id === link.refundId)!;
+      if (!isDiningBenefitCredit(refund)) continue;
+      const amount = Math.min(excess, link.amountCents);
+      addCredit(refund, amount);
+      excess -= amount;
+    }
     creditByCard.set(purchase.accountId, (creditByCard.get(purchase.accountId) ?? 0) + excess);
     coverage.set(purchase.id, { refundedCents, paidCents, cardCreditCents: 0, remainingCents: Math.max(0, purchase.amountCents - refundedCents - paidCents), status: "Unpaid" });
   }
@@ -62,11 +83,17 @@ export function calculateCardPurchaseCoverage(rows: RefundTransaction[], cardIds
     // Posted card credits can cover other posted purchases on this card, even
     // when the refunded purchase had already been paid. Cash is never invented.
     if (posted(purchase, throughDate)) {
-      item.cardCreditCents = Math.min(item.remainingCents, creditByCard.get(purchase.accountId) ?? 0);
-      item.remainingCents -= item.cardCreditCents;
-      creditByCard.set(purchase.accountId, (creditByCard.get(purchase.accountId) ?? 0) - item.cardCreditCents);
+      const bucket = diningCredits.get(JSON.stringify([purchase.accountId, purchase.categoryId]));
+      const categoryCredit = purchase.categoryId && bucket ? Math.min(item.remainingCents, bucket.remainingCents) : 0;
+      if (bucket) bucket.remainingCents -= categoryCredit;
+      item.remainingCents -= categoryCredit;
+      const generalCredit = Math.min(item.remainingCents, creditByCard.get(purchase.accountId) ?? 0);
+      item.remainingCents -= generalCredit;
+      item.cardCreditCents = categoryCredit + generalCredit;
+      creditByCard.set(purchase.accountId, (creditByCard.get(purchase.accountId) ?? 0) - generalCredit);
     }
     item.status = item.refundedCents >= purchase.amountCents ? "Refunded" : item.remainingCents === 0 ? "Paid" : item.refundedCents > 0 ? "Partially refunded" : item.paidCents + item.cardCreditCents > 0 ? "Partially paid" : "Unpaid";
   }
+  for (const bucket of diningCredits.values()) creditByCard.set(bucket.accountId, (creditByCard.get(bucket.accountId) ?? 0) + bucket.remainingCents);
   return { coverage, refunds, creditByCard };
 }

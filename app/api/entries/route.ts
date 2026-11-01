@@ -1,4 +1,5 @@
 import { budgetToday } from "../../../lib/budget-date";
+import { isDiningBenefitCredit, isDiningBenefitDescription } from "../../../lib/dining-credits";
 import { loadPaymentWorkspace } from "../../../lib/payment-workspace";
 import { and, eq, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -57,10 +58,16 @@ export async function POST(request: Request) {
   if (!resolvedAccountId) return NextResponse.json({ error: input.kind === "income" ? "Create a cash account before recording income" : "Account is required" }, { status: 400 });
   const account = (await db.select().from(accounts).where(and(eq(accounts.userId, user.id), or(eq(accounts.id, resolvedAccountId), eq(accounts.name, resolvedAccountId)))).limit(1))[0];
   if (!account) return NextResponse.json({ error: "Account not found" }, { status: 400 });
-  if (input.kind === "income" && account.type === "credit_card") return NextResponse.json({ error: "Income must use a cash account. Record a credit-card refund as a refund instead." }, { status: 400 });
-  const transactionKind = input.kind === "income" ? "income" : input.kind === "payment" ? "card_payment" : "expense";
+  const diningBenefit = input.kind === "income" && account.type === "credit_card" && isDiningBenefitDescription(input.description);
+  if (input.kind === "income" && account.type === "credit_card" && !diningBenefit) return NextResponse.json({ error: "Income must use a cash account. Record a credit-card refund as a refund instead." }, { status: 400 });
+  const transactionKind = diningBenefit ? "refund" : input.kind === "income" ? "income" : input.kind === "payment" ? "card_payment" : "expense";
   if (transactionKind === "expense" && !input.categoryId) return NextResponse.json({ error: "Category is required" }, { status: 400 });
   let resolvedCategoryId: string | null = null;
+  if (diningBenefit) {
+    const dining = (await db.select({ id: categories.id }).from(categories).where(and(eq(categories.userId, user.id), eq(categories.name, "Dining"))).limit(1))[0];
+    if (!dining) return NextResponse.json({ error: "Create the Dining category before saving a dining benefit credit." }, { status: 400 });
+    resolvedCategoryId = dining.id;
+  }
   if (transactionKind === "expense" && input.categoryId) {
     const category = (await db.select({ id: categories.id }).from(categories).where(and(eq(categories.userId, user.id), or(eq(categories.id, input.categoryId), eq(categories.name, input.categoryId)))).limit(1))[0];
     if (!category) return NextResponse.json({ error: "Category not found" }, { status: 400 });
@@ -99,6 +106,13 @@ export async function PATCH(request: Request) {
   if (input.rememberCategory && !input.categoryId) return NextResponse.json({ error: "Choose a category before saving an automatic rule" }, { status: 400 });
   if (input.rememberCategory && ruleMatch.length < 3) return NextResponse.json({ error: "Rule match text must contain at least 3 letters or numbers" }, { status: 400 });
   const changes = { kind: input.kind, amountCents: cents(input.amount), effectiveDate: input.date, accountId: input.accountId, categoryId: input.categoryId, description: input.description, status: input.status, pending: input.pending, userEdited: true, updatedAt: new Date() };
+  if (account.type === "credit_card" && isDiningBenefitCredit(changes)) {
+    const dining = (await db.select({ id: categories.id }).from(categories).where(and(eq(categories.userId, user.id), eq(categories.name, "Dining"))).limit(1))[0];
+    if (!dining) return NextResponse.json({ error: "Create the Dining category before saving a dining benefit credit." }, { status: 400 });
+    changes.kind = "refund";
+    changes.categoryId = dining.id;
+    categoryName = "Dining";
+  }
   let coverageChange: { currentCents: number; desiredCents: number; deltaCents: number } | null = null;
   if (input.paymentStatus && input.paymentStatus !== "partial") {
     const [applicationRows, adjustmentRows] = await Promise.all([

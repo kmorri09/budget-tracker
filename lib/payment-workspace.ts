@@ -7,6 +7,7 @@ import { accounts, allocations, categories, transactions, cardPayments, cardPaym
 import { calculateCategoryBalance } from "./category-balance";
 import { calculateAccountLedgerCents } from "./account-ledger";
 import { calculateCardPurchaseCoverage } from "./card-refunds";
+import { isDiningBenefitCredit } from "./dining-credits";
 
 export function paymentReviewToken(data: unknown[]) {
   return createHash("sha256").update(JSON.stringify(data.map(value => Array.isArray(value) ? [...value].sort((a, b) => String(a.id ?? JSON.stringify(a)).localeCompare(String(b.id ?? JSON.stringify(b)))) : value))).digest("hex");
@@ -36,7 +37,7 @@ export async function loadPaymentWorkspace(db: Pick<Database, "select">, userId:
   const effectiveTransactions = transactionRows.filter(t => t.effectiveDate <= fundingThroughDate);
   const managedCategories = categoryRows.map(c => {
     const balance = calculateCategoryBalance(c.id, effectiveAllocations, effectiveTransactions);
-    return { ...c, unmatchedRefunds: cardCoverage.refunds.refunds.filter(r => r.categoryId === c.id).reduce((sum, r) => sum + r.remainingCents, 0) / 100, icon: c.icon ?? "", target: c.targetCents / 100, available: balance.availableCents / 100, allocated: balance.allocatedCents / 100, spent: (balance.spendingCents - balance.refundCents) / 100 };
+    return { ...c, unmatchedRefunds: cardCoverage.refunds.refunds.filter(r => r.categoryId === c.id && !isDiningBenefitCredit(r)).reduce((sum, r) => sum + r.remainingCents, 0) / 100, icon: c.icon ?? "", target: c.targetCents / 100, available: balance.availableCents / 100, allocated: balance.allocatedCents / 100, spent: (balance.spendingCents - balance.refundCents) / 100 };
   });
   const activity = transactionRows.filter(t => !["removed", "void"].includes(t.status)).map(t => ({ ...t, date: t.effectiveDate, amount: t.amountCents / 100, account: accountRows.find(a => a.id === t.accountId)?.name ?? "", category: categoryRows.find(c => c.id === t.categoryId)?.name ?? null, remainingToPay: (cardCoverage.coverage.get(t.id)?.remainingCents ?? t.amountCents) / 100, paymentStatus: cardCoverage.coverage.get(t.id)?.status ?? "Not applicable" }));
   const payments = paymentRows.map(p => ({ ...p, date: p.effectiveDate, amount: p.amountCents / 100, fromAccount: accountRows.find(a => a.id === p.fromAccountId)?.name ?? "", toAccount: accountRows.find(a => a.id === p.toAccountId)?.name ?? "", applied: applicationRows.filter(a => a.paymentId === p.id).reduce((sum, a) => sum + a.amountCents, 0) / 100, remaining: (p.amountCents - applicationRows.filter(a => a.paymentId === p.id).reduce((sum, a) => sum + a.amountCents, 0)) / 100, status: "Recorded", covered: "", applications: applicationRows.filter(a => a.paymentId === p.id).map(a => ({ transactionId: a.transactionId, amount: a.amountCents / 100 })), providerLinked: Boolean(p.providerTransactionId || p.destinationProviderTransactionId), editable: true }));
