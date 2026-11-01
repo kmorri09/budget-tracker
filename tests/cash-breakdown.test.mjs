@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calculateCashBreakdown } from "../lib/cash-breakdown.ts";
+import { calculateCashBreakdown, dashboardCashBreakdown } from "../lib/cash-breakdown.ts";
 
 test("a fully explained bank balance divides into category reserves and money to assign", () => {
   const result = calculateCashBreakdown(500_000, 100_000, [
@@ -18,6 +18,67 @@ test("cash beyond the budget plan is shown separately, not called free to assign
   const result = calculateCashBreakdown(500_000, 100_000, [{ id: "rent", name: "Rent", availableCents: 260_000 }]);
   assert.equal(result.unmatchedCents, 140_000);
   assert.equal(result.unassignedCents, 100_000);
+});
+
+test("allocated unpaid card purchases explain cash without becoming free money", () => {
+  const result = calculateCashBreakdown(10000, 0, [{ id: "food", name: "Food", availableCents: 7000 }], { postedCents: 3000 });
+  assert.equal(result.postedCardReserveCents, 3000);
+  assert.equal(result.unmatchedCents, 0);
+  assert.equal(result.shortfallCents, 0);
+  assert.equal(result.plannedCents, 10000);
+});
+
+test("card reserves retain the full claim so a real cash deficit stays visible", () => {
+  const result = calculateCashBreakdown(9000, 0, [{ id: "food", name: "Food", availableCents: 7000 }], { postedCents: 3000 });
+  assert.equal(result.postedCardReserveCents, 3000);
+  assert.equal(result.shortfallCents, 1000);
+  assert.equal(result.unmatchedCents, 0);
+});
+
+const cashPlanFixture = () => ({
+  accounts: [{ id: "cash", type: "savings", active: true, name: "Cash", ledgerBalance: 100 }, { id: "card", type: "credit_card", active: true, name: "Card", ledgerBalance: -50 }],
+  managedCategories: [{ id: "food", name: "Food", active: true, allocated: 100, available: 50, cardFundingAllocated: 100, cardFundingAvailable: 70 }],
+  activity: [
+    { id: "posted", accountId: "card", categoryId: "food", description: "Dinner", kind: "expense", status: "posted", pending: false, amount: 30, remainingToPay: 30, date: "2026-10-01" },
+    { id: "pending", accountId: "card", categoryId: "food", description: "Pending meal", kind: "expense", status: "pending", pending: true, amount: 20, remainingToPay: 20, date: "2026-10-02" },
+  ], payments: [], remainingToBudget: 0,
+});
+
+test("cash plan counts category money, posted card reserves, and pending reserves once each", () => {
+  const fixture = cashPlanFixture();
+  const original = structuredClone(fixture);
+  const result = dashboardCashBreakdown(fixture, "2026-10-03");
+  assert.equal(result.reservedCents, 5000);
+  assert.equal(result.postedCardReserveCents, 3000);
+  assert.equal(result.pendingCardReserveCents, 2000);
+  assert.equal(result.unmatchedCents, 0);
+  assert.equal(result.shortfallCents, 0);
+  assert.deepEqual(fixture, original);
+});
+
+test("pending card holds reserve only funding left after older posted purchases", () => {
+  const fixture = cashPlanFixture();
+  Object.assign(fixture.managedCategories[0], { available: -30, cardFundingAvailable: 20 });
+  Object.assign(fixture.activity[0], { amount: 80, remainingToPay: 80 });
+  Object.assign(fixture.activity[1], { amount: 50, remainingToPay: 50 });
+  fixture.accounts[1].ledgerBalance = -130;
+  const result = dashboardCashBreakdown(fixture, "2026-10-03");
+  assert.equal(result.reservedCents, 0);
+  assert.equal(result.postedCardReserveCents, 8000);
+  assert.equal(result.pendingCardReserveCents, 2000);
+  assert.equal(result.plannedCents, 10000);
+  assert.equal(result.unmatchedCents, 0);
+});
+
+test("pending refunds and future activity cannot explain away a cash discrepancy", () => {
+  const fixture = cashPlanFixture();
+  fixture.managedCategories[0].available = 100;
+  fixture.activity.push({ id: "pending-refund", accountId: "card", categoryId: "food", kind: "refund", status: "pending", pending: true, amount: 50, remainingToPay: 0, date: "2026-10-02" });
+  fixture.activity.push({ id: "future", accountId: "card", categoryId: "food", kind: "expense", status: "pending", pending: true, amount: 50, remainingToPay: 50, date: "2026-11-02" });
+  const result = dashboardCashBreakdown(fixture, "2026-10-03");
+  assert.equal(result.reservedCents, 5000);
+  assert.equal(result.pendingCardReserveCents, 2000);
+  assert.equal(result.plannedCents, 10000);
 });
 
 test("reservations beyond cash retain their full amounts and report the gap", () => {

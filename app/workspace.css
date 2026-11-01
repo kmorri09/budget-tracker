@@ -48,6 +48,7 @@
 .cash-breakdown-total { text-align: right; color: var(--green-dark); font-size: 19px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cash-breakdown-total small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; font-weight: 400; }
 .cash-breakdown-context { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.cash-plan-summary { border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; line-height: 1.5; }
 .cash-breakdown-labels { display: flex; margin-top: 17px; }
 .cash-breakdown-label-cell { flex: 0 0 auto; min-width: 0; overflow: hidden; text-align: center; color: var(--green-dark); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .cash-breakdown-label-cell span { display: inline-block; }

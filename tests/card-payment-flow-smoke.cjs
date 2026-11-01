@@ -182,8 +182,31 @@ function fixture() {
       await dialog.waitFor({ state: 'hidden' });
       await inbox.getByText('Nothing needs review right now.', { exact: true }).waitFor();
       assert.deepEqual(requests.at(-1), { refundId: 'refund', transactionId: 'full', amount: 140.01, status: 'confirmed' });
+      data = fixture();
+      const cashPlanTravel = data.managedCategories.find(c => c.id === 'travel');
+      Object.assign(cashPlanTravel, { allocated: 600, available: 110.80, cardFundingAllocated: 600, cardFundingAvailable: 160.80 });
+      data.activity.push({ ...data.activity[1], id: 'pending-meal', description: 'Pending meal', amount: 50, remainingToPay: 50, refunded: 0, status: 'pending', pending: true, date: date(-1) });
+      data.accounts.find(a => a.id === 'card').ledgerBalance = -489.20;
+      await page.goto(base + '/#home');
+      await page.reload();
+      const cashChart = page.getByRole('region', { name: 'Where your cash is planned', exact: true });
+      await cashChart.waitFor({ state: 'visible' });
+      const totals = cashChart.locator('dl[aria-label="Cash plan totals"]');
+      assert.match(await totals.innerText(), /Available in categories\s*\$510\.80/);
+      assert.match(await totals.innerText(), /Reserved for card payments\s*\$439\.20/);
+      assert.match(await totals.innerText(), /Reserved for pending card purchases\s*\$50\.00/);
+      assert.match(await totals.innerText(), /Unexplained cash difference\s*\$0\.00/);
+      assert(!/Not matched to the budget/.test(await cashChart.innerText()));
+      assert(await cashChart.evaluate(node => node.scrollWidth <= node.clientWidth), 'Cash chart must fit on mobile');
+      await cashChart.screenshot({ path: `.next/ui-smoke/cash-reserves-${width}.png` });
+      Object.assign(data.accounts.find(a => a.id === 'cash'), { ledgerBalance: 900, providerBalance: 900, providerAvailableBalance: 900 });
+      data.ledgerBalance = 900;
+      await page.reload();
+      await cashChart.waitFor({ state: 'visible' });
+      assert.match(await cashChart.locator('dl[aria-label="Cash plan totals"]').innerText(), /Cash shortfall\s*\$100\.00/);
+      assert.match(await cashChart.locator('dl[aria-label="Cash plan totals"]').innerText(), /Reserved for card payments\s*\$439\.20/);
       assert.deepEqual(errors, []);
-      console.log(`Payment preview, stale save, and refund review passed at ${width}px`);
+      console.log(`Payment preview, review, and cash reserve chart passed at ${width}px`);
       await page.close();
     }
   } catch (error) { if (currentPage) { console.error("UI at failure:", currentPage.url(), (await currentPage.locator("body").innerText()).slice(0, 5500)); await currentPage.screenshot({ path: ".next/ui-smoke/payment-flow-failure.png", fullPage: true }); } throw error; } finally { await browser.close(); }
