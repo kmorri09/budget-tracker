@@ -325,6 +325,17 @@ CREATE TABLE IF NOT EXISTS "app_migrations" (
   "applied_at" timestamptz DEFAULT now() NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS "cash_reserve_adjustments" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "category_id" text NOT NULL REFERENCES "categories"("id"),
+  "amount_cents" bigint NOT NULL,
+  "effective_date" date NOT NULL,
+  "note" text,
+  "created_at" timestamptz DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "cash_reserve_adjustments_user_date_idx" ON "cash_reserve_adjustments" ("user_id", "effective_date");
+
 -- The first Notion importer treated the string "0" in Partial Payment as truthy,
 -- classifying every categorized imported expense as a card payment. The source
 -- snapshot contains no actual payment relations in the affected cutover data.

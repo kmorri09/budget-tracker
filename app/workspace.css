@@ -47,6 +47,13 @@
 .cash-breakdown-heading p strong { color: var(--ink); }
 .cash-breakdown-total { text-align: right; color: var(--green-dark); font-size: 19px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cash-breakdown-total small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; font-weight: 400; }
+.cash-breakdown-actions { display: grid; justify-items: end; gap: 8px; }
+.cash-flex-settings { margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 9px; background: #f7faf7; }
+.cash-flex-settings fieldset { min-width: 0; margin: 12px 0; padding: 0; border: 0; }
+.cash-flex-settings legend { margin-bottom: 6px; font-size: 12px; font-weight: 600; }
+.cash-flex-options { max-height: 230px; overflow-y: auto; }
+.cash-flex-option { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 13px; cursor: pointer; overflow-wrap: anywhere; }
+.workspace .cash-flex-option input { width: 18px; min-height: 18px; height: 18px; padding: 0; flex-shrink: 0; accent-color: var(--green-dark); }
 .cash-breakdown-context { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
 .cash-plan-summary { border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; line-height: 1.5; }
 .cash-breakdown-labels { display: flex; margin-top: 17px; }
@@ -68,8 +75,13 @@
 .cash-breakdown-uncovered-key { width: 18px; border: 1px solid #c47c70; border-radius: 3px; }
 .cash-breakdown-flex-boundary { position: absolute; top: 0; bottom: 0; border-left: 2px dashed #174c37; pointer-events: none; }
 .cash-flex { margin-top: 16px; padding: 16px; border: 1px solid #b9d1c1; border-radius: 10px; background: #f4f9f5; }
-.cash-flex-heading { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px 20px; }
-.cash-flex-heading h3 { margin: 0; color: var(--ink); font-size: 16px; }
+.cash-flex-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px 20px; cursor: pointer; list-style: none; }
+.cash-flex-heading::-webkit-details-marker { display: none; }
+.cash-flex-heading > span:first-child { flex: 1; min-width: 0; }
+.cash-flex-heading .eyebrow { display: block; margin-bottom: 5px; }
+.cash-flex-category-name { display: block; color: var(--ink); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.cash-flex-details-label { display: inline-flex; align-items: center; gap: 7px; color: var(--green-dark); font-size: 12px; }
+.cash-flex[open] .filter-chevron { transform: rotate(225deg) translate(-1px, -1px); }
 .cash-flex-heading > strong { color: var(--green-dark); font-size: 16px; font-variant-numeric: tabular-nums; }
 .cash-flex-description { margin: 10px 0 0; font-size: 13px; line-height: 1.6; color: var(--ink); }
 .cash-flex-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
@@ -88,7 +100,7 @@
 @media (max-width: 420px) { .cash-flex { padding: 12px; } .cash-flex-totals { grid-template-columns: 1fr; gap: 8px; } .cash-flex-totals > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; } .cash-flex-totals dd { margin-top: 0; } }
 .cash-breakdown-warning,.cash-breakdown-caution { margin: 12px 0 0; padding: 10px 12px; border: 1px solid #e9d5c9; border-radius: 9px; background: #fff8f4; color: #8f463b; font-size: 11px; line-height: 1.5; }
 .cash-breakdown-caution { border-color: #ebdfc9; background: #fffbf2; color: #765e3a; }
-@media (max-width: 700px) { .cash-breakdown-heading { flex-wrap: wrap; gap: 9px; } .cash-breakdown-total { text-align: left; } }
+@media (max-width: 700px) { .cash-breakdown-heading { flex-wrap: wrap; gap: 9px; } .cash-breakdown-total { text-align: left; } .cash-breakdown-actions { justify-items: start; } .cash-flex-heading { gap: 8px 12px; } .cash-flex-heading > span:first-child { flex-basis: 100%; } .cash-flex-heading > strong { font-size: 14px; } }
 .overview-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid var(--line); padding: 15px 0; font-size: 13px; }
 .overview-row > :first-child { min-width: 0; overflow-wrap: anywhere; }
 .overview-row > :last-child { text-align: right; flex-shrink: 0; }

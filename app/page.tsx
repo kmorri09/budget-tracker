@@ -11,6 +11,7 @@ import TransactionEditDialog from "./components/transaction-edit-dialog";
 import CardPaymentEditDialog from "./components/card-payment-edit-dialog";
 import BudgetReconcileDialog from "./components/budget-reconcile-dialog";
 import FundObligationsDialog from "./components/fund-obligations-dialog";
+import CashReserveDialog from "./components/cash-reserve-dialog";
 import SuggestCardPaymentDialog from "./components/suggest-card-payment-dialog";
 import ObligationEditDialog from "./components/obligation-edit-dialog";
 import ObligationMatchDialog from "./components/obligation-match-dialog";
@@ -20,13 +21,14 @@ import AccountReconciliationDialog from "./components/account-reconciliation-dia
 import BankConnections from "./components/bank-connections";
 import ReviewHistory from "./components/review-history";
 import CashBreakdown from "./components/cash-breakdown";
+import { dashboardCashBreakdown } from "../lib/cash-breakdown";
 import Typeahead from "./components/typeahead";
 import CategorizationRules from "./components/categorization-rules";
 import { useConfirmDialog } from "./components/confirm-dialog";
 import { type ActionType, type DashboardData, kindLabel, money, signedAmount, today } from "../lib/workspace-types";
 import { categoriesAllocatedInLastDays } from "../lib/recent-allocations";
 import { dashboardCashExpenseFunding } from "../lib/cash-expense-funding";
-import type { CardPaymentSuggestion } from "../lib/card-payment-suggestions";
+import { suggestCardPayments, type CardPaymentSuggestion } from "../lib/card-payment-suggestions";
 import { importedReviewDetails, importedReviewTitle, ledgerEntryNoun, supportsBudgetCategory } from "../lib/ledger-entry-types";
 import { refundMatchingReviews, obligationMatchingReviews, openReviewCount } from "../lib/review-inbox";
 import "./workspace.css";
@@ -79,6 +81,7 @@ export default function Home() {
   const [drilldown, setDrilldown] = useState<{ category?: string; key: number }>({ key: 0 });
   const [categoryFilter, setCategoryFilter] = useState<{ status?: string; key: number }>({ key: 0 });
   const [editingCategory, setEditingCategory] = useState<DashboardData["managedCategories"][number] | null>(null);
+  const [editingCashReserve, setEditingCashReserve] = useState<DashboardData["managedCategories"][number] | null>(null);
   const [editingAllocation, setEditingAllocation] = useState<DashboardData["allocations"][number] | null>(null);
   const [editingAdjustment, setEditingAdjustment] = useState<DashboardData["availableAdjustments"][number] | null>(null);
   const [reconcilingCategories, setReconcilingCategories] = useState(false);
@@ -176,6 +179,23 @@ export default function Home() {
   const title = destination === "home" ? "Hello, " + name : navigation.find(item => item.key === destination)!.label;
   const reviewCount = dashboard ? openReviewCount(dashboard) : 0;
   const planningWindow = dashboard?.obligations.filter(item => item.active && !item.covered && item.nextChargeDate <= planningThrough) ?? [];
+  const cashPlanShortfall = dashboard ? dashboardCashBreakdown(dashboard, today()).shortfallCents : 0;
+  const cardFundingByCategory = new Map<string, number>();
+  if (dashboard) for (const suggestion of suggestCardPayments(dashboard, today())) for (const application of suggestion.applications) {
+    const categoryId = dashboard.activity.find(entry => entry.id === application.transactionId)?.categoryId;
+    if (categoryId) cardFundingByCategory.set(categoryId, (cardFundingByCategory.get(categoryId) ?? 0) + application.amountCents / 100);
+  }
+  const unpaidByCategory = new Map<string, number>();
+  if (dashboard) {
+    const cardIds = new Set(dashboard.accounts.filter(account => account.active && account.type === "credit_card").map(account => account.id));
+    const unapplied = new Map<string, number>();
+    for (const payment of dashboard.payments) if (payment.editable && payment.date <= today() && cardIds.has(payment.toAccountId)) unapplied.set(payment.toAccountId, (unapplied.get(payment.toAccountId) ?? 0) + Math.max(0, Math.round(payment.remaining * 100)));
+    for (const entry of dashboard.activity.filter(row => row.kind === "expense" && row.status !== "removed" && !row.pending && row.date <= today() && cardIds.has(row.accountId) && row.remainingToPay > 0).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))) {
+      const remaining = Math.round(entry.remainingToPay * 100), credit = unapplied.get(entry.accountId) ?? 0;
+      unapplied.set(entry.accountId, Math.max(0, credit - remaining));
+      if (entry.categoryId) unpaidByCategory.set(entry.categoryId, (unpaidByCategory.get(entry.categoryId) ?? 0) + Math.max(0, remaining - credit));
+    }
+  }
 
   return <main className="app-shell workspace">
     <a href="#workspace-content" className="skip-link">Skip to content</a>
@@ -209,10 +229,11 @@ export default function Home() {
         </section>
         <section hidden={destination !== "categories"} aria-label="Categories">
           <div className="view-heading"><p>Available to assign: <strong>{money(dashboard.remainingToBudget)}</strong></p><div className="section-actions"><button className="secondary-button" onClick={() => setCoveringCashExpenses(true)}>Cover cash expenses</button><button className="secondary-button" onClick={() => setCoveringOverspending(true)}>Cover overspending</button><button className="secondary-button" onClick={() => setFundingObligations(true)}>Fund upcoming obligations</button><button className="secondary-button" onClick={() => setReconcilingCategories(true)}>Reconcile balances</button><button className="secondary-button" onClick={() => openAction("transfer")}>Move funds</button><button className="secondary-button" onClick={() => openAction("category")}>＋ Category</button><button className="primary-button" onClick={() => openAction("allocation")}>＋ Allocate money</button></div></div>
-          <p className="field-help">Use Edit to change details or deactivate a category. Inactive categories retain their full history and can be reactivated.</p>
-          <DataTable key={categoryFilter.key} initialFacet={categoryFilter.status ? { key: "status", value: categoryFilter.status } : undefined} title="Categories" amountKey="available" amountLabel="Available" rows={dashboard.managedCategories.map(category => ({ id: category.id, name: category.name, available: category.available, allocated: category.allocated, spent: category.spent, target: category.target, status: !category.active ? "Inactive" : category.available < 0 ? "Overspent" : category.available === 0 ? "Empty" : category.target > category.available ? "Below target" : category.target > 0 ? "Funded" : "Available" }))}
-            columns={[{ key: "name", label: "Category" }, { key: "available", label: "Available", money: true }, { key: "status", label: "Status" }, { key: "target", label: "Target", money: true, detail: true }, { key: "allocated", label: "Net funding", money: true, detail: true }, { key: "spent", label: "Net spending", money: true, detail: true }]} facets={[{ key: "status", label: "Status" }]}
-            rowActions={[{ label: "Edit", onClick: row => { const category = dashboard.managedCategories.find(item => item.id === row.id); if (category) setEditingCategory(category); } }, { label: "Deactivate", isEligible: row => row.status !== "Inactive", onClick: row => { const category = dashboard.managedCategories.find(item => item.id === row.id); if (category) void updateCategoryStatus(category, false); } }, { label: "Reactivate", isEligible: row => row.status === "Inactive", onClick: row => { const category = dashboard.managedCategories.find(item => item.id === row.id); if (category) void updateCategoryStatus(category, true); } }, { label: "View transactions", onClick: row => viewCategory(String(row.name)) }]} />
+          <p className="field-help">Cash reserves are protected for cash expenses. Free to spend excludes those reserves. Card reserves show funded posted purchases before the cash check.</p>
+          {cashPlanShortfall > 0 && <p className="form-warning">Recorded cash is {money(cashPlanShortfall / 100)} short of the budget plan. Some category funding may not be backed by cash.</p>}
+          <DataTable key={categoryFilter.key} initialFacet={categoryFilter.status ? { key: "status", value: categoryFilter.status } : undefined} title="Categories" amountKey="available" amountLabel="Category balance" rows={dashboard.managedCategories.map(category => ({ id: category.id, name: category.name, available: category.available, free: Math.max(0, Math.min(category.available, category.cardFundingAvailable ?? category.available) - (category.unmatchedRefunds ?? 0) - (category.cashReserve ?? 0) - (category.cashReserveShortfall ?? 0)), cashReserve: category.cashReserve ?? 0, cashReserveShortfall: category.cashReserveShortfall ?? 0, cardReserve: cardFundingByCategory.get(category.id) ?? 0, unfundedCards: Math.max(0, ((unpaidByCategory.get(category.id) ?? 0) - Math.round((cardFundingByCategory.get(category.id) ?? 0) * 100)) / 100), allocated: category.allocated, spent: category.spent, target: category.target, status: !category.active ? "Inactive" : (category.cashReserveShortfall ?? 0) > 0 ? "Cash reserve shortfall" : category.available < 0 ? "Overspent" : category.available === 0 ? "Empty" : category.target > category.available ? "Below target" : category.target > 0 ? "Funded" : "Available" }))}
+            columns={[{ key: "name", label: "Category" }, { key: "available", label: "Balance", money: true }, { key: "free", label: "Free to spend", money: true }, { key: "cashReserve", label: "Protected for cash", money: true }, { key: "cardReserve", label: "Card reserves", money: true }, { key: "unfundedCards", label: "Unfunded card purchases", money: true }, { key: "status", label: "Status" }, { key: "cashReserveShortfall", label: "Cash reserve shortfall", money: true, detail: true }, { key: "target", label: "Target", money: true, detail: true }, { key: "allocated", label: "Net funding", money: true, detail: true }, { key: "spent", label: "Net spending", money: true, detail: true }]} facets={[{ key: "status", label: "Status" }]}
+            rowActions={[{ label: "Cash reserve", isEligible: row => row.status !== "Inactive", onClick: row => { const category = dashboard.managedCategories.find(item => item.id === row.id); if (category) setEditingCashReserve(category); } }, { label: "Edit", onClick: row => { const category = dashboard.managedCategories.find(item => item.id === row.id); if (category) setEditingCategory(category); } }, { label: "Deactivate", isEligible: row => row.status !== "Inactive", onClick: row => { const category = dashboard.managedCategories.find(item => item.id === row.id); if (category) void updateCategoryStatus(category, false); } }, { label: "Reactivate", isEligible: row => row.status === "Inactive", onClick: row => { const category = dashboard.managedCategories.find(item => item.id === row.id); if (category) void updateCategoryStatus(category, true); } }, { label: "View transactions", onClick: row => viewCategory(String(row.name)) }]} />
         </section>
         <section hidden={destination !== "allocations"} aria-label="Allocations">
           <div className="view-heading"><p>Available to assign: <strong>{money(dashboard.remainingToBudget)}</strong></p><div className="section-actions"><button className="secondary-button" onClick={() => setCoveringCashExpenses(true)}>Cover cash expenses</button><button className="secondary-button" onClick={() => setCoveringOverspending(true)}>Cover overspending</button><button className="secondary-button" onClick={() => setFundingObligations(true)}>Fund upcoming obligations</button><button className="secondary-button" onClick={() => setReconcilingBudget(true)}>Reconcile available</button><button className="secondary-button" onClick={() => openAction("transfer")}>Move funds</button><button className="primary-button" onClick={() => openAction("allocation")}>＋ Allocate money</button></div></div>
@@ -247,10 +268,11 @@ export default function Home() {
     {dashboard && coveringOverspending && <CoverOverspendingDialog dashboard={dashboard} onClose={() => setCoveringOverspending(false)} onSaved={(count, amount) => { setCoveringOverspending(false); setToast(count ? `${money(amount)} allocated to cover overspending in ${count} ${count === 1 ? "category" : "categories"}` : "Selected categories are already current"); void refresh(); }} />}
     {dashboard && reconcilingCoverage && <CardCoverageReconcileDialog dashboard={dashboard} onClose={() => setReconcilingCoverage(false)} onSaved={(count, state) => { setReconcilingCoverage(false); setToast(count ? `${count} card ${count === 1 ? "purchase" : "purchases"} marked ${state}` : `Selected purchases were already ${state}`); void refresh(); }} />}
     {dashboard && reconcilingBudget && <BudgetReconcileDialog dashboard={dashboard} onClose={() => setReconcilingBudget(false)} onSaved={(delta) => { setReconcilingBudget(false); setToast(delta ? `Available to assign reconciled by ${money(delta)}` : "Available to assign already matched"); void refresh(); }} />}
-    {dashboard && fundingObligations && <FundObligationsDialog dashboard={dashboard} onClose={() => setFundingObligations(false)} onSaved={(count, amount) => { setFundingObligations(false); setToast(count ? `${money(amount)} allocated across ${count} ${count === 1 ? "category" : "categories"}` : "Selected obligations were already funded"); void refresh(); }} />}
+    {dashboard && fundingObligations && <FundObligationsDialog dashboard={dashboard} onClose={() => setFundingObligations(false)} onSaved={(count, amount) => { setFundingObligations(false); setToast(count ? `${count} ${count === 1 ? "category" : "categories"} protected${amount ? ` · ${money(amount)} allocated` : " using existing funds"}` : "Selected obligations were already protected"); void refresh(); }} />}
     {dashboard && obligationEditor && <ObligationEditDialog obligation={obligationEditor === "new" ? null : obligationEditor} dashboard={dashboard} onClose={() => setObligationEditor(null)} onSaved={message => { setObligationEditor(null); setToast(message); void refresh(); }} />}
     {matchReview && <ObligationMatchDialog obligation={matchReview} onClose={() => setMatchReview(null)} onSaved={message => { setMatchReview(null); setToast(message); void refresh(); }} />}
     {dashboard && editingAllocation && <AllocationEditDialog allocation={editingAllocation} dashboard={dashboard} onClose={() => setEditingAllocation(null)} onSaved={message => { setEditingAllocation(null); setToast(message); void refresh(); }} />}
+    {dashboard && editingCashReserve && <CashReserveDialog category={editingCashReserve} reviewToken={dashboard.paymentReviewToken ?? ""} onClose={() => setEditingCashReserve(null)} onSaved={() => { setEditingCashReserve(null); setToast("Cash reserve updated"); void refresh(); }} />}
     {editingAdjustment && <BudgetAdjustmentEditDialog adjustment={editingAdjustment} onClose={() => setEditingAdjustment(null)} onSaved={message => { setEditingAdjustment(null); setToast(message); void refresh(); }} />}
     {editingTransaction && dashboard && <TransactionEditDialog transaction={editingTransaction.transaction} categorySuggestion={editingTransaction.suggestion} dashboard={dashboard} onClose={() => setEditingTransaction(null)} onSaved={(message) => { setEditingTransaction(null); setToast(message); void refresh(); }} />}
     {editingPayment && dashboard && <CardPaymentEditDialog payment={editingPayment} dashboard={dashboard} onClose={() => setEditingPayment(null)} onSaved={(message) => { setEditingPayment(null); setToast(message); void refresh(); }} />}

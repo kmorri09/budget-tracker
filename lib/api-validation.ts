@@ -99,4 +99,5 @@ export const obligationFundingSchema = z.object({
     amountCents: z.number().int().nonnegative().max(2_147_483_647),
   })).min(1).max(200),
   date: dateOnlySchema,
+  expectedAllocationCents: z.number().int().nonnegative().max(2_147_483_647),
 });

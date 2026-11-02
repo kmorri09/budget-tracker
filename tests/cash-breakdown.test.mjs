@@ -109,12 +109,19 @@ const flexCategories = [
   { id: "bonus", name: "Bonus + Tax Refund", availableCents: 139_917 },
 ];
 
-test("the screenshot shortfall uses the Bonus cushion once and leaves other category balances intact", () => {
+test("a Bonus category does not automatically enable a cushion", () => {
   const result = calculateCashBreakdown(233_564, -132_347, flexCategories);
+  assert.equal(result.flex, null);
+  assert.equal(result.shortfallCents, 132_347);
+  assert.equal(result.overassignedCents, 132_347);
+});
+
+test("the selected cushion counts the shortfall once and leaves category balances intact", () => {
+  const result = calculateCashBreakdown(233_564, -132_347, flexCategories, {}, ["bonus"]);
   assert.equal(result.shortfallCents, 132_347);
   assert.equal(result.overassignedCents, 132_347);
   assert.deepEqual(result.flex, {
-    categoryId: "bonus", categoryName: "Bonus + Tax Refund",
+    categoryIds: ["bonus"], categoryName: "Bonus + Tax Refund",
     limitCents: 139_917, neededCents: 132_347, usedCents: 132_347,
     remainingCents: 7_570, excessCents: 0, scaleCents: 139_917,
   });
@@ -125,7 +132,7 @@ test("the screenshot shortfall uses the Bonus cushion once and leaves other cate
 
 test("Bonus stays first even when Rent is larger, without changing the cushion limit", () => {
   const categories = [...flexCategories, { id: "large-rent", name: "Other rent", availableCents: 200_000 }];
-  const result = calculateCashBreakdown(565_911, 0, categories);
+  const result = calculateCashBreakdown(565_911, 0, categories, {}, ["bonus"]);
   assert.equal(result.fundedCategories[0].id, "bonus");
   assert.equal(result.flex.limitCents, 139_917);
   assert.equal(result.flex.remainingCents, 139_917);
@@ -134,10 +141,10 @@ test("Bonus stays first even when Rent is larger, without changing the cushion l
 });
 
 test("shortfalls at and beyond the Bonus limit distinguish fully used from overflow", () => {
-  const exact = calculateCashBreakdown(225_994, 0, flexCategories);
+  const exact = calculateCashBreakdown(225_994, 0, flexCategories, {}, ["bonus"]);
   assert.equal(exact.flex.remainingCents, 0);
   assert.equal(exact.flex.excessCents, 0);
-  const beyond = calculateCashBreakdown(200_000, -132_347, flexCategories);
+  const beyond = calculateCashBreakdown(200_000, -132_347, flexCategories, {}, ["bonus"]);
   assert.equal(beyond.flex.neededCents, 165_911);
   assert.equal(beyond.flex.usedCents, 139_917);
   assert.equal(beyond.flex.excessCents, 25_994);
@@ -145,7 +152,7 @@ test("shortfalls at and beyond the Bonus limit distinguish fully used from overf
 });
 
 test("overassignment beyond the cushion is visible even when recorded cash covers positive categories", () => {
-  const result = calculateCashBreakdown(500_000, -160_000, flexCategories);
+  const result = calculateCashBreakdown(500_000, -160_000, flexCategories, {}, ["bonus"]);
   assert.equal(result.shortfallCents, 0);
   assert.equal(result.flex.neededCents, 160_000);
   assert.equal(result.flex.excessCents, 20_083);
@@ -155,10 +162,47 @@ test("a depleted Bonus category cannot supply a positive flex cushion", () => {
   const result = calculateCashBreakdown(100_000, -50_000, [
     { id: "bonus", name: "Bonus and Tax Refund", availableCents: -10_000 },
     { id: "rent", name: "Rent", availableCents: 200_000 },
-  ]);
+  ], {}, ["bonus"]);
   assert.equal(result.flex.limitCents, 0);
   assert.equal(result.flex.usedCents, 0);
   assert.equal(result.flex.remainingCents, 0);
   assert.equal(result.flex.excessCents, 100_000);
   assert.equal(result.fundedCategories[0].id, "rent");
+});
+
+test("any selected categories combine their positive balances without double counting", () => {
+  const original = structuredClone(flexCategories);
+  const result = calculateCashBreakdown(200_000, -132_347, flexCategories, {}, ["rent", "fees", "rent", "missing"]);
+  assert.deepEqual(result.flex.categoryIds, ["fees", "rent"]);
+  assert.equal(result.flex.limitCents, 225_994);
+  assert.equal(result.flex.neededCents, 165_911);
+  assert.equal(result.flex.remainingCents, 60_083);
+  assert.deepEqual(result.fundedCategories.map(c => c.id), ["fees", "rent", "bonus"]);
+  assert.equal(result.reservedCents, 365_911);
+  assert.deepEqual(flexCategories, original);
+});
+
+test("empty or deleted selections disable the preview and keep the cash deficit visible", () => {
+  for (const ids of [[], ["deleted"]]) {
+    const result = calculateCashBreakdown(200_000, -132_347, flexCategories, {}, ids);
+    assert.equal(result.flex, null);
+    assert.equal(result.shortfallCents, 165_911);
+    assert.equal(result.overassignedCents, 132_347);
+  }
+});
+
+test("negative selected balances do not reduce the positive cushion from other selections", () => {
+  const result = calculateCashBreakdown(0, 0, [
+    { id: "positive", name: "Savings", availableCents: 20_000 },
+    { id: "negative", name: "Travel", availableCents: -30_000 },
+  ], {}, ["positive", "negative"]);
+  assert.equal(result.flex.limitCents, 20_000);
+});
+
+test("dashboard cushion uses category funding after pending card holds", () => {
+  const result = dashboardCashBreakdown(cashPlanFixture(), "2026-10-03", ["food"]);
+  assert.equal(result.flex.limitCents, 5000);
+  assert.equal(result.pendingCardReserveCents, 2000);
+  assert.equal(result.postedCardReserveCents, 3000);
+  assert.equal(result.plannedCents, 10000);
 });

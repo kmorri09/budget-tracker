@@ -15,6 +15,8 @@ import { GET as getDashboard } from "../app/api/dashboard/route";
 import { GET as getConnections } from "../app/api/connections/route";
 import { GET as getReviewHistory, PATCH as patchReview } from "../app/api/reviews/route";
 import { DELETE as deleteCategorizationRule } from "../app/api/categorization-rules/route";
+import { POST as adjustCashReserve } from "../app/api/cash-reserves/route";
+import { POST as fundObligations } from "../app/api/obligations/fund/route";
 
 const jsonRequest = (method: string, body: unknown = {}) => new Request("http://localhost/api/test", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
@@ -35,6 +37,8 @@ test("all user-owned mutation routes reject unauthenticated requests", async () 
   delete process.env.DATABASE_URL;
   try {
     const cases: Array<[string, (request: Request) => Promise<Response>, string, unknown?]> = [
+      ["cash reserves POST", adjustCashReserve, "POST", { categoryId: "category", targetCents: 100, reviewToken: "token" }],
+      ["fund obligations POST", fundObligations, "POST", { obligations: [{ id: "bill", amountCents: 100 }], date: "2026-11-02", expectedAllocationCents: 100 }],
       ["accounts POST", postAccount, "POST", { name: "Cash", institution: "Bank", type: "checking" }],
       ["accounts PATCH", patchAccount, "PATCH", { id: "account" }],
       ["accounts DELETE", deleteAccount, "DELETE", { id: "account" }],

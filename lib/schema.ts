@@ -210,6 +210,19 @@ export const allocations = pgTable("allocations", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({ userDateIndex: index("allocations_user_date_idx").on(table.userId, table.effectiveDate) }));
 
+// Explicit changes to a category's pooled cash reserve. Transactions remain
+// the source of truth for spending; these rows record only user decisions to
+// set aside or release money, so edits and bank sync can be replayed safely.
+export const cashReserveAdjustments = pgTable("cash_reserve_adjustments", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  categoryId: text("category_id").notNull().references(() => categories.id),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  effectiveDate: date("effective_date").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({ userDateIndex: index("cash_reserve_adjustments_user_date_idx").on(table.userId, table.effectiveDate) }));
+
 // Budget adjustments correct the unassigned pool without inventing income,
 // moving category money, or changing an account ledger balance.
 export const budgetAdjustments = pgTable("budget_adjustments", {

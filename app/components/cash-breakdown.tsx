@@ -6,9 +6,29 @@ import { money, today, type DashboardData } from "../../lib/workspace-types";
 
 const colors = ["#277456", "#5f8b6b", "#8a9f63", "#af995e", "#9a7d92", "#658ca1", "#a87968", "#7a958b"];
 const cents = (amount: number) => Math.round(amount * 100);
+const flexStorageKey = "budget-tracker:cash-flex:v1";
+type FlexPreference = { enabled: boolean; categoryIds: string[] };
 
 export default function CashBreakdown({ dashboard }: { dashboard: DashboardData }) {
-  const breakdown = dashboardCashBreakdown(dashboard, today());
+  const [flexPreference, setFlexPreference] = useState<FlexPreference>({ enabled: false, categoryIds: [] });
+  const [flexSettingsOpen, setFlexSettingsOpen] = useState(false);
+  const [storageError, setStorageError] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(flexStorageKey) ?? "null");
+      if (saved && typeof saved.enabled === "boolean" && Array.isArray(saved.categoryIds) && saved.categoryIds.every((id: unknown) => typeof id === "string")) {
+        setFlexPreference({ enabled: saved.enabled, categoryIds: [...new Set<string>(saved.categoryIds)] });
+      }
+    } catch { /* Keep flex off if storage is unavailable or invalid. */ }
+  }, []);
+  function updateFlex(next: FlexPreference) {
+    setFlexPreference(next);
+    try {
+      window.localStorage.setItem(flexStorageKey, JSON.stringify(next));
+      setStorageError(false);
+    } catch { setStorageError(true); }
+  }
+  const breakdown = dashboardCashBreakdown(dashboard, today(), flexPreference.enabled ? flexPreference.categoryIds : []);
   const cashCents = breakdown.positiveCashCents;
   const segments = [
     ...breakdown.fundedCategories.map((category, index) => ({ key: category.id, name: category.name, amountCents: category.availableCents, color: colors[index % colors.length] })),
@@ -48,11 +68,30 @@ export default function CashBreakdown({ dashboard }: { dashboard: DashboardData 
   return <section className="panel cash-breakdown" aria-labelledby="cash-breakdown-title">
     <div className="cash-breakdown-heading">
       <div><p className="eyebrow">Cash on hand</p><h2 id="cash-breakdown-title">Where your cash is planned</h2><p>Cash across your accounts, after pending withdrawals: <strong>{money(cashCents / 100)}</strong></p></div>
-      <span className="cash-breakdown-total">{money((breakdown.reservedCents + breakdown.cardReserveCents) / 100)}<small>assigned to categories and card purchases</small></span>
+      <div className="cash-breakdown-actions">
+        <span className="cash-breakdown-total">{money((breakdown.reservedCents + breakdown.cardReserveCents) / 100)}<small>assigned to categories and card purchases</small></span>
+        <button type="button" className="secondary-button" aria-expanded={flexSettingsOpen} aria-controls="cash-flex-settings" onClick={() => setFlexSettingsOpen(!flexSettingsOpen)}>Flex cushion · {flexPreference.enabled ? flex ? "On" : "Choose categories" : "Off"}</button>
+      </div>
     </div>
-    {flex && <div className={`cash-flex ${flex.excessCents > 0 ? "cash-flex-exceeded" : ""}`}>
-      <div className="cash-flex-heading"><div><p className="eyebrow">Your flex cushion</p><h3>{flex.categoryName}</h3></div><strong role="status">{flex.excessCents > 0 ? `${money(flex.excessCents / 100)} beyond cushion` : flex.remainingCents > 0 ? `${money(flex.remainingCents / 100)} cushion remaining` : flex.limitCents > 0 ? "Cushion fully used" : "No cushion available"}</strong></div>
-      <p className="cash-flex-description">{flex.excessCents > 0 ? "The shortfall exceeds your Bonus cushion and reaches money planned for other categories." : flex.neededCents > 0 ? "The shortfall fits within your Bonus cushion. Rent and other category balances are outside this cushion." : flex.limitCents > 0 ? "Your full Bonus cushion is available to flex." : "There is no positive Bonus balance available to flex."}</p>
+    <div id="cash-flex-settings" className="cash-flex-settings" hidden={!flexSettingsOpen}>
+      <label className="cash-flex-option"><input type="checkbox" checked={flexPreference.enabled} onChange={event => updateFlex({ ...flexPreference, enabled: event.target.checked })} />Use a flex cushion</label>
+      <p className="field-help">Choose one or more categories to preview as a cushion. Turn it off whenever you don’t need it. Choices are saved in this browser.</p>
+      {flexPreference.enabled && <fieldset>
+        <legend>Cushion categories</legend>
+        <div className="cash-flex-options">
+          {dashboard.managedCategories.map(category => <label className="cash-flex-option" key={category.id}>
+            <input type="checkbox" checked={flexPreference.categoryIds.includes(category.id)} onChange={event => updateFlex({ ...flexPreference, categoryIds: event.target.checked ? [...flexPreference.categoryIds, category.id] : flexPreference.categoryIds.filter(id => id !== category.id) })} />
+            <span>{category.name}{!category.active ? " (archived)" : ""}</span>
+          </label>)}
+        </div>
+        {!flex && <p className="field-help" role="status">Select at least one category to show a cushion preview.</p>}
+      </fieldset>}
+      {storageError && <p className="field-help" role="status">Your choice works for this visit, but couldn’t be saved in this browser.</p>}
+      <button type="button" className="text-link" onClick={() => setFlexSettingsOpen(false)}>Done</button>
+    </div>
+    {flex && <details className={`cash-flex ${flex.excessCents > 0 ? "cash-flex-exceeded" : ""}`}>
+      <summary className="cash-flex-heading"><span><span className="eyebrow">Your flex cushion</span><span className="cash-flex-category-name">{flex.categoryName}</span></span><strong>{flex.excessCents > 0 ? `${money(flex.excessCents / 100)} beyond cushion` : flex.remainingCents > 0 ? `${money(flex.remainingCents / 100)} cushion remaining` : flex.limitCents > 0 ? "Cushion fully used" : "No cushion available"}</strong><span className="cash-flex-details-label">Details <span className="filter-chevron" aria-hidden="true" /></span></summary>
+      <p className="cash-flex-description">{flex.excessCents > 0 ? "The shortfall exceeds your selected cushion and reaches money planned for other categories." : flex.neededCents > 0 ? "The shortfall fits within your selected cushion. Other category balances are outside this cushion." : flex.limitCents > 0 ? "Your full selected cushion is available to flex." : "The selected categories have no positive balance available to flex."}</p>
       <dl className="cash-flex-totals">
         <div><dt>Cushion limit</dt><dd>{money(flex.limitCents / 100)}</dd></div>
         <div><dt>Flex needed</dt><dd>{money(flex.neededCents / 100)}</dd></div>
@@ -64,16 +103,16 @@ export default function CashBreakdown({ dashboard }: { dashboard: DashboardData 
         {flex.excessCents > 0 && <span className="cash-flex-overflow" style={{ width: `${flex.excessCents / flex.scaleCents * 100}%` }} />}
         <span className="cash-flex-limit" style={{ left: `${flex.limitCents / flex.scaleCents * 100}%` }} />
       </div>}
-      <div className="cash-flex-legend"><span><i className="cash-breakdown-uncovered-key" aria-hidden="true" />Shortfall uses Bonus first</span><span>Cushion limit: {money(flex.limitCents / 100)}</span></div>
+      <div className="cash-flex-legend"><span><i className="cash-breakdown-uncovered-key" aria-hidden="true" />Shortfall uses selected categories first</span><span>Cushion limit: {money(flex.limitCents / 100)}</span></div>
       {flex.neededCents > 0 && <p className="cash-breakdown-context">Cash shortfall: {money(breakdown.shortfallCents / 100)} · Budget overassigned: {money(breakdown.overassignedCents / 100)}</p>}
       <p className="cash-breakdown-context">Flex needed is the larger of the cash shortfall and negative Available to assign. This previews using your cushion; it does not move category money.</p>
-    </div>}
+    </details>}
     {!flex && breakdown.shortfallCents > 0 && <div className="cash-breakdown-shortfall" role="status">
       <strong>Cash shortfall: {money(breakdown.shortfallCents / 100)}</strong>
       <p>Your budget assigns {money(breakdown.plannedCents / 100)} to category balances, card purchase reserves, and available to assign. Cash available across your accounts is {money(cashCents / 100)}.</p>
       {breakdown.reservedCents + breakdown.cardReserveCents <= breakdown.positiveCashCents && breakdown.unassignedCents > 0 && <p>Category and card purchase reserves are covered. Only <b>{money(cashForUnassignedCents / 100)}</b> of the <b>{money(breakdown.unassignedCents / 100)}</b> available to assign is backed by cash.</p>}
     </div>}
-    <p className="cash-breakdown-context">{flex ? `${flex.categoryName} is shown first so the striped cash shortfall uses that cushion before reaching other categories. ` : ""}Category cash, card purchase reserves, and available to assign are counted separately. Each dollar appears once.</p>
+    <p className="cash-breakdown-context">{flex ? "Selected cushion categories are shown first so the striped cash shortfall uses that cushion before reaching other categories. " : ""}Category cash, card purchase reserves, and available to assign are counted separately. Each dollar appears once.</p>
     <dl className="payment-summary cash-plan-summary" aria-label="Cash plan totals">
       <div><dt>Available in categories</dt><dd>{money(breakdown.reservedCents / 100)}</dd></div>
       <div><dt>Reserved for card payments</dt><dd>{money(breakdown.postedCardReserveCents / 100)}</dd></div>

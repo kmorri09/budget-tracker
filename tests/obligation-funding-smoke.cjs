@@ -20,28 +20,30 @@ const obligations = [
   { id: 'skip-4', name: 'Streaming', categoryId: 'room', expectedAmount: 0 },
   { id: 'skip-5', name: 'Gym', categoryId: 'room', expectedAmount: 0 },
 ].map(item => ({ ...item, amount: 100, amountSource: 'planned', category: categories.find(c => c.id === item.categoryId).name, account: 'Checking', accountId: 'checking', dueDate: date, nextChargeDate: date, cadence: 'Monthly', active: true, covered: false, coveredBy: null, lastCharge: null, previousCharge: null, suggestion: null, dismissedMatches: [] }));
+obligations.find(item => item.id === 'fund').lastCharge = { id: 'last', type: 'transaction', date, amount: 105, description: 'Policy', confidence: 'confirmed', categoryId: 'fees', category: 'Card Fees' };
 const fixture = {
-  ledgerBalance: 500, providerBalance: null, remainingToBudget: 500, allocationPercent: 0,
+  ledgerBalance: 500, providerBalance: null, remainingToBudget: 500, allocationPercent: 0, paymentReviewToken: 'fixture-token',
   availableBreakdown: { income: 500, adjustments: 0, allocations: 0, available: 500 },
-  availableAdjustments: [], accounts: [], managedAccounts: [], categories, managedCategories: categories,
+  availableAdjustments: [], accounts: [{ id: 'checking', name: 'Checking', institution: 'Fixture', type: 'checking', active: true, ledgerBalance: 500 }], managedAccounts: [{ id: 'checking', name: 'Checking', institution: 'Fixture', type: 'checking', active: true, ledgerBalance: 500 }], categories, managedCategories: categories,
   activity: [], allocations: [], payments: [], reviews: [], categorizationRules: [], obligations,
   trailing30: { income: 500, spending: 0, startDate: date, endDate: date },
 };
 
 (async () => {
   fs.mkdirSync('.next/ui-smoke', { recursive: true });
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}) });
   try {
     for (const width of [1280, 390]) {
       const page = await browser.newPage({ viewport: { width, height: 1000 } });
       const errors = [];
-      let saved;
-      page.on('pageerror', error => errors.push(error.message));
+      let saved, reserveSaved;
+      page.on('pageerror', error => { errors.push(error.message); console.error(error.stack); });
       await page.route('**/api/**', route => {
         const pathname = new URL(route.request().url()).pathname;
         if (pathname === '/api/auth/session') return route.fulfill({ json: { user: { displayName: 'Fixture owner' } } });
         if (pathname === '/api/dashboard') return route.fulfill({ json: fixture });
         if (pathname === '/api/connections') return route.fulfill({ json: { configured: false, connections: [] } });
+        if (pathname === '/api/cash-reserves') { reserveSaved = route.request().postDataJSON(); return route.fulfill({ json: { ok: true } }); }
         assert.equal(pathname, '/api/obligations/fund');
         saved = route.request().postDataJSON();
         return route.fulfill({ json: { ok: true, categoriesFunded: 1, amount: 105 } });
@@ -52,6 +54,7 @@ const fixture = {
       const submit = dialog.locator('.form-footer .primary-button');
       const prudential = dialog.getByRole('spinbutton', { name: 'Amount for Prudential Whole', exact: true });
       const citi = dialog.getByRole('spinbutton', { name: 'Amount for Citi Balance Steph', exact: true });
+      await dialog.getByText('Prudential Whole is planned in Insurance, but its last matched expense was categorized as Card Fees. Check the category when the next expense arrives.', { exact: true }).waitFor();
       assert(await submit.isEnabled(), 'A selected zero amount does not block positive obligations');
       assert(await dialog.evaluate(element => element.scrollWidth === element.clientWidth), 'Dialog has no horizontal scrollbar');
       assert.equal(await dialog.locator('.obligation-list').evaluate(list => list.scrollHeight > list.clientHeight), false, 'Obligations do not have a nested scroll area');
@@ -65,14 +68,14 @@ const fixture = {
       }
       await page.screenshot({ path: `.next/ui-smoke/obligation-disabled-${width}.png`, fullPage: true });
       await prudential.fill('0');
-      assert(await submit.isDisabled());
-      await dialog.getByText('These obligations are already covered by their categories’ available balances. No additional allocation is needed.', { exact: true }).waitFor();
+      assert(await submit.isEnabled());
+      await dialog.getByRole('button', { name: 'Protect existing money', exact: true }).waitFor();
       await citi.fill('0');
       await dialog.getByText('All selected amounts are $0, so there is nothing to allocate. Enter a positive amount or select another obligation.', { exact: true }).waitFor();
       await prudential.fill('105'); await citi.fill('25');
       await dialog.getByLabel('Allocation date', { exact: true }).fill('');
       assert(await submit.isDisabled());
-      await dialog.getByText('Choose an allocation date.', { exact: true }).waitFor();
+      await dialog.getByText('Choose today as the allocation date for cash reserves.', { exact: true }).waitFor();
       await dialog.getByLabel('Allocation date', { exact: true }).fill(date);
       await dialog.getByRole('button', { name: 'Clear this window', exact: true }).click();
       assert(await submit.isDisabled());
@@ -81,7 +84,15 @@ const fixture = {
       assert(await submit.isEnabled());
       await submit.click();
       await dialog.waitFor({ state: 'detached' });
-      assert.deepEqual(saved, { date, obligations: [{ id: 'skip', amountCents: 0 }, { id: 'skip-2', amountCents: 0 }, { id: 'skip-3', amountCents: 0 }, { id: 'fund', amountCents: 10500 }, { id: 'covered', amountCents: 2500 }, { id: 'skip-4', amountCents: 0 }, { id: 'skip-5', amountCents: 0 }] });
+      assert.deepEqual(saved, { date, expectedAllocationCents: 10500, obligations: [{ id: 'skip', amountCents: 0 }, { id: 'skip-2', amountCents: 0 }, { id: 'skip-3', amountCents: 0 }, { id: 'fund', amountCents: 10500 }, { id: 'covered', amountCents: 2500 }, { id: 'skip-4', amountCents: 0 }, { id: 'skip-5', amountCents: 0 }] });
+      await page.goto(base + '/#categories');
+      const feesRow = page.getByRole('row').filter({ hasText: 'Card Fees' });
+      await feesRow.getByRole('button', { name: /Cash reserve/ }).click();
+      const reserveDialog = page.getByRole('dialog', { name: 'Adjust cash reserve' });
+      await reserveDialog.getByRole('spinbutton').fill('25');
+      await reserveDialog.getByRole('button', { name: 'Save reserve' }).click();
+      await reserveDialog.waitFor({ state: 'detached' });
+      assert.deepEqual(reserveSaved, { categoryId: 'fees', targetCents: 2500, reviewToken: 'fixture-token' });
       assert.deepEqual(errors, []);
       await page.close();
       console.log(`Obligation funding zero override and disabled explanations passed at ${width}px`);

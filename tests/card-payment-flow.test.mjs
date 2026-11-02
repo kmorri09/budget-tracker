@@ -29,6 +29,18 @@ beforeEach(async () => {
 });
 const input = (workspace, extra = {}) => ({ fromAccountId: "cash", toAccountId: "card", amount: 340.80, date: today, description: "Reviewed payment", alreadyMade: false, reviewToken: workspace.paymentReviewToken, applications: [{ transactionId: "partial-purchase", amount: 340.80 }], ...extra });
 
+test("cash reserved in a category reduces card coverage and invalidates stale reviews", async () => {
+  const before = await loadPaymentWorkspace(db, "owner", today);
+  await db.insert(schema.cashReserveAdjustments).values({ id: "cash-reserve", userId: "owner", categoryId: "travel", amountCents: 30000, effectiveDate: today });
+  const after = await loadPaymentWorkspace(db, "owner", today);
+  assert.notEqual(before.paymentReviewToken, after.paymentReviewToken);
+  assert.equal(after.managedCategories.find(c => c.id === "travel").cashReserve, 300);
+  const cardFunding = cardPaymentPreview(after, today, "cash").fundedCents;
+  assert.equal(cardFunding, 39840);
+  const stale = await createCardPayment(db, "owner", input(before));
+  assert.equal(stale.status, 409);
+});
+
 test("existing refunds produce $0 and $439.20 remaining; a saved suggestion preserves all reserves", async () => {
   const original = await db.select().from(schema.transactions);
   const originalAllocations = await db.select().from(schema.allocations);
