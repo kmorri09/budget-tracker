@@ -55,6 +55,11 @@ function fixture() {
       assert.match(await dialog.innerText(), /Suggest \$340\.80/);
       assert.match(await dialog.innerText(), /only money already allocated/);
       assert.match(await dialog.innerText(), /leaves allocations unchanged/);
+      const purchaseCategory = dialog.getByLabel('Purchase category', { exact: true });
+      await purchaseCategory.selectOption({ label: 'Rent' });
+      await dialog.getByText('No eligible purchases in the selected category.', { exact: true }).waitFor();
+      await purchaseCategory.selectOption({ label: 'Travel' });
+      await dialog.getByRole('button', { name: 'Review payment', exact: true }).waitFor();
       await dialog.evaluate(node => { node.scrollTop = 0; });
       await page.screenshot({ path: `.next/ui-smoke/payment-overview-${width}.png` });
       assert.match(await dialog.getByRole('region', { name: 'Suggested payment total', exact: true }).innerText(), /\$340\.80/);

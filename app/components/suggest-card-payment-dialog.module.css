@@ -3,6 +3,7 @@
 .total { display: block; margin: 6px 0; color: var(--green-dark); font-size: clamp(32px, 6vw, 44px); letter-spacing: -.04em; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .result > p:not(.kicker) { margin: 8px 0 18px; color: #395d49; font-size: 13px; line-height: 1.5; }
 .result label { max-width: 340px; }
+.result label + label { margin-top: 12px; }
 .explanation h3, .paymentsTitle { margin: 0 0 6px; font-size: 16px; }
 .intro { margin: 0 0 14px; color: #52655a; font-size: 12px; line-height: 1.5; }
 .checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

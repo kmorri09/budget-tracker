@@ -24,10 +24,9 @@ export function paymentAffordability(dashboard: Pick<DashboardData, "accounts" |
   // Allocate that money first so the budget cannot promise it again afterward.
   const unassignedCents = Math.max(0, Math.round((dashboard.remainingToBudget ?? 0) * 100));
   const obligationShortfallCents = dashboard.managedCategories.reduce((sum, c) => sum + Math.max(0, Math.round(((c.obligationReserve ?? 0) - (c.cashReserve ?? 0)) * 100)), 0);
-  // The unassigned pool is already held and can be allocated to close an obligation gap.
-  const additionalObligationHoldCents = Math.max(0, obligationShortfallCents - unassignedCents);
-  const totalAffordableCents = Math.max(0, cashCents - reservedCents - unassignedCents - additionalObligationHoldCents);
+  // An obligation shortfall is a funding need. Only the funded portion is a cash reserve.
+  const totalAffordableCents = Math.max(0, cashCents - reservedCents - unassignedCents);
   const source = accounts.find(a => a.accountId === sourceAccountId);
   const affordableCents = sourceAccountId ? Math.max(0, Math.min(totalAffordableCents, source?.availableCents ?? 0)) : totalAffordableCents;
-  return { accounts, cashCents, reservedCents, unassignedCents, obligationShortfallCents, additionalObligationHoldCents, totalAffordableCents, affordableCents, needsBankVerification: accounts.some(a => !a.verified) };
+  return { accounts, cashCents, reservedCents, unassignedCents, obligationShortfallCents, totalAffordableCents, affordableCents, needsBankVerification: accounts.some(a => !a.verified) };
 }

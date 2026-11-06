@@ -94,7 +94,7 @@ test("all active Ruoom obligations reserve category money ahead of posted purcha
   const withInk = await loadPaymentWorkspace(db, "owner", today);
   assert.equal(withInk.managedCategories.find(c => c.id === "ruoom").cashReserveShortfall, 101.49);
   const shortfall = cardPaymentPreview(withInk, today, "cash");
-  assert.equal(shortfall.additionalObligationHoldCents, 10149);
+  assert.equal(shortfall.obligationShortfallCents, 10149);
   assert(!shortfall.fundedSuggestions.flatMap(s => s.applications).some(a => a.transactionId === "ruoom-purchase"));
 
   await db.update(schema.obligations).set({ amountCents: 36000 }).where(eq(schema.obligations.id, "quicksilver"));

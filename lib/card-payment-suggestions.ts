@@ -81,8 +81,13 @@ export function suggestCardPayments(dashboard: Pick<DashboardData, "accounts" | 
   }).filter(s => s.amountCents > 0).sort((a, b) => b.amountCents - a.amountCents || a.cardName.localeCompare(b.cardName));
 }
 
-export function cardPaymentPreview(dashboard: Pick<DashboardData, "accounts" | "managedCategories" | "activity" | "payments"> & Partial<Pick<DashboardData, "remainingToBudget">>, throughDate: string, sourceAccountId?: string, now = Date.now(), skippedPurchaseIds?: ReadonlySet<string>) {
-  const fundedSuggestions = suggestCardPayments(dashboard, throughDate, skippedPurchaseIds);
+export function cardPaymentPreview(dashboard: Pick<DashboardData, "accounts" | "managedCategories" | "activity" | "payments"> & Partial<Pick<DashboardData, "remainingToBudget">>, throughDate: string, sourceAccountId?: string, now = Date.now(), { skippedPurchaseIds, categoryId }: { skippedPurchaseIds?: ReadonlySet<string>; categoryId?: string } = {}) {
+  const allFunded = suggestCardPayments(dashboard, throughDate, skippedPurchaseIds);
+  const fundedSuggestions = categoryId ? allFunded.flatMap(card => {
+    const applications = card.applications.filter(application => application.categoryId === categoryId);
+    const amountCents = applications.reduce((sum, application) => sum + application.amountCents, 0);
+    return amountCents > 0 ? [{ ...card, applications, amountCents }] : [];
+  }) : allFunded;
   const affordability = paymentAffordability(dashboard, sourceAccountId, now);
   let remaining = affordability.affordableCents;
   const approved = new Map<string, CardPaymentSuggestion>();

@@ -26,12 +26,11 @@ test("category-backed payments do not silently spend money still shown as availa
   assert.equal(result.affordableCents, 52247);
 });
 
-test("unfunded obligations hold cash and overlap the already protected unassigned pool", () => {
+test("obligation shortfalls are reported without taking cash already funding another category", () => {
   const result = paymentAffordability({ accounts: [cash("cash", 200)], managedCategories: [{ ...category("bills", 20), cashReserve: 20, obligationReserve: 100 }], remainingToBudget: 60 }, "cash", now);
   assert.equal(result.reservedCents, 2000);
   assert.equal(result.obligationShortfallCents, 8000);
-  assert.equal(result.additionalObligationHoldCents, 2000);
-  assert.equal(result.affordableCents, 10000);
+  assert.equal(result.affordableCents, 12000);
 });
 
 test("dashboard cash checks protect funding reserved for pending card charges", () => {
@@ -58,6 +57,18 @@ test("all suggested cards share one cash cap and preserve oldest-first partial p
   assert.deepEqual(result.suggestions.map(s => s.amountCents), [5000, 2500]);
   assert.equal(result.shortfallCents, 2500);
   assert.equal(result.cashAfterCents, 2500);
+});
+
+test("a category filter assigns the shared cash limit only to purchases in that category", () => {
+  const accounts = [cash("cash", 75), { id: "card", name: "Card", type: "credit_card", active: true }];
+  const managedCategories = [category("food", 0), category("meppi", 0), category("rent", 25)];
+  const activity = ["food", "meppi"].map((id, index) => ({ id, accountId: "card", description: id, categoryId: id, kind: "expense", status: "posted", pending: false, remainingToPay: 50, date: `2026-10-0${index + 1}` }));
+  const data = { accounts, managedCategories, activity, payments: [] };
+  const all = cardPaymentPreview(data, "2026-10-29", "cash", now);
+  const filtered = cardPaymentPreview(data, "2026-10-29", "cash", now, { categoryId: "meppi" });
+  assert.equal(all.suggestions[0].applications[0].transactionId, "food");
+  assert.deepEqual(filtered.suggestions[0].applications.map(a => [a.transactionId, a.amountCents]), [["meppi", 5000]]);
+  assert.equal(filtered.affordableCents, all.affordableCents);
 });
 
 test("a card with an existing credit or smaller total debt cannot be suggested an overpayment", () => {

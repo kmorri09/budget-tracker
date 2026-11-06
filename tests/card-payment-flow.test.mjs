@@ -42,14 +42,16 @@ test("cash reserved in a category reduces card coverage and invalidates stale re
 });
 
 test("existing refunds produce $0 and $439.20 remaining; a saved suggestion preserves all reserves", async () => {
+  await db.insert(schema.obligations).values({ id: "rent-obligation", userId: "owner", categoryId: "rent", accountId: "cash", name: "Rent", amountCents: 100000, dueDate: today, cadence: "Monthly" });
   const original = await db.select().from(schema.transactions);
   const originalAllocations = await db.select().from(schema.allocations);
   const workspace = await loadPaymentWorkspace(db, "owner", today);
   assert.equal(workspace.activity.find(t => t.id === "full-purchase").remainingToPay, 0);
   assert.equal(workspace.activity.find(t => t.id === "partial-purchase").remainingToPay, 439.20);
-  const preview = cardPaymentPreview(workspace, today, "cash");
+  const preview = cardPaymentPreview(workspace, today, "cash", undefined, { categoryId: "travel" });
   assert.equal(preview.suggestedCents, 34080);
   assert.equal(preview.reservedCents, 65920);
+  assert.equal(preview.obligationShortfallCents, 60000);
   assert.deepEqual(await db.select().from(schema.transactions), original);
   assert.deepEqual(await db.select().from(schema.allocations), originalAllocations);
   const response = await createCardPayment(db, "owner", input(workspace));
@@ -71,7 +73,7 @@ test("skipping a purchase moves the category funding to a later charge, includin
   assert.equal(original.suggestions.find(card => card.cardId === "other-card").amountCents, 16080);
 
   const skippedPurchaseIds = ["partial-purchase"];
-  const preview = cardPaymentPreview(workspace, today, "cash", undefined, new Set(skippedPurchaseIds));
+  const preview = cardPaymentPreview(workspace, today, "cash", undefined, { skippedPurchaseIds: new Set(skippedPurchaseIds) });
   assert.equal(preview.fundedCents, 69840);
   assert.equal(preview.suggestedCents, 60000);
   assert.equal(preview.reservedCents, original.reservedCents);
