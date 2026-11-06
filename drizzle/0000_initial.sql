@@ -7,6 +7,12 @@ CREATE TABLE IF NOT EXISTS "users" (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "users_email_idx" ON "users" ("email");
 
+CREATE TABLE IF NOT EXISTS "paycheck_schedules" (
+  "user_id" text PRIMARY KEY NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "anchor_date" date NOT NULL,
+  "amount_cents" integer NOT NULL CHECK ("amount_cents" > 0)
+);
+
 CREATE TABLE IF NOT EXISTS "sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,

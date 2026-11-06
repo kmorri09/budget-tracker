@@ -66,6 +66,13 @@ test("a new recurring schedule uses its saved date even when an earlier payment 
   assert.equal(plan.expectedAmountCents, 158_100);
 });
 
+test("an unmatched recurring bill stays due within the current pay window after its scheduled date", () => {
+  const bill = { id: "bill", name: "Internet", amountCents: 10000, dueDate: "2026-11-02", accountId: "cash", cadence: "Monthly" };
+  const matched = { id: "charge", type: "transaction", description: "Internet", amountCents: 10000, effectiveDate: "2026-11-02", accountId: "cash" };
+  assert.equal(planObligations([bill], [], [], "2026-11-06", "2026-10-29").get("bill").nextChargeDate, "2026-11-02");
+  assert.equal(planObligations([bill], [matched], [], "2026-11-06", "2026-10-29").get("bill").nextChargeDate, "2026-12-02");
+});
+
 test("uncertain amount changes require confirmation and dismissals persist", () => {
   const obligation = { id: "hyatt", name: "Hyatt Payment", amountCents: 19_000, dueDate: "2026-09-05", accountId: "sofi", cadence: "Monthly" };
   const candidate = { id: "sep", type: "transaction", description: "Hyatt credit card", amountCents: 24_000, effectiveDate: "2026-09-07", accountId: "sofi" };

@@ -8,6 +8,12 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({ emailIndex: uniqueIndex("users_email_idx").on(table.email) }));
 
+export const paycheckSchedules = pgTable("paycheck_schedules", {
+  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  anchorDate: date("anchor_date").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+});
+
 export const sessions = pgTable("sessions", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

@@ -36,12 +36,17 @@ const fixture = {
     for (const width of [1280, 390]) {
       const page = await browser.newPage({ viewport: { width, height: 1000 } });
       const errors = [];
-      let saved, reserveSaved;
+      let saved, reserveSaved, paycheck;
       page.on('pageerror', error => { errors.push(error.message); console.error(error.stack); });
       await page.route('**/api/**', route => {
         const pathname = new URL(route.request().url()).pathname;
         if (pathname === '/api/auth/session') return route.fulfill({ json: { user: { displayName: 'Fixture owner' } } });
-        if (pathname === '/api/dashboard') return route.fulfill({ json: fixture });
+        if (pathname === '/api/dashboard') return route.fulfill({ json: { ...fixture, paycheck } });
+        if (pathname === '/api/budget/paycheck') {
+          const { anchorDate, amountCents } = route.request().postDataJSON();
+          paycheck = { anchorDate, nextDate: anchorDate, amount: amountCents / 100 };
+          return route.fulfill({ json: { ok: true } });
+        }
         if (pathname === '/api/connections') return route.fulfill({ json: { configured: false, connections: [] } });
         if (pathname === '/api/cash-reserves') { reserveSaved = route.request().postDataJSON(); return route.fulfill({ json: { ok: true } }); }
         assert.equal(pathname, '/api/obligations/fund');
@@ -93,6 +98,13 @@ const fixture = {
       await reserveDialog.getByRole('button', { name: 'Save reserve' }).click();
       await reserveDialog.waitFor({ state: 'detached' });
       assert.deepEqual(reserveSaved, { categoryId: 'fees', targetCents: 2500, reviewToken: 'fixture-token' });
+      await page.goto(base + '/#obligations');
+      await page.getByText('Set up paycheck planning', { exact: true }).click();
+      await page.getByLabel('Next scheduled payday', { exact: true }).fill(date);
+      await page.getByLabel('Expected amount every two weeks', { exact: true }).fill('4350');
+      await page.getByRole('button', { name: 'Save paycheck schedule', exact: true }).click();
+      await page.getByText(`Next paycheck ${date} · about $4,350.00`, { exact: true }).waitFor();
+      assert.deepEqual(paycheck, { anchorDate: date, nextDate: date, amount: 4350 });
       assert.deepEqual(errors, []);
       await page.close();
       console.log(`Obligation funding zero override and disabled explanations passed at ${width}px`);

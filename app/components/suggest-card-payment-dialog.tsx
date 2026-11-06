@@ -69,7 +69,7 @@ export default function SuggestCardPaymentDialog({ dashboard, skippedPurchaseIds
         </section>
       </div>
       {cashLimited && <p className={styles.deferred} role="status"><strong>{money(preview.shortfallCents / 100)} of eligible purchases must wait.</strong> They pass the category check, but there is not enough cash left to include them while protecting your other budget money.</p>}
-      {preview.obligationShortfallCents > 0 && <p className={styles.deferred}><strong>{money(preview.obligationShortfallCents / 100)} in active obligations still needs category funding.</strong> The cash check protects the funding already set aside for those obligations.</p>}
+      {preview.obligationShortfallCents > 0 && <p className={styles.deferred}><strong>{money(preview.obligationShortfallCents / 100)} in obligations {data.paycheck ? `through payday on ${data.paycheck.nextDate}` : "on your schedule"} still needs category funding.</strong> The cash check protects the funding already set aside for those obligations.</p>}
       <p className={styles.rule}>Suggestions use only money already allocated. Reviewing or recording a suggestion leaves allocations unchanged.</p>
       {protectedCategories.length > 0 && <details className={styles.calculation}>
         <summary>Cash reserves by category</summary>

@@ -12,6 +12,7 @@ export type CategorizationRule = { id: string; matchText: string; categoryId: st
 export type ReviewHistoryItem = { id: string; title: string; details: string | null; kind: string; status: string; createdAt: string; resolvedAt: string | null; resolution: string; canReopen: boolean; canUndoIgnore: boolean; reviewedTransaction: { description: string; amount: number; kind: string; date: string; account: string; category: string | null; status: string } | null; transaction: { id: string; description: string; amount: number; kind: string; date: string; account: string; category: string | null; status: string; source: string } | null };
 export type DashboardData = {
   paymentReviewToken?: string; refundReviews?: RefundReview[];
+  paycheck?: { anchorDate: string; nextDate: string; amount: number } | null;
   ledgerBalance: number; providerBalance: number | null; remainingToBudget: number; currentFundingAvailable?: number;
   availableBreakdown: { income: number; adjustments: number; allocations: number; available: number };
   availableAdjustments: BudgetAdjustment[];

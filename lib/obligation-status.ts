@@ -71,7 +71,7 @@ export function matchStrength(obligation: ObligationForCoverage, candidate: Obli
   if (dateGap <= 14 && amountGap <= Math.max(5000, obligation.amountCents * 0.35)) return "possible";
   return null;
 }
-export function planObligations(obligations: ObligationForCoverage[], candidates: ObligationCoverage[], decisions: MatchDecision[], today: string) {
+export function planObligations(obligations: ObligationForCoverage[], candidates: ObligationCoverage[], decisions: MatchDecision[], today: string, forecastFrom = today) {
   const result = new Map<string, ObligationPlan>();
   const decisionMap = new Map(decisions.map(decision => [`${decision.obligationId}:${decision.candidateType}:${decision.candidateId}`, decision.status]));
   const historyStart = addMonths(today, -18);
@@ -112,7 +112,7 @@ export function planObligations(obligations: ObligationForCoverage[], candidates
     const anchor = lastCharge && kind !== "once" && nearestScheduledDate(obligation, lastCharge.effectiveDate) >= obligation.dueDate
       ? lastCharge.effectiveDate
       : obligation.dueDate;
-    const after = lastCharge && lastCharge.effectiveDate >= today ? addDays(lastCharge.effectiveDate, 1) : today;
+    const after = lastCharge && lastCharge.effectiveDate >= forecastFrom ? addDays(lastCharge.effectiveDate, 1) : forecastFrom;
     const nextChargeDate = kind === "once" ? obligation.dueDate : nextOccurrence(anchor, obligation.cadence, after);
     const suggestions = scored.filter(pair => pair.obligation === obligation && (pair.strength === "possible" || pair.strength === "automatic") && !assigned.has(`${pair.candidate.type}:${pair.candidate.id}`) && !assignedCycles.has(`${obligation.id}:${nearestScheduledDate(obligation, pair.candidate.effectiveDate)}`)).sort((a, b) => b.candidate.effectiveDate.localeCompare(a.candidate.effectiveDate) || b.score - a.score);
     result.set(obligation.id ?? "", { nextChargeDate, expectedAmountCents: lastCharge?.amountCents ?? obligation.amountCents, amountSource: lastCharge ? "observed" : "planned", lastCharge, previousCharge: history[1] ?? null, covered, suggestion: suggestions[0]?.candidate ?? null, history });

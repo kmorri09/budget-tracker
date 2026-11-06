@@ -9,6 +9,7 @@ import { budgetToday } from "../lib/budget-date.ts";
 import { loadPaymentWorkspace } from "../lib/payment-workspace.ts";
 import { cardPaymentPreview } from "../lib/card-payment-suggestions.ts";
 import { fundObligations } from "../lib/fund-obligations-command.ts";
+import { paycheckWindow } from "../lib/paycheck-schedule.ts";
 
 const client = new PGlite(), db = drizzle(client, { schema }), today = budgetToday();
 before(async () => {
@@ -119,4 +120,31 @@ test("future income and unmatched card refunds cannot fund a cash reserve today"
   assert.equal(result.status, 409);
   assert.match((await result.json()).error, /current Ready to Allocate/);
   assert.equal((await db.select().from(schema.cashReserveAdjustments)).filter(r => r.categoryId === "other-bill").length, 0);
+});
+
+test("paycheck reserves include bills on payday and leave later bills in the obligations plan", async () => {
+  const anchor = new Date(`${today}T12:00:00Z`);
+  anchor.setUTCDate(anchor.getUTCDate() + 2);
+  const payday = anchor.toISOString().slice(0, 10);
+  anchor.setUTCDate(anchor.getUTCDate() + 1);
+  const afterPayday = anchor.toISOString().slice(0, 10);
+  await db.insert(schema.categories).values({ id: "payday-bills", userId: "owner", name: "Payday bills" });
+  await db.insert(schema.obligations).values([
+    { id: "before-payday", userId: "owner", accountId: "cash", categoryId: "payday-bills", name: "Before payday", amountCents: 5000, dueDate: today },
+    { id: "on-payday", userId: "owner", accountId: "cash", categoryId: "payday-bills", name: "On payday", amountCents: 2000, dueDate: payday },
+    { id: "after-payday", userId: "owner", accountId: "cash", categoryId: "payday-bills", name: "After payday", amountCents: 3000, dueDate: afterPayday },
+  ]);
+  const original = await loadPaymentWorkspace(db, "owner", today);
+  assert.equal(original.managedCategories.find(c => c.id === "payday-bills").cashReserveShortfall, 100);
+  await db.insert(schema.paycheckSchedules).values({ userId: "owner", anchorDate: payday, amountCents: 435000 });
+  const scheduled = await loadPaymentWorkspace(db, "owner", today);
+  assert.equal(scheduled.managedCategories.find(c => c.id === "payday-bills").cashReserveShortfall, 70);
+  assert.equal(scheduled.obligationPlans.get("after-payday").nextChargeDate, afterPayday);
+  assert.deepEqual(scheduled.paycheck, { anchorDate: payday, nextDate: payday, amount: 4350 });
+  assert.notEqual(scheduled.paymentReviewToken, original.paymentReviewToken);
+  assert.deepEqual(scheduled.accounts, original.accounts);
+  assert.equal(scheduled.currentFundingAvailable, original.currentFundingAvailable);
+  assert.deepEqual(paycheckWindow("2026-11-11", "2026-11-11"), { startDate: "2026-10-29", nextDate: "2026-11-11" });
+  assert.equal(paycheckWindow("2026-11-11", "2026-11-12").nextDate, "2026-11-25");
+  assert.equal(paycheckWindow("2026-11-11", "2026-12-31").nextDate, "2027-01-06");
 });

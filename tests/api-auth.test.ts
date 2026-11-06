@@ -17,6 +17,7 @@ import { GET as getReviewHistory, PATCH as patchReview } from "../app/api/review
 import { DELETE as deleteCategorizationRule } from "../app/api/categorization-rules/route";
 import { POST as adjustCashReserve } from "../app/api/cash-reserves/route";
 import { POST as fundObligations } from "../app/api/obligations/fund/route";
+import { PUT as savePaycheckSchedule } from "../app/api/budget/paycheck/route";
 
 const jsonRequest = (method: string, body: unknown = {}) => new Request("http://localhost/api/test", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
@@ -39,6 +40,7 @@ test("all user-owned mutation routes reject unauthenticated requests", async () 
     const cases: Array<[string, (request: Request) => Promise<Response>, string, unknown?]> = [
       ["cash reserves POST", adjustCashReserve, "POST", { categoryId: "category", targetCents: 100, reviewToken: "token" }],
       ["fund obligations POST", fundObligations, "POST", { obligations: [{ id: "bill", amountCents: 100 }], date: "2026-11-02", expectedAllocationCents: 100 }],
+      ["paycheck schedule PUT", savePaycheckSchedule, "PUT", { anchorDate: "2026-11-11", amountCents: 435000 }],
       ["accounts POST", postAccount, "POST", { name: "Cash", institution: "Bank", type: "checking" }],
       ["accounts PATCH", patchAccount, "PATCH", { id: "account" }],
       ["accounts DELETE", deleteAccount, "DELETE", { id: "account" }],

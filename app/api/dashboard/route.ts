@@ -98,6 +98,7 @@ export async function GET() {
   return NextResponse.json({
     paymentReviewToken: paymentWorkspace.paymentReviewToken,
     currentFundingAvailable: paymentWorkspace.currentFundingAvailable,
+    paycheck: paymentWorkspace.paycheck,
     refundReviews: paymentWorkspace.cardCoverage.refunds.refunds.map(refund => ({ id: refund.id, description: refund.description, date: refund.effectiveDate, amount: centsToAmount(refund.amountCents), remaining: centsToAmount(refund.remainingCents), account: accountById.get(refund.accountId)?.name ?? "Card", links: refund.links.map(link => { const purchase = transactionRows.find(t => t.id === link.transactionId); return { transactionId: link.transactionId, description: purchase?.description ?? "Purchase", date: purchase?.effectiveDate ?? "", amount: centsToAmount(link.amountCents), confidence: link.confidence }; }), candidates: refund.candidates.map(p => ({ transactionId: p.id, description: p.description, date: p.effectiveDate, remaining: centsToAmount(p.remainingCents) })) })),
     user: { id: user.id, displayName: user.displayName, email: user.email },
     accounts: paymentWorkspace.accounts.filter(account => account.active),
