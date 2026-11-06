@@ -19,7 +19,7 @@ const obligations = [
   { id: 'covered', name: 'Citi Balance Steph', categoryId: 'fees', expectedAmount: 25 },
   { id: 'skip-4', name: 'Streaming', categoryId: 'room', expectedAmount: 0 },
   { id: 'skip-5', name: 'Gym', categoryId: 'room', expectedAmount: 0 },
-].map(item => ({ ...item, amount: 100, amountSource: 'planned', category: categories.find(c => c.id === item.categoryId).name, account: 'Checking', accountId: 'checking', dueDate: date, nextChargeDate: date, cadence: 'Monthly', active: true, covered: false, coveredBy: null, lastCharge: null, previousCharge: null, suggestion: null, dismissedMatches: [] }));
+].map(item => ({ ...item, amount: item.expectedAmount, amountSource: 'planned', category: categories.find(c => c.id === item.categoryId).name, account: 'Checking', accountId: 'checking', dueDate: date, nextChargeDate: date, cadence: 'Monthly', active: true, covered: false, coveredBy: null, lastCharge: null, previousCharge: null, suggestion: null, dismissedMatches: [] }));
 obligations.find(item => item.id === 'fund').lastCharge = { id: 'last', type: 'transaction', date, amount: 105, description: 'Policy', confidence: 'confirmed', categoryId: 'fees', category: 'Card Fees' };
 const fixture = {
   ledgerBalance: 500, providerBalance: null, remainingToBudget: 500, allocationPercent: 0, paymentReviewToken: 'fixture-token',

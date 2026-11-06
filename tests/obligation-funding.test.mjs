@@ -58,6 +58,14 @@ test("recurring obligations learn posted charge timing and amount from history",
   assert.equal(plan.amountSource, "observed");
 });
 
+test("a new recurring schedule uses its saved date even when an earlier payment was matched", () => {
+  const obligation = { id: "amex", name: "Amex Blue", amountCents: 160_000, dueDate: "2026-11-18", accountId: "cash", cadence: "Monthly" };
+  const prior = { id: "oct", type: "transaction", description: "Amex Blue", amountCents: 158_100, effectiveDate: "2026-10-15", accountId: "cash" };
+  const plan = planObligations([obligation], [prior], [], "2026-11-06").get("amex");
+  assert.equal(plan.nextChargeDate, "2026-11-18");
+  assert.equal(plan.expectedAmountCents, 158_100);
+});
+
 test("uncertain amount changes require confirmation and dismissals persist", () => {
   const obligation = { id: "hyatt", name: "Hyatt Payment", amountCents: 19_000, dueDate: "2026-09-05", accountId: "sofi", cadence: "Monthly" };
   const candidate = { id: "sep", type: "transaction", description: "Hyatt credit card", amountCents: 24_000, effectiveDate: "2026-09-07", accountId: "sofi" };

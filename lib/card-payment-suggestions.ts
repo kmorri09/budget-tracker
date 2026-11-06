@@ -54,7 +54,7 @@ export function suggestCardPayments(dashboard: Pick<DashboardData, "accounts" | 
     // Actual effective net allocations are the ceiling. Bank cash, an unassigned
     // pool, or a positive balance alone are never proof of allocation funding.
     const allocatedCents = Number.isFinite(allocated) ? Math.max(0, Math.round(allocated * 100)) : 0;
-    const cashReserveCents = Math.max(0, Math.round((category.cashReserve ?? 0) * 100));
+    const cashReserveCents = Math.max(0, Math.round(((category.cashReserve ?? 0) + (category.pendingCardReserve ?? 0)) * 100));
     let fundedCents = Math.min(unpaidCents, Math.max(0, allocatedCents - cashReserveCents), Math.max(0, Math.round(available * 100) + unpaidCents - unmatchedRefundCents - cashReserveCents));
     for (const { entry, remainingCents } of entries) {
       if (fundedCents <= 0) break;

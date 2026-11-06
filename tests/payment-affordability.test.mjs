@@ -26,6 +26,14 @@ test("category-backed payments do not silently spend money still shown as availa
   assert.equal(result.affordableCents, 52247);
 });
 
+test("unfunded obligations hold cash and overlap the already protected unassigned pool", () => {
+  const result = paymentAffordability({ accounts: [cash("cash", 200)], managedCategories: [{ ...category("bills", 20), cashReserve: 20, obligationReserve: 100 }], remainingToBudget: 60 }, "cash", now);
+  assert.equal(result.reservedCents, 2000);
+  assert.equal(result.obligationShortfallCents, 8000);
+  assert.equal(result.additionalObligationHoldCents, 2000);
+  assert.equal(result.affordableCents, 10000);
+});
+
 test("dashboard cash checks protect funding reserved for pending card charges", () => {
   const result = paymentAffordability({ accounts: [cash("cash", 100)], managedCategories: [{ ...category("reserved", 20), cardFundingAvailable: 70 }] }, "cash", now);
   assert.equal(result.reservedCents, 7000);

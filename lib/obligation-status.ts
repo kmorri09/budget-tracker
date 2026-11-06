@@ -107,7 +107,11 @@ export function planObligations(obligations: ObligationForCoverage[], candidates
     const lastCharge = history[0] ?? null;
     const kind = cadenceKind(obligation.cadence);
     const covered = kind === "once" && Boolean(lastCharge);
-    const anchor = lastCharge && kind !== "once" ? lastCharge.effectiveDate : obligation.dueDate;
+    // A newly entered schedule starts on its saved date. Earlier payments can
+    // inform the estimate, but only matches in the new schedule can shift it.
+    const anchor = lastCharge && kind !== "once" && nearestScheduledDate(obligation, lastCharge.effectiveDate) >= obligation.dueDate
+      ? lastCharge.effectiveDate
+      : obligation.dueDate;
     const after = lastCharge && lastCharge.effectiveDate >= today ? addDays(lastCharge.effectiveDate, 1) : today;
     const nextChargeDate = kind === "once" ? obligation.dueDate : nextOccurrence(anchor, obligation.cadence, after);
     const suggestions = scored.filter(pair => pair.obligation === obligation && (pair.strength === "possible" || pair.strength === "automatic") && !assigned.has(`${pair.candidate.type}:${pair.candidate.id}`) && !assignedCycles.has(`${obligation.id}:${nearestScheduledDate(obligation, pair.candidate.effectiveDate)}`)).sort((a, b) => b.candidate.effectiveDate.localeCompare(a.candidate.effectiveDate) || b.score - a.score);

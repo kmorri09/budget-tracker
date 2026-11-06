@@ -32,7 +32,7 @@ export default function SuggestCardPaymentDialog({ dashboard, skippedPurchaseIds
   const preview = cardPaymentPreview(data, today(), sourceId, undefined, skippedPurchaseIds);
   const source = preview.accounts.find(account => account.accountId === sourceId);
   const cashLimited = preview.shortfallCents > 0;
-  const protectedCategories = data.managedCategories.filter(category => (category.cashReserve ?? 0) > 0);
+  const protectedCategories = data.managedCategories.filter(category => (category.cashReserve ?? 0) > 0 || (category.obligationReserve ?? 0) > 0);
   const eligiblePurchases = preview.fundedSuggestions.flatMap(card => card.applications);
   const includedPurchases = preview.suggestions.flatMap(card => card.applications);
   const skippedPurchases = data.activity.filter(entry => skippedPurchaseIds.has(entry.id) && entry.remainingToPay > 0);
@@ -63,10 +63,11 @@ export default function SuggestCardPaymentDialog({ dashboard, skippedPurchaseIds
           <h4><span>2</span> Cash check</h4>
           <strong>{money(preview.affordableCents / 100)}</strong>
           <p>Cash limit for card payments</p>
-          <small>Cash left after protecting other category balances and unassigned money, limited to the selected account. Shared across all cards.</small>
+          <small>Cash left after protecting category balances, active obligations, and unassigned money, limited to the selected account. Shared across all cards.</small>
         </section>
       </div>
       {cashLimited && <p className={styles.deferred} role="status"><strong>{money(preview.shortfallCents / 100)} of eligible purchases must wait.</strong> They pass the category check, but there is not enough cash left to include them while protecting your other budget money.</p>}
+      {preview.obligationShortfallCents > 0 && <p className={styles.deferred}><strong>{money(preview.obligationShortfallCents / 100)} in active obligations still needs category funding.</strong> The cash check accounts for this gap before suggesting card payments.</p>}
       <p className={styles.rule}>Suggestions use only money already allocated. Reviewing or recording a suggestion leaves allocations unchanged.</p>
       {protectedCategories.length > 0 && <details className={styles.calculation}>
         <summary>Cash reserves by category</summary>
@@ -78,6 +79,8 @@ export default function SuggestCardPaymentDialog({ dashboard, skippedPurchaseIds
             <h4>{category.name}</h4>
             <dl className="payment-summary">
               <div><dt>Protected cash reserve</dt><dd>{money(category.cashReserve ?? 0)}</dd></div>
+              {!!category.obligationReserve && <div><dt>Active obligation reserve target</dt><dd>{money(category.obligationReserve)}</dd></div>}
+              {!!category.cashReserveShortfall && <div><dt>Reserve funding shortfall</dt><dd>{money(category.cashReserveShortfall)}</dd></div>}
               <div><dt>Eligible card purchases before the cash check</dt><dd>{money(eligibleCents / 100)}</dd></div>
               <div><dt>Included in suggested payments</dt><dd>{money(includedCents / 100)}</dd></div>
             </dl>
@@ -90,6 +93,7 @@ export default function SuggestCardPaymentDialog({ dashboard, skippedPurchaseIds
           <div><dt>Cash across accounts, after pending withdrawals</dt><dd>{money(preview.cashCents / 100)}</dd></div>
           <div><dt>Less: protected category balances</dt><dd>−{money(preview.reservedCents / 100)}</dd></div>
           <div><dt>Less: unassigned money kept untouched</dt><dd>−{money(preview.unassignedCents / 100)}</dd></div>
+          {preview.additionalObligationHoldCents > 0 && <div><dt>Less: additional cash held for unfunded obligations</dt><dd>−{money(preview.additionalObligationHoldCents / 100)}</dd></div>}
           <div className={styles.subtotal}><dt>Cash limit across all accounts</dt><dd>{money(preview.totalAffordableCents / 100)}</dd></div>
           <div><dt>Available in {source?.name ?? "selected account"}</dt><dd>{money((source?.availableCents ?? 0) / 100)}</dd></div>
           <div className={styles.subtotal}><dt>Cash limit using this account</dt><dd>{money(preview.affordableCents / 100)}</dd></div>

@@ -14,6 +14,7 @@ const data = { paymentReviewToken: 'fixture', accounts: [account], managedAccoun
   try {
     for (const width of [1280, 390]) {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
+      page.setDefaultTimeout(5000);
       const requests = [], errors = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.route('**/api/**', route => {
@@ -25,6 +26,8 @@ const data = { paymentReviewToken: 'fixture', accounts: [account], managedAccoun
         return route.fulfill({ json: {} });
       });
       await page.goto(base + '/#review');
+      await page.waitForTimeout(1000);
+      if (!await page.getByRole('button', { name: 'Edit transaction', exact: true }).count()) console.error('Review fixture:', await page.locator('body').innerText(), errors);
       await page.getByRole('button', { name: 'Edit transaction', exact: true }).click();
       let dialog = page.getByRole('dialog', { name: 'Edit transaction' });
       const category = dialog.getByRole('combobox', { name: 'Category' });

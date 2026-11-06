@@ -28,7 +28,7 @@ function fixture() {
       currentPage = page;
       page.setDefaultTimeout(10000);
       const errors = [], requests = [], entryRequests = []; let data = fixture(), matchingRefundQueue = false, failNextRefundMatch = false;
-      data.managedCategories.find(category => category.id === 'travel').cashReserve = 200;
+      Object.assign(data.managedCategories.find(category => category.id === 'travel'), { cashReserve: 200, obligationReserve: 200, manualCashReserve: 0 });
       page.on('pageerror', error => { errors.push(error.message); console.error('Browser error:', error.stack); });
       await page.route('**/api/**', async route => {
         const request = route.request(); const url = new URL(request.url());
@@ -64,6 +64,7 @@ function fixture() {
       const reserves = dialog.locator('details').filter({ hasText: 'Cash reserves by category' });
       await reserves.locator('summary').click();
       assert.match(await reserves.innerText(), /Travel\s+Protected cash reserve\s+\$200\.00/);
+      assert.match(await reserves.innerText(), /Active obligation reserve target\s+\$200\.00/);
       assert.match(await reserves.innerText(), /Eligible card purchases before the cash check\s+\$439\.20/);
       assert.match(await reserves.innerText(), /Included in suggested payments\s+\$340\.80/);
       await reserves.locator('summary').click();

@@ -66,8 +66,11 @@ export function dashboardCashBreakdown(dashboard: Pick<DashboardData, "accounts"
   const categories = dashboard.managedCategories.map(category => {
     const effective = Math.round((category.cardFundingAvailable ?? category.available) * 100);
     const protectedCash = Math.max(0, Math.round((category.cashReserve ?? 0) * 100));
-    const afterPending = effective - (pendingByCategory.get(category.id) ?? 0);
-    pendingCents += Math.max(protectedCash, effective) - Math.max(protectedCash, afterPending);
+    const pending = category.pendingCardReserve === undefined
+      ? Math.min(pendingByCategory.get(category.id) ?? 0, Math.max(0, effective - protectedCash))
+      : Math.round(category.pendingCardReserve * 100);
+    const afterPending = effective - pending;
+    pendingCents += pending;
     return { id: category.id, name: category.name, availableCents: Math.max(protectedCash, afterPending) };
   });
   const postedCents = suggestCardPayments(dashboard, date).reduce((n, card) => n + card.amountCents, 0);

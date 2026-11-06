@@ -54,14 +54,55 @@ test("funding protects existing category money, allocates only the rest, and rej
   assert.equal(response.status, 200, JSON.stringify(await response.clone().json()));
   assert.deepEqual(await response.json(), { ok: true, categoriesFunded: 1, amount: 70 });
   const reserveRows = (await db.select().from(schema.cashReserveAdjustments)).filter(row => row.categoryId === "utilities");
-  assert.equal(reserveRows.length, 1);
-  assert.equal(reserveRows[0].amountCents, 12000);
+  assert.equal(reserveRows.length, 0);
+  assert.equal((await loadPaymentWorkspace(db, "owner", today)).managedCategories.find(c => c.id === "utilities").cashReserve, 120);
   const repeat = await fundObligations(db, "owner", input);
   assert.equal(repeat.status, 409);
-  assert.equal((await db.select().from(schema.cashReserveAdjustments)).filter(row => row.categoryId === "utilities").length, 1);
+  assert.equal((await db.select().from(schema.cashReserveAdjustments)).filter(row => row.categoryId === "utilities").length, 0);
   const refreshed = await fundObligations(db, "owner", { ...input, expectedAllocationCents: 0 });
   assert.equal(refreshed.status, 200);
   assert.equal((await refreshed.json()).categoriesFunded, 0);
+});
+
+test("all active Ruoom obligations reserve category money ahead of posted purchases without duplicating a manual reserve", async () => {
+  await db.insert(schema.categories).values({ id: "ruoom", userId: "owner", name: "Ruoom" });
+  await db.insert(schema.allocations).values({ id: "ruoom-fund", userId: "owner", categoryId: "ruoom", amountCents: 53751, effectiveDate: today });
+  await db.insert(schema.transactions).values([
+    { id: "ruoom-purchase", userId: "owner", categoryId: "ruoom", accountId: "card", kind: "expense", amountCents: 17651, effectiveDate: today, description: "Posted purchase" },
+    { id: "ruoom-pending", userId: "owner", categoryId: "ruoom", accountId: "card", kind: "expense", amountCents: 1500, effectiveDate: today, description: "Pending purchase", pending: true, status: "pending" },
+    { id: "amex-withdrawal", userId: "owner", accountId: "cash", kind: "transfer_out", amountCents: 160000, effectiveDate: today, description: "Amex Blue" },
+  ]);
+  await db.insert(schema.cashReserveAdjustments).values({ id: "ruoom-reserve", userId: "owner", categoryId: "ruoom", amountCents: 34600, effectiveDate: today });
+  const before = await loadPaymentWorkspace(db, "owner", today);
+  await db.insert(schema.obligations).values([
+    { id: "quicksilver", userId: "owner", accountId: "cash", categoryId: "ruoom", name: "Quicksilver", amountCents: 34600, dueDate: today, cadence: "Monthly" },
+    { id: "spark", userId: "owner", accountId: "cash", categoryId: "ruoom", name: "Capital One Spark", amountCents: 15800, dueDate: "2099-01-01", cadence: "Monthly" },
+    { id: "amex", userId: "owner", accountId: "cash", categoryId: "ruoom", name: "Amex Blue", amountCents: 160000, dueDate: today },
+    { id: "ink", userId: "owner", accountId: "card", categoryId: "ruoom", name: "Chase Ink", amountCents: 12000, dueDate: today, active: false },
+  ]);
+  const workspace = await loadPaymentWorkspace(db, "owner", today);
+  const ruoom = workspace.managedCategories.find(c => c.id === "ruoom");
+  assert.notEqual(workspace.paymentReviewToken, before.paymentReviewToken);
+  assert.equal(ruoom.manualCashReserve, 346);
+  assert.equal(ruoom.obligationReserve, 504);
+  assert.equal(ruoom.cashReserve, 504);
+  assert.equal(ruoom.pendingCardReserve, 15);
+  const preview = cardPaymentPreview(workspace, today, "cash");
+  assert.equal(preview.fundedSuggestions.flatMap(s => s.applications).find(a => a.transactionId === "ruoom-purchase").amountCents, 1851);
+
+  await db.update(schema.obligations).set({ active: true }).where(eq(schema.obligations.id, "ink"));
+  const withInk = await loadPaymentWorkspace(db, "owner", today);
+  assert.equal(withInk.managedCategories.find(c => c.id === "ruoom").cashReserveShortfall, 101.49);
+  const shortfall = cardPaymentPreview(withInk, today, "cash");
+  assert.equal(shortfall.additionalObligationHoldCents, 10149);
+  assert(!shortfall.fundedSuggestions.flatMap(s => s.applications).some(a => a.transactionId === "ruoom-purchase"));
+
+  await db.update(schema.obligations).set({ amountCents: 36000 }).where(eq(schema.obligations.id, "quicksilver"));
+  await db.update(schema.obligations).set({ cadence: "Monthly" }).where(eq(schema.obligations.id, "amex"));
+  const withAllFour = (await loadPaymentWorkspace(db, "owner", today)).managedCategories.find(c => c.id === "ruoom");
+  assert.equal(withAllFour.obligationReserve, 2238);
+  assert.equal(withAllFour.cashReserve, 522.51);
+  assert.equal(withAllFour.cashReserveShortfall, 1715.49);
 });
 
 test("future income and unmatched card refunds cannot fund a cash reserve today", async () => {

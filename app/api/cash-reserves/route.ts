@@ -23,12 +23,14 @@ export async function POST(request: Request) {
       const workspace = await loadPaymentWorkspace(tx, user.id, date);
       if (workspace.paymentReviewToken !== input.reviewToken) return NextResponse.json({ error: "Your budget changed. Refresh and review the reserve again." }, { status: 409 });
       const balance = workspace.managedCategories.find(row => row.id === category.id)!;
-      const currentCents = Math.round((balance.cashReserve + balance.cashReserveShortfall) * 100);
+      const currentCents = Math.round(balance.manualCashReserve * 100);
+      const obligationCents = Math.round(balance.obligationReserve * 100);
+      const protectedCents = Math.max(currentCents, obligationCents);
       const cardIds = new Set(workspace.accounts.filter(account => account.type === "credit_card").map(account => account.id));
       const pendingCardCents = workspace.activity.filter(row => row.categoryId === category.id && row.kind === "expense" && cardIds.has(row.accountId) && (row.pending || row.status === "pending") && row.date <= date).reduce((sum, row) => sum + Math.round(row.amount * 100), 0);
-      const freeCents = Math.max(0, Math.round((balance.available - balance.unmatchedRefunds) * 100) - pendingCardCents - currentCents);
+      const freeCents = Math.max(0, Math.round((balance.available - balance.unmatchedRefunds) * 100) - pendingCardCents - protectedCents);
       const difference = input.targetCents - currentCents;
-      if (difference > freeCents) return NextResponse.json({ error: "There is not enough free category money to protect that amount." }, { status: 400 });
+      if (input.targetCents > protectedCents + freeCents) return NextResponse.json({ error: "There is not enough free category money to protect that amount." }, { status: 400 });
       if (!difference) return NextResponse.json({ ok: true });
       const id = randomUUID();
       await tx.insert(cashReserveAdjustments).values({ id, userId: user.id, categoryId: category.id, amountCents: difference, effectiveDate: date, note: "Adjust category cash reserve" });
