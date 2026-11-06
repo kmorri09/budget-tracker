@@ -10,6 +10,7 @@ import { loadPaymentWorkspace } from "../lib/payment-workspace.ts";
 import { cardPaymentPreview } from "../lib/card-payment-suggestions.ts";
 import { fundObligations } from "../lib/fund-obligations-command.ts";
 import { paycheckWindow } from "../lib/paycheck-schedule.ts";
+import { saveObligationMatch } from "../lib/obligation-match-command.ts";
 
 const client = new PGlite(), db = drizzle(client, { schema }), today = budgetToday();
 before(async () => {
@@ -147,4 +148,27 @@ test("paycheck reserves include bills on payday and leave later bills in the obl
   assert.deepEqual(paycheckWindow("2026-11-11", "2026-11-11"), { startDate: "2026-10-29", nextDate: "2026-11-11" });
   assert.equal(paycheckWindow("2026-11-11", "2026-11-12").nextDate, "2026-11-25");
   assert.equal(paycheckWindow("2026-11-11", "2026-12-31").nextDate, "2027-01-06");
+});
+
+test("a manually confirmed bank withdrawal clears the current obligation reserve even without a name match", async () => {
+  await db.insert(schema.categories).values({ id: "match-fees", userId: "owner", name: "Match fees" });
+  await db.insert(schema.obligations).values({ id: "match-hyatt", userId: "owner", accountId: "cash", categoryId: "match-fees", name: "Hyatt Payment", amountCents: 19000, dueDate: today, cadence: "Monthly" });
+  await db.insert(schema.transactions).values([
+    { id: "match-withdrawal", userId: "owner", accountId: "cash", kind: "transfer_out", amountCents: 18500, effectiveDate: today, description: "CHASE CREDIT CRD" },
+    { id: "match-pending", userId: "owner", accountId: "cash", kind: "transfer_out", amountCents: 18500, effectiveDate: today, description: "CHASE CREDIT CRD", pending: true, status: "pending" },
+  ]);
+  const before = await loadPaymentWorkspace(db, "owner", today);
+  assert.equal(before.obligationPlans.get("match-hyatt").suggestion, null);
+  assert.equal(before.managedCategories.find(c => c.id === "match-fees").cashReserveShortfall, 190);
+  const input = { obligationId: "match-hyatt", candidateType: "transaction", candidateId: "match-withdrawal", status: "confirmed" };
+  assert.equal((await saveObligationMatch(db, "owner", { ...input, candidateId: "match-pending" })).status, 400);
+  assert.equal((await saveObligationMatch(db, "owner", input)).status, 200);
+  assert.equal((await saveObligationMatch(db, "owner", input)).status, 200);
+  assert.equal((await saveObligationMatch(db, "owner", { ...input, obligationId: "bill" })).status, 409);
+  const after = await loadPaymentWorkspace(db, "owner", today);
+  assert.equal(after.obligationPlans.get("match-hyatt").lastCharge.id, "match-withdrawal");
+  assert.equal(after.managedCategories.find(c => c.id === "match-fees").cashReserveShortfall, 0);
+  assert.notEqual(after.paymentReviewToken, before.paymentReviewToken);
+  assert.deepEqual(after.accounts, before.accounts);
+  assert.equal((await db.select().from(schema.auditEvents)).filter(row => row.entityType === "obligation_match").length, 1);
 });

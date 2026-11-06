@@ -39,7 +39,7 @@ export function nextOccurrence(anchor: string, cadence: string | null | undefine
   }
   return date;
 }
-function nearestScheduledDate(obligation: ObligationForCoverage, candidateDate: string) {
+export function nearestScheduledDate(obligation: ObligationForCoverage, candidateDate: string) {
   const kind = cadenceKind(obligation.cadence);
   if (kind === "once") return obligation.dueDate;
   let date = obligation.dueDate;
@@ -76,9 +76,9 @@ export function planObligations(obligations: ObligationForCoverage[], candidates
   const decisionMap = new Map(decisions.map(decision => [`${decision.obligationId}:${decision.candidateType}:${decision.candidateId}`, decision.status]));
   const historyStart = addMonths(today, -18);
   const scored = obligations.flatMap(obligation => candidates.flatMap(candidate => {
-    if (!obligation.id || !candidate.id || !candidate.type || candidate.effectiveDate > today || candidate.effectiveDate < historyStart) return [];
+    if (!obligation.id || !candidate.id || !candidate.type || candidate.effectiveDate > today) return [];
     const decision = decisionMap.get(`${obligation.id}:${candidate.type}:${candidate.id}`);
-    if (decision === "dismissed") return [];
+    if (decision === "dismissed" || (candidate.effectiveDate < historyStart && decision !== "confirmed")) return [];
     const strength = matchStrength(obligation, candidate);
     if (!strength && decision !== "confirmed") return [];
     const score = (decision === "confirmed" ? 100 : strength === "automatic" ? 50 : 20)
@@ -90,7 +90,7 @@ export function planObligations(obligations: ObligationForCoverage[], candidates
   const assigned = new Set<string>();
   const assignedCycles = new Set<string>();
   const matches = new Map<string, ObligationMatch[]>();
-  for (const pair of scored.filter(pair => pair.decision === "confirmed" || pair.strength === "automatic").sort((a, b) => b.score - a.score)) {
+  for (const pair of scored.filter(pair => pair.decision === "confirmed" || pair.strength === "automatic").sort((a, b) => Number(b.decision === "confirmed") - Number(a.decision === "confirmed") || b.score - a.score)) {
     const key = `${pair.candidate.type}:${pair.candidate.id}`;
     const cycle = `${pair.obligation.id}:${nearestScheduledDate(pair.obligation, pair.candidate.effectiveDate)}`;
     if (assigned.has(key) || assignedCycles.has(cycle)) continue;

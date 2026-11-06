@@ -36,12 +36,13 @@ const fixture = {
     for (const width of [1280, 390]) {
       const page = await browser.newPage({ viewport: { width, height: 1000 } });
       const errors = [];
-      let saved, reserveSaved, paycheck;
+      let saved, reserveSaved, paycheck, matchSaved;
+      const activity = [];
       page.on('pageerror', error => { errors.push(error.message); console.error(error.stack); });
       await page.route('**/api/**', route => {
         const pathname = new URL(route.request().url()).pathname;
         if (pathname === '/api/auth/session') return route.fulfill({ json: { user: { displayName: 'Fixture owner' } } });
-        if (pathname === '/api/dashboard') return route.fulfill({ json: { ...fixture, paycheck } });
+        if (pathname === '/api/dashboard') return route.fulfill({ json: { ...fixture, paycheck, activity } });
         if (pathname === '/api/budget/paycheck') {
           const { anchorDate, amountCents } = route.request().postDataJSON();
           paycheck = { anchorDate, nextDate: anchorDate, amount: amountCents / 100 };
@@ -49,6 +50,7 @@ const fixture = {
         }
         if (pathname === '/api/connections') return route.fulfill({ json: { configured: false, connections: [] } });
         if (pathname === '/api/cash-reserves') { reserveSaved = route.request().postDataJSON(); return route.fulfill({ json: { ok: true } }); }
+        if (pathname === '/api/obligations/matches') { matchSaved = route.request().postDataJSON(); return route.fulfill({ json: { ok: true } }); }
         assert.equal(pathname, '/api/obligations/fund');
         saved = route.request().postDataJSON();
         return route.fulfill({ json: { ok: true, categoriesFunded: 1, amount: 105 } });
@@ -105,6 +107,17 @@ const fixture = {
       await page.getByRole('button', { name: 'Save paycheck schedule', exact: true }).click();
       await page.getByText(`Next paycheck ${date} · about $4,350.00`, { exact: true }).waitFor();
       assert.deepEqual(paycheck, { anchorDate: date, nextDate: date, amount: 4350 });
+      const withdrawal = { id: 'withdrawal', description: 'CHASE CREDIT CRD', amount: 185, date, kind: 'transfer_out', status: 'posted', pending: false, accountId: 'checking', account: 'Checking', category: null, categoryId: null, remainingToPay: 0, paymentStatus: 'Not applicable', source: 'plaid' };
+      activity.push(withdrawal, { ...withdrawal, id: 'pending', description: 'CHASE PENDING', status: 'pending', pending: true });
+      await page.reload();
+      await page.getByRole('row').filter({ hasText: 'Prudential Whole' }).getByRole('button', { name: /^Match a charge/ }).click();
+      const match = page.getByRole('dialog', { name: 'Match a charge', exact: true });
+      await match.getByRole('combobox', { name: 'Matching charge' }).fill('CHASE');
+      assert.equal(await match.getByRole('option').count(), 1);
+      await match.getByRole('option', { name: /\$185\.00.*CHASE CREDIT CRD/ }).click();
+      await match.getByRole('button', { name: 'Confirm match', exact: true }).click();
+      await match.waitFor({ state: 'detached' });
+      assert.deepEqual(matchSaved, { obligationId: 'fund', candidateType: 'transaction', candidateId: 'withdrawal', status: 'confirmed' });
       assert.deepEqual(errors, []);
       await page.close();
       console.log(`Obligation funding zero override and disabled explanations passed at ${width}px`);
