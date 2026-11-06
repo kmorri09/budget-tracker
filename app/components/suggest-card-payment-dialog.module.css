@@ -20,6 +20,9 @@
 .calculation dl { font-size: 12px; line-height: 1.5; }
 .calculation dl dt { color: #52655a; }
 .calculation > p { color: #52655a; font-size: 12px; line-height: 1.55; margin: 10px 0 0; }
+.reserveCategory h4 { margin: 14px 0 0; font-size: 13px; }
+.purchaseActions { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; }
+.purchaseActions button { min-height: 32px; }
 .subtotal { padding-top: 10px; border-top: 1px solid var(--line); font-weight: 600; }
 .cashAfter { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; line-height: 1.5; margin-top: 16px; }
 .cashAfter strong { white-space: nowrap; }

@@ -19,6 +19,7 @@ const kindOptions = [
 
 export default function TransactionEditDialog({ transaction, categorySuggestion, dashboard, onClose, onSaved }: { transaction: DashboardData["activity"][number]; categorySuggestion?: DashboardData["reviews"][number]["suggestion"]; dashboard: DashboardData; onClose: () => void; onSaved: (message: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const approveButton = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const formId = useId();
   const [busy, setBusy] = useState(false);
@@ -67,7 +68,13 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
     <div className="modal-top"><div><p className="eyebrow">Manual control</p><h2 id={titleId}>Edit {entryNoun}</h2></div><button type="button" className="close-button" aria-label={`Close ${entryNoun} editor`} disabled={busy} onClick={onClose}>×</button></div>
     <p className="field-help">Change this imported or manual ledger entry directly. Account is where the entry occurred.</p>
     {dashboard.refundReviews?.find(r => r.id === transaction.id) && <RefundReview refund={dashboard.refundReviews.find(r => r.id === transaction.id)!} dashboard={dashboard} onSaved={onSaved} formId={formId} disabled={busy} onBusyChange={setBusy} />}
-    <form id={formId} onSubmit={async event => {
+    <form id={formId} onKeyDown={event => {
+      if (event.key !== "Enter" || event.defaultPrevented || !hasOpenReview || busy || !approveButton.current) return;
+      const target = event.target as HTMLElement;
+      if (target.tagName !== "INPUT" || (target as HTMLInputElement).type === "button" || (target as HTMLInputElement).type === "submit") return;
+      event.preventDefault();
+      event.currentTarget.requestSubmit(approveButton.current);
+    }} onSubmit={async event => {
       event.preventDefault(); setBusy(true); setError("");
       const approveReview = ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.value === "approve";
       const values = Object.fromEntries(new FormData(event.currentTarget));
@@ -122,7 +129,7 @@ export default function TransactionEditDialog({ transaction, categorySuggestion,
       </fieldset>
       <p className="field-help">Source: {transaction.source.replaceAll("_", " ")}. Source and payment coverage history stay auditable; changing the account changes the payment method.</p>
       {error && <p className="form-error" role="alert">{error}</p>}
-      <div className="form-footer"><button type="button" className="danger-button" disabled={busy} onClick={() => void removeTransaction()}>Delete {entryNoun}</button><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button type="submit" className={hasOpenReview ? "secondary-button" : "primary-button"} value="save" disabled={busy}>{busy ? "Saving…" : "Save"}</button>{hasOpenReview && <button type="submit" className="primary-button" value="approve" disabled={busy}>Save and Approve</button>}</div>
+      <div className="form-footer"><button type="button" className="danger-button" disabled={busy} onClick={() => void removeTransaction()}>Delete {entryNoun}</button><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Cancel</button><button type="submit" className={hasOpenReview ? "secondary-button" : "primary-button"} value="save" disabled={busy}>{busy ? "Saving…" : "Save"}</button>{hasOpenReview && <button ref={approveButton} type="submit" className="primary-button" value="approve" disabled={busy}>Save and Approve</button>}</div>
     </form>
     {confirmationDialog}</dialog>;
 }

@@ -6,6 +6,7 @@ export type SuggestedApplication = {
   amountCents: number;
   description: string;
   date: string;
+  categoryId: string;
   category: string;
 };
 
@@ -19,7 +20,7 @@ export type CardPaymentSuggestion = {
 
 // Category availability already includes the card charges. Adding their unpaid
 // balances back reveals how much funding can still be applied to those charges.
-export function suggestCardPayments(dashboard: Pick<DashboardData, "accounts" | "managedCategories" | "activity" | "payments">, throughDate: string): CardPaymentSuggestion[] {
+export function suggestCardPayments(dashboard: Pick<DashboardData, "accounts" | "managedCategories" | "activity" | "payments">, throughDate: string, skippedPurchaseIds?: ReadonlySet<string>): CardPaymentSuggestion[] {
   const cards = new Map(dashboard.accounts.filter(account => account.type === "credit_card" && account.active).map(account => [account.id, account]));
   const categories = new Map(dashboard.managedCategories.map(category => [category.id, category]));
   const unappliedByCard = new Map<string, number>();
@@ -57,12 +58,14 @@ export function suggestCardPayments(dashboard: Pick<DashboardData, "accounts" | 
     let fundedCents = Math.min(unpaidCents, Math.max(0, allocatedCents - cashReserveCents), Math.max(0, Math.round(available * 100) + unpaidCents - unmatchedRefundCents - cashReserveCents));
     for (const { entry, remainingCents } of entries) {
       if (fundedCents <= 0) break;
+      // Skipped purchases still count toward unpaid category spending and card credit coverage.
+      if (skippedPurchaseIds?.has(entry.id)) continue;
       const appliedCents = Math.min(fundedCents, remainingCents);
       fundedCents -= appliedCents;
       const card = cards.get(entry.accountId)!;
       const suggestion = suggestions.get(card.id) ?? { cardId: card.id, cardName: card.name, amountCents: 0, applications: [] };
       suggestion.amountCents += appliedCents;
-      suggestion.applications.push({ transactionId: entry.id, amountCents: appliedCents, description: entry.description, date: entry.date, category: category.name });
+      suggestion.applications.push({ transactionId: entry.id, amountCents: appliedCents, description: entry.description, date: entry.date, categoryId, category: category.name });
       suggestions.set(card.id, suggestion);
     }
   }
@@ -78,8 +81,8 @@ export function suggestCardPayments(dashboard: Pick<DashboardData, "accounts" | 
   }).filter(s => s.amountCents > 0).sort((a, b) => b.amountCents - a.amountCents || a.cardName.localeCompare(b.cardName));
 }
 
-export function cardPaymentPreview(dashboard: Pick<DashboardData, "accounts" | "managedCategories" | "activity" | "payments"> & Partial<Pick<DashboardData, "remainingToBudget">>, throughDate: string, sourceAccountId?: string, now = Date.now()) {
-  const fundedSuggestions = suggestCardPayments(dashboard, throughDate);
+export function cardPaymentPreview(dashboard: Pick<DashboardData, "accounts" | "managedCategories" | "activity" | "payments"> & Partial<Pick<DashboardData, "remainingToBudget">>, throughDate: string, sourceAccountId?: string, now = Date.now(), skippedPurchaseIds?: ReadonlySet<string>) {
+  const fundedSuggestions = suggestCardPayments(dashboard, throughDate, skippedPurchaseIds);
   const affordability = paymentAffordability(dashboard, sourceAccountId, now);
   let remaining = affordability.affordableCents;
   const approved = new Map<string, CardPaymentSuggestion>();

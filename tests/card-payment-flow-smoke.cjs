@@ -28,6 +28,7 @@ function fixture() {
       currentPage = page;
       page.setDefaultTimeout(10000);
       const errors = [], requests = [], entryRequests = []; let data = fixture(), matchingRefundQueue = false, failNextRefundMatch = false;
+      data.managedCategories.find(category => category.id === 'travel').cashReserve = 200;
       page.on('pageerror', error => { errors.push(error.message); console.error('Browser error:', error.stack); });
       await page.route('**/api/**', async route => {
         const request = route.request(); const url = new URL(request.url());
@@ -60,6 +61,12 @@ function fixture() {
       assert.match(await dialog.getByRole('region', { name: 'Category allocation check', exact: true }).innerText(), /\$439\.20/);
       assert.match(await dialog.getByRole('region', { name: 'Cash check', exact: true }).innerText(), /\$340\.80/);
       assert.match(await dialog.innerText(), /\$98\.40 of eligible purchases must wait/);
+      const reserves = dialog.locator('details').filter({ hasText: 'Cash reserves by category' });
+      await reserves.locator('summary').click();
+      assert.match(await reserves.innerText(), /Travel\s+Protected cash reserve\s+\$200\.00/);
+      assert.match(await reserves.innerText(), /Eligible card purchases before the cash check\s+\$439\.20/);
+      assert.match(await reserves.innerText(), /Included in suggested payments\s+\$340\.80/);
+      await reserves.locator('summary').click();
       await dialog.getByText('How the cash limit is calculated', { exact: true }).click();
       assert.match(await dialog.innerText(), /Less: protected category balances\s*−\$659\.20/);
       assert.match(await dialog.innerText(), /not extra spending money/);
@@ -205,6 +212,36 @@ function fixture() {
       await cashChart.waitFor({ state: 'visible' });
       assert.match(await cashChart.locator('dl[aria-label="Cash plan totals"]').innerText(), /Cash shortfall\s*\$100\.00/);
       assert.match(await cashChart.locator('dl[aria-label="Cash plan totals"]').innerText(), /Reserved for card payments\s*\$439\.20/);
+
+      data = fixture();
+      data.managedCategories.find(c => c.id === 'travel').available = -440.80;
+      data.accounts.find(a => a.id === 'card').ledgerBalance = -1139.20;
+      data.activity.push({ ...data.activity[1], id: 'hotel', description: 'Hotel', date: date(-1), amount: 700, remainingToPay: 700, refunded: 0, paymentStatus: 'Unpaid' });
+      await page.goto(base + '/#transactions');
+      await page.reload();
+      await page.getByRole('button', { name: 'Suggest card payment', exact: true }).click();
+      dialog = page.getByRole('dialog', { name: 'Suggest card payment' });
+      await dialog.getByText('View charges included in this payment').click();
+      const included = dialog.locator('details').filter({ hasText: 'View charges included in this payment' });
+      assert.match(await included.innerText(), /Hotel[\s\S]*\$160\.80/);
+      await dialog.getByRole('button', { name: 'Skip Airline purchase', exact: true }).click();
+      assert.match(await included.innerText(), /Hotel[\s\S]*\$600\.00/);
+      assert.equal(await included.getByText('Airline purchase', { exact: true }).count(), 0);
+      await dialog.getByRole('button', { name: 'Review payment', exact: true }).click();
+      dialog = page.getByRole('dialog', { name: 'Record card payment' });
+      const hotelAmount = dialog.getByRole('spinbutton', { name: 'Amount to apply to Hotel', exact: true });
+      assert.equal(await hotelAmount.inputValue(), '600.00');
+      assert.equal(await dialog.getByRole('spinbutton', { name: 'Amount to apply to Airline purchase', exact: true }).count(), 0);
+      await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+      await dialog.getByText('Your budget changed. Review again.', { exact: false }).waitFor();
+      assert.deepEqual(requests.at(-1).skippedPurchaseIds, ['partial']);
+      assert.deepEqual(requests.at(-1).applications, [{ transactionId: 'hotel', amount: 600 }]);
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('button', { name: 'Suggest card payment', exact: true }).click();
+      dialog = page.getByRole('dialog', { name: 'Suggest card payment' });
+      await dialog.getByRole('button', { name: 'Restore Airline purchase', exact: true }).click();
+      await dialog.getByText('View charges included in this payment').click();
+      await dialog.getByRole('button', { name: 'Skip Airline purchase', exact: true }).waitFor();
       assert.deepEqual(errors, []);
       console.log(`Payment preview, review, and cash reserve chart passed at ${width}px`);
       await page.close();

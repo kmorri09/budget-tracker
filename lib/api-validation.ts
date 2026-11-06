@@ -76,6 +76,7 @@ export const paymentSchema = z.object({
   toAccountId: z.string().min(1),
   description: z.string().trim().min(1).max(200),
   applications: z.array(applicationSchema).optional(),
+  skippedPurchaseIds: z.array(idSchema.shape.id).optional(),
   reviewToken: z.string().optional(),
   alreadyMade: z.boolean().default(false),
 });

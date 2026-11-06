@@ -5,7 +5,7 @@ import { cardPaymentPreview, type CardPaymentSuggestion } from "../../lib/card-p
 import { money, today, type DashboardData } from "../../lib/workspace-types";
 import styles from "./suggest-card-payment-dialog.module.css";
 
-export default function SuggestCardPaymentDialog({ dashboard, onClose, onChoose }: { dashboard: DashboardData; onClose: () => void; onChoose: (suggestion: CardPaymentSuggestion) => void }) {
+export default function SuggestCardPaymentDialog({ dashboard, skippedPurchaseIds, onSkippedPurchasesChange, onClose, onChoose }: { dashboard: DashboardData; skippedPurchaseIds: ReadonlySet<string>; onSkippedPurchasesChange: (ids: Set<string>) => void; onClose: () => void; onChoose: (suggestion: CardPaymentSuggestion) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [data, setData] = useState(dashboard);
@@ -29,14 +29,23 @@ export default function SuggestCardPaymentDialog({ dashboard, onClose, onChoose 
     window.addEventListener("focus", refresh);
     return () => { clearInterval(timer); window.removeEventListener("focus", refresh); node?.close(); document.body.style.overflow = previousOverflow; };
   }, [refresh]);
-  const preview = cardPaymentPreview(data, today(), sourceId);
+  const preview = cardPaymentPreview(data, today(), sourceId, undefined, skippedPurchaseIds);
   const source = preview.accounts.find(account => account.accountId === sourceId);
   const cashLimited = preview.shortfallCents > 0;
+  const protectedCategories = data.managedCategories.filter(category => (category.cashReserve ?? 0) > 0);
+  const eligiblePurchases = preview.fundedSuggestions.flatMap(card => card.applications);
+  const includedPurchases = preview.suggestions.flatMap(card => card.applications);
+  const skippedPurchases = data.activity.filter(entry => skippedPurchaseIds.has(entry.id) && entry.remainingToPay > 0);
+  function restorePurchase(id: string) {
+    const next = new Set(skippedPurchaseIds);
+    next.delete(id);
+    onSkippedPurchasesChange(next);
+  }
   return <dialog ref={dialog} className="entry-dialog suggested-payment-dialog" aria-labelledby={titleId} onCancel={onClose}>
     <div className="modal-top"><div><p className="eyebrow">Card payment preview</p><h2 id={titleId}>Suggest card payment</h2></div><button type="button" className="close-button" aria-label="Close suggestions" onClick={onClose}>×</button></div>
     <section className={styles.result} aria-label="Suggested payment total">
       <p className={styles.kicker}>Suggested total across all cards</p>
-      <strong className={styles.total}>{money(preview.suggestedCents / 100)}</strong>
+      <strong className={styles.total} aria-live="polite">{money(preview.suggestedCents / 100)}</strong>
       <p>{cashLimited ? "Available cash limits this suggestion. Some eligible purchases must wait." : preview.suggestedCents > 0 ? "These purchases pass both the category allocation and cash checks." : "No payment passes both checks right now."}</p>
       <label>Pay from<select value={sourceId} onChange={event => setSourceId(event.target.value)}>{data.accounts.filter(a => a.active && a.type !== "credit_card").map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
     </section>
@@ -59,6 +68,22 @@ export default function SuggestCardPaymentDialog({ dashboard, onClose, onChoose 
       </div>
       {cashLimited && <p className={styles.deferred} role="status"><strong>{money(preview.shortfallCents / 100)} of eligible purchases must wait.</strong> They pass the category check, but there is not enough cash left to include them while protecting your other budget money.</p>}
       <p className={styles.rule}>Suggestions use only money already allocated. Reviewing or recording a suggestion leaves allocations unchanged.</p>
+      {protectedCategories.length > 0 && <details className={styles.calculation}>
+        <summary>Cash reserves by category</summary>
+        <p>Category balances already deduct card purchases. Eligible purchases can use the funding for those charges while the cash reserve stays protected.</p>
+        {protectedCategories.map(category => {
+          const eligibleCents = eligiblePurchases.filter(purchase => purchase.categoryId === category.id).reduce((sum, purchase) => sum + purchase.amountCents, 0);
+          const includedCents = includedPurchases.filter(purchase => purchase.categoryId === category.id).reduce((sum, purchase) => sum + purchase.amountCents, 0);
+          return <section key={category.id} className={styles.reserveCategory}>
+            <h4>{category.name}</h4>
+            <dl className="payment-summary">
+              <div><dt>Protected cash reserve</dt><dd>{money(category.cashReserve ?? 0)}</dd></div>
+              <div><dt>Eligible card purchases before the cash check</dt><dd>{money(eligibleCents / 100)}</dd></div>
+              <div><dt>Included in suggested payments</dt><dd>{money(includedCents / 100)}</dd></div>
+            </dl>
+          </section>;
+        })}
+      </details>}
       <details className={styles.calculation}>
         <summary>How the cash limit is calculated</summary>
         <dl className="payment-summary">
@@ -79,7 +104,14 @@ export default function SuggestCardPaymentDialog({ dashboard, onClose, onChoose 
     {error && <p className="form-error" role="alert">{error}</p>}
     {refreshing && <p className="field-help" role="status">Refreshing balances and refund coverage…</p>}
     <h3 className={styles.paymentsTitle}>Payments to review</h3>
-    <p className={styles.intro}>The suggested total is split below. Older eligible purchases receive cash first.</p>
+    <p className={styles.intro}>Skip a charge to give other eligible purchases in its category a turn. Older eligible purchases receive cash first.</p>
+    {skippedPurchaseIds.size > 0 && <div className="suggested-payment-card">
+      <div className="suggested-payment-heading"><div><h3>Skipped purchases</h3><p>Skipped while this page is open. Restore a purchase to include it in suggestions again.</p></div><button type="button" className="text-link" onClick={() => onSkippedPurchasesChange(new Set())}>Restore all</button></div>
+      {!!skippedPurchases.length && <ul>{skippedPurchases.map(purchase => <li key={purchase.id}>
+        <span><strong>{purchase.description}</strong><small>{purchase.date} · {purchase.category} · {purchase.account}</small></span>
+        <button type="button" className="text-link" aria-label={`Restore ${purchase.description}`} onClick={() => restorePurchase(purchase.id)}>Restore</button>
+      </li>)}</ul>}
+    </div>}
     <div className="suggested-payment-list">{preview.fundedSuggestions.map(funded => {
       const suggestion = preview.suggestions.find(s => s.cardId === funded.cardId);
       const deferred = funded.applications.flatMap(application => {
@@ -89,13 +121,16 @@ export default function SuggestCardPaymentDialog({ dashboard, onClose, onChoose 
       });
       return <article className="suggested-payment-card" key={funded.cardId}>
         <div className="suggested-payment-heading"><div><h3>{funded.cardName}</h3><p>Eligible purchases before cash check: {money(funded.amountCents / 100)}</p></div><strong>{suggestion?.amountCents ? `Suggest ${money(suggestion.amountCents / 100)}` : "No payment suggested"}</strong></div>
-        {!!suggestion?.applications.length && <details><summary>View charges included in this payment</summary><ul>{suggestion.applications.map(application => <li key={application.transactionId}><span><strong>{application.description}</strong><small>{application.date} · {application.category}</small></span><strong>{money(application.amountCents / 100)}</strong></li>)}</ul></details>}
+        {!!suggestion?.applications.length && <details><summary>View charges included in this payment</summary><ul>{suggestion.applications.map(application => <li key={application.transactionId}>
+          <span><strong>{application.description}</strong><small>{application.date} · {application.category}</small></span>
+          <span className={styles.purchaseActions}><strong>{money(application.amountCents / 100)}</strong><button type="button" className="text-link" aria-label={`Skip ${application.description}`} onClick={() => onSkippedPurchasesChange(new Set(skippedPurchaseIds).add(application.transactionId))}>Skip</button></span>
+        </li>)}</ul></details>}
         {!!deferred.length && <details><summary>Deferred by cash limit ({deferred.length})</summary><p className="field-help">These amounts are not included in this payment. The shared cash limit is assigned to older charges first.</p><ul>{deferred.map(application => <li key={application.transactionId}><span><strong>{application.description}</strong><small>{application.date} · {application.category} · deferred</small></span><strong>{money(application.amountCents / 100)} deferred</strong></li>)}</ul></details>}
 
         <button type="button" className="primary-button" disabled={refreshing || Boolean(error) || !suggestion?.amountCents} onClick={() => suggestion && onChoose({ ...suggestion, sourceAccountId: sourceId })}>Review payment</button>
       </article>;
     })}</div>
-    {!preview.fundedSuggestions.length && <p className="empty-state">No posted purchases currently need a funded payment after refunds, card credits, and prior payments.</p>}
+    {!preview.fundedSuggestions.length && <p className="empty-state">{skippedPurchaseIds.size ? "No eligible purchases remain after your skips." : "No posted purchases currently need a funded payment after refunds, card credits, and prior payments."}</p>}
     <div className="form-footer"><button className="secondary-button" disabled={refreshing} onClick={() => void refresh()}>Refresh</button><button className="secondary-button" onClick={onClose}>Close</button></div>
   </dialog>;
 }

@@ -62,6 +62,32 @@ test("existing refunds produce $0 and $439.20 remaining; a saved suggestion pres
   assert.deepEqual(await db.select().from(schema.allocations), originalAllocations);
 });
 
+test("skipping a purchase moves the category funding to a later charge, including across cards", async () => {
+  await db.insert(schema.accounts).values({ id: "other-card", userId: "owner", name: "Other card", institution: "Fixture", type: "credit_card" });
+  await db.insert(schema.transactions).values({ id: "hotel", userId: "owner", accountId: "other-card", categoryId: "travel", description: "Hotel", amountCents: 70000, kind: "expense", effectiveDate: "2026-10-09" });
+  const allocations = await db.select().from(schema.allocations);
+  const workspace = await loadPaymentWorkspace(db, "owner", today);
+  const original = cardPaymentPreview(workspace, today, "cash");
+  assert.equal(original.suggestions.find(card => card.cardId === "other-card").amountCents, 16080);
+
+  const skippedPurchaseIds = ["partial-purchase"];
+  const preview = cardPaymentPreview(workspace, today, "cash", undefined, new Set(skippedPurchaseIds));
+  assert.equal(preview.fundedCents, 69840);
+  assert.equal(preview.suggestedCents, 60000);
+  assert.equal(preview.reservedCents, original.reservedCents);
+  assert.deepEqual(preview.suggestions.flatMap(card => card.applications).map(a => [a.transactionId, a.amountCents]), [["hotel", 60000]]);
+
+  const payment = input(workspace, { toAccountId: "other-card", amount: 600, applications: [{ transactionId: "hotel", amount: 600 }] });
+  assert.equal((await createCardPayment(db, "owner", payment)).status, 409);
+  assert.equal((await createCardPayment(db, "owner", input(workspace, { skippedPurchaseIds }))).status, 400);
+  const response = await createCardPayment(db, "owner", { ...payment, skippedPurchaseIds });
+  assert.equal(response.status, 200, JSON.stringify(await response.clone().json()));
+  const updated = await loadPaymentWorkspace(db, "owner", today);
+  assert.equal(updated.activity.find(entry => entry.id === "partial-purchase").remainingToPay, 439.20);
+  assert.equal(updated.activity.find(entry => entry.id === "hotel").remainingToPay, 100);
+  assert.deepEqual(await db.select().from(schema.allocations), allocations);
+});
+
 test("Dining benefits offset Dining without a second funding hold, new allocations, or coverage on travel", async () => {
   await db.insert(schema.categories).values({ id: "dining", userId: "owner", name: "Dining" });
   await db.insert(schema.allocations).values({ id: "dining-fund", userId: "owner", categoryId: "dining", amountCents: 2000, effectiveDate: "2026-09-01" });

@@ -53,7 +53,8 @@ export async function createCardPayment(database: Pick<Database, "transaction">,
       }
       const coverageWorkspace = input.date === today ? currentWorkspace : await loadPaymentWorkspace(db, userId, input.date);
       const historicalPayment = input.alreadyMade || matchedImports.length > 0;
-      const fundedByPurchase = new Map(suggestCardPayments(coverageWorkspace, input.date).filter(s => s.cardId === to.id).flatMap(s => s.applications).map(a => [a.transactionId, a.amountCents]));
+      const skippedPurchases = new Set(input.skippedPurchaseIds);
+      const fundedByPurchase = new Map(suggestCardPayments(coverageWorkspace, input.date, skippedPurchases).filter(s => s.cardId === to.id).flatMap(s => s.applications).map(a => [a.transactionId, a.amountCents]));
       const expenseRows = await db.select().from(transactions).where(and(eq(transactions.userId, userId), eq(transactions.accountId, to.id), eq(transactions.kind, "expense"), eq(transactions.status, "posted"), eq(transactions.pending, false), lte(transactions.effectiveDate, input.date))).orderBy(asc(transactions.effectiveDate), asc(transactions.createdAt));
       const requested = input.applications ? input.applications.map(item => ({ transactionId: item.transactionId, amountCents: cents(item.amount) })) : null;
       if (requested && new Set(requested.map(a => a.transactionId)).size !== requested.length) return NextResponse.json({ error: "Each purchase can be applied only once" }, { status: 400 });
@@ -62,6 +63,7 @@ export async function createCardPayment(database: Pick<Database, "transaction">,
         const validIds = new Set(expenseRows.map(row => row.id));
         for (const item of requested) {
           if (!validIds.has(item.transactionId)) return NextResponse.json({ error: "Every selected purchase must belong to the destination card" }, { status: 400 });
+          if (skippedPurchases.has(item.transactionId)) return NextResponse.json({ error: "A skipped purchase cannot be included in this payment" }, { status: 400 });
           const remaining = coverageWorkspace.cardCoverage.coverage.get(item.transactionId)?.remainingCents ?? 0;
           if (item.amountCents > remaining) return NextResponse.json({ error: "A purchase cannot be paid more than its remaining amount" }, { status: 400 });
           applications.push(item);
@@ -69,6 +71,7 @@ export async function createCardPayment(database: Pick<Database, "transaction">,
       } else {
         let remainingPayment = amountCents;
         for (const row of expenseRows) {
+          if (skippedPurchases.has(row.id)) continue;
           const coverageRemaining = coverageWorkspace.cardCoverage.coverage.get(row.id)?.remainingCents ?? 0;
           const remainingExpense = historicalPayment ? coverageRemaining : Math.min(coverageRemaining, fundedByPurchase.get(row.id) ?? 0);
           if (!remainingExpense || remainingPayment <= 0) continue;
@@ -128,7 +131,9 @@ export async function updateCardPayment(database: Pick<Database, "transaction">,
       const expenseById = new Map(expenseRows.map(row => [row.id, row]));
       const currentApplications = await db.select().from(cardPaymentApplications).where(and(eq(cardPaymentApplications.userId, userId), eq(cardPaymentApplications.paymentId, input.id)));
       const applications = input.applications.map(application => ({ transactionId: application.transactionId, amountCents: cents(application.amount) }));
+      const skippedPurchases = new Set(input.skippedPurchaseIds);
       for (const application of applications) {
+        if (skippedPurchases.has(application.transactionId)) return NextResponse.json({ error: "A skipped purchase cannot be included in this payment" }, { status: 400 });
         const purchase = expenseById.get(application.transactionId);
         if (!purchase) return NextResponse.json({ error: "Every selected purchase must belong to the destination card and occur by the payment date" }, { status: 400 });
         const capacity = coverageWorkspace.cardCoverage.coverage.get(purchase.id)?.remainingCents ?? 0;
@@ -136,7 +141,7 @@ export async function updateCardPayment(database: Pick<Database, "transaction">,
       }
       const appliedCents = applications.reduce((sum, application) => sum + application.amountCents, 0);
       if (!input.alreadyMade && !existing.providerTransactionId && !existing.destinationProviderTransactionId) {
-        const funded = new Map(suggestCardPayments(coverageWorkspace, input.date).filter(s => s.cardId === to.id).flatMap(s => s.applications).map(a => [a.transactionId, a.amountCents]));
+        const funded = new Map(suggestCardPayments(coverageWorkspace, input.date, skippedPurchases).filter(s => s.cardId === to.id).flatMap(s => s.applications).map(a => [a.transactionId, a.amountCents]));
         if (appliedCents < amountCents || applications.some(a => a.amountCents > (funded.get(a.transactionId) ?? 0))) return NextResponse.json({ error: "Only purchases backed by existing allocations can be included. No allocations were created." }, { status: 409 });
       }
       if (appliedCents > amountCents) return NextResponse.json({ error: "Applied purchases cannot exceed the payment amount" }, { status: 400 });
